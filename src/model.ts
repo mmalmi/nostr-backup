@@ -1,12 +1,14 @@
+import { fromHex } from '@hashtree/core';
+import type { Event, VerifiedEvent } from 'nostr-tools/pure';
+import type { Capture } from './types.ts';
 import { getPublicKey, verifyEvent } from 'nostr-tools/pure';
 import { decode } from 'nostr-tools/nip19';
 
-export const POST_KINDS = [1, 6, 16, 20, 1111, 30023];
+export const POST_KINDS = [0, 1, 6, 16, 20, 21, 22, 1063, 1111, 30023];
 export const handlePattern = /^[a-z0-9_]{1,15}$/i;
-export const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-export const unhex = (value) => Uint8Array.from(value.match(/../g), (b) => parseInt(b, 16));
+export { toHex as hex, fromHex as unhex } from '@hashtree/core';
 
-export function identity(value) {
+export function identity(value: string) {
   value = value.trim();
   if (/^[a-f0-9]{64}$/.test(value)) return value;
   const key = decode(value);
@@ -14,14 +16,23 @@ export function identity(value) {
   return key.data;
 }
 
-export function secretKey(value) {
-  const key = decode(value.trim());
-  if (key.type !== 'nsec') throw Error('Enter a Nostr secret key beginning with nsec1.');
-  getPublicKey(key.data);
-  return key.data;
+export function secretKey(value: string) {
+  try {
+    const text = value.trim();
+    const decoded = /^[a-f0-9]{64}$/i.test(text)
+      ? { type: 'nsec', data: fromHex(text) }
+      : decode(text);
+    if (decoded.type === 'nsec') {
+      getPublicKey(decoded.data);
+      return decoded.data;
+    }
+  } catch {
+    /* Never include a private key in a validation message. */
+  }
+  throw Error('Enter a valid nsec or 64-character hex private key.');
 }
 
-export function relayList(input) {
+export function relayList(input: string) {
   const urls = input
     .split(/\s+/)
     .filter(Boolean)
@@ -41,7 +52,7 @@ export function relayList(input) {
   return [...new Set(urls)];
 }
 
-export function isOwnPost(event, pubkey) {
+export function isOwnPost(event: Event, pubkey: string): event is VerifiedEvent {
   try {
     return (
       event.pubkey === pubkey &&
@@ -55,7 +66,7 @@ export function isOwnPost(event, pubkey) {
   }
 }
 
-export function xTemplate(post, handle) {
+export function xTemplate(post: Capture, handle: string) {
   if (
     !handlePattern.test(handle) ||
     post.author !== handle ||
@@ -65,6 +76,11 @@ export function xTemplate(post, handle) {
     post.time > Date.now() / 1000 + 300 ||
     typeof post.text !== 'string' ||
     !post.text.trim() ||
+    (post.posters !== undefined &&
+      !(
+        Array.isArray(post.posters) &&
+        post.posters.every((url) => typeof url === 'string' && post.text.includes(url))
+      )) ||
     post.text.length > 120000
   )
     throw Error('Invalid X post.');

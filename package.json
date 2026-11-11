@@ -8,22 +8,31 @@
   },
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "node scripts/build.js",
-    "test": "node --test test/*.test.js",
-    "test:browser": "node scripts/browser-smoke.js",
-    "test:page": "node scripts/browser-check.js"
+    "build": "pnpm typecheck && node --experimental-strip-types scripts/build.ts",
+    "build:site": "pnpm build && node --experimental-strip-types scripts/build-site.ts",
+    "deploy:site": "pnpm run build:site && wrangler deploy --config website/wrangler.jsonc",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:browser": "node --experimental-strip-types scripts/browser-smoke.ts",
+    "test:page": "node --experimental-strip-types scripts/browser-check.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz",
+    "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz",
     "@hashtree/nostr": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz",
     "fflate": "0.8.3",
     "idb": "7.1.1",
     "nostr-tools": "2.25.2",
-    "nostr-pubsub": "https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz"
+    "nostr-pubsub": "github:mmalmi/nostr-pubsub#67dcd8c93b617bc47fb1d5c971012bcb6d0439af&path:ts/packages/nostr-pubsub",
+    "nostr-pubsub-reconcile": "https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz"
   },
   "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/ws": "8.18.2",
     "esbuild": "0.28.1",
     "fake-indexeddb": "6.2.5",
     "happy-dom": "20.14.6",
+    "typescript": "5.9.3",
     "ws": "8.21.1"
   },
   "pnpm": {

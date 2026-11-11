@@ -1,13 +1,30 @@
+import type { Event as NostrEvent, EventTemplate } from 'nostr-tools/pure';
+import type { Message, Approval } from './types.ts';
+import type { Sender } from './platform.d.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
-import { unhex } from './model.js';
+import { unhex } from './model.ts';
+
+type SessionKey = () => Promise<string | undefined>;
+interface PendingSignature extends Approval {
+  token: string;
+  tabId: number;
+  windowId?: number;
+  finish(error: Error | null, value?: NostrEvent): void;
+}
 
 const api = globalThis.browser ?? chrome;
-const requests = new Map();
-const grantKey = (id) => 'grant-' + id;
+const requests = new Map<string, PendingSignature>();
+const grantKey = (id: number) => `grant-${id}` as const;
+
+export async function revokeSession() {
+  for (const request of requests.values())
+    request.finish(Error('Signing request cancelled on logout.'));
+  await api.storage.session.clear();
+}
 
 export async function enableSigner() {
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url || new URL(tab.url).protocol !== 'https:')
+  if (tab?.id === undefined || !tab.url || new URL(tab.url).protocol !== 'https:')
     throw Error('Open an HTTPS site, then use this button.');
   const origin = new URL(tab.url).origin,
     token = crypto.randomUUID();
@@ -24,7 +41,7 @@ export async function enableSigner() {
   return origin;
 }
 
-function installBridge(token) {
+function installBridge(token: string) {
   const api = globalThis.browser ?? chrome;
   globalThis.nostrBackupBridge?.abort();
   const controller = new AbortController();
@@ -69,7 +86,9 @@ function installBridge(token) {
 }
 function installProvider() {
   if (window.nostr) return window.nostr === window.nostrBackupProvider;
-  function call(method, event) {
+  function call(method: 'getPublicKey'): Promise<string>;
+  function call(method: 'signEvent', event: EventTemplate): Promise<NostrEvent>;
+  function call(method: string, event?: EventTemplate): Promise<string | NostrEvent> {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
       const finish = () => {
@@ -80,7 +99,7 @@ function installProvider() {
         finish();
         reject(Error('Signer timed out.'));
       }, 75000);
-      function onMessage(e) {
+      function onMessage(e: MessageEvent) {
         if (
           e.source !== window ||
           e.origin !== location.origin ||
@@ -97,17 +116,20 @@ function installProvider() {
   }
   window.nostrBackupProvider = Object.freeze({
     getPublicKey: () => call('getPublicKey'),
-    signEvent: (event) => call('signEvent', event),
+    signEvent: (event: EventTemplate) => call('signEvent', event),
   });
   window.nostr = window.nostrBackupProvider;
   return true;
 }
-export function template(input) {
+export function template(value: unknown): EventTemplate {
+  const input = value as Partial<EventTemplate> | null;
   if (
     !input ||
+    typeof input.kind !== 'number' ||
     !Number.isInteger(input.kind) ||
     input.kind < 0 ||
     input.kind > 65535 ||
+    typeof input.created_at !== 'number' ||
     !Number.isSafeInteger(input.created_at) ||
     input.created_at < 0 ||
     typeof input.content !== 'string' ||
@@ -124,9 +146,15 @@ export function template(input) {
   if (JSON.stringify(event).length > 131072) throw Error('Event exceeds the signing limit.');
   return event;
 }
-export async function handleSignerRequest(msg, sender, pubkey, sessionKey) {
-  const tabId = sender.tab?.id,
-    key = grantKey(tabId);
+export async function handleSignerRequest(
+  msg: Message<'nip07'>,
+  sender: Sender,
+  pubkey: string,
+  sessionKey: SessionKey,
+) {
+  const tabId = sender.tab?.id;
+  if (tabId === undefined || !sender.url) throw Error('Enable the signer for this tab first.');
+  const key = grantKey(tabId);
   const grant = (await api.storage.session.get(key))[key];
   if (
     !grant ||
@@ -142,12 +170,13 @@ export async function handleSignerRequest(msg, sender, pubkey, sessionKey) {
   if (Array.from(requests.values()).some((r) => r.tabId === tabId))
     throw Error('There is already a request from this tab.');
   const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
+  return new Promise<NostrEvent>((resolve, reject) => {
     const timer = setTimeout(() => finish(Error('Signing request expired.')), 60000);
-    function finish(error, value) {
+    function finish(error: Error | null, value?: NostrEvent) {
       clearTimeout(timer);
       requests.delete(id);
-      error ? reject(error) : resolve(value);
+      if (error) reject(error);
+      else if (value) resolve(value);
     }
     requests.set(id, { event, origin: grant.origin, token: grant.token, tabId, pubkey, finish });
     api.windows
@@ -163,7 +192,7 @@ export async function handleSignerRequest(msg, sender, pubkey, sessionKey) {
       }, finish);
   });
 }
-export async function approval(msg, sessionKey) {
+export async function approval(msg: Message<'approval'>, sessionKey: SessionKey) {
   const request = requests.get(msg.id);
   if (!request) throw Error('Request expired. Ask the site to try again.');
   if (msg.decision === undefined)
@@ -181,6 +210,7 @@ export async function approval(msg, sessionKey) {
     !key ||
     getPublicKey(unhex(key)) !== request.pubkey ||
     grant?.token !== request.token ||
+    !tab.url ||
     new URL(tab.url).origin !== request.origin
   )
     throw Error('Signer or tab changed.');

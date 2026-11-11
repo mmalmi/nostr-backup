@@ -22,8 +22,17 @@ importers:
         specifier: 2.25.2
         version: 2.25.2(typescript@5.9.3)
       nostr-pubsub:
-        specifier: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz
-        version: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3))
+        specifier: github:mmalmi/nostr-pubsub#67dcd8c93b617bc47fb1d5c971012bcb6d0439af&path:ts/packages/nostr-pubsub
+        version: https://codeload.github.com/mmalmi/nostr-pubsub/tar.gz/67dcd8c93b617bc47fb1d5c971012bcb6d0439af#path:ts/packages/nostr-pubsub(nostr-tools@2.25.2(typescript@5.9.3))
+      '@hashtree/core':
+        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
+        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
+      '@hashtree/dexie':
+        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz
+        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz
+      nostr-pubsub-reconcile:
+        specifier: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz
+        version: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz
     devDependencies:
       esbuild:
         specifier: 0.28.1
@@ -37,6 +46,15 @@ importers:
       ws:
         specifier: 8.21.1
         version: 8.21.1
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
+      '@types/ws':
+        specifier: 8.18.2
+        version: 8.18.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 packages:
   "@hashtree/nostr@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz":
     resolution:
@@ -118,23 +136,6 @@ packages:
   idb@7.1.1:
     resolution:
       integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==
-  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz:
-    resolution:
-      integrity: sha512-y04tAgKcwbz/IneFVgvmXCQ8SY9vMcIS2QeiTgmzRBn3YOJfUUB43LBl+IZ+AFQfWaNPhgp+5ncmzO9W8vU7RQ==
-      tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz
-    version: 0.5.27
-    peerDependencies:
-      nostr-tools: ">=2.23.3 <3"
-  "@fips/tcp@https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.5/fips-tcp-0.2.4.tgz":
-    resolution:
-      integrity: sha512-iBPJLtnunUn+Y2vjZ5D8eTKJHjznDX3DZs7x5oXzx9kc5u9W71l6mHg/cQiQr5LKKU+FtjiPLGAPLW9iz1S41w==
-      tarball: https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.5/fips-tcp-0.2.4.tgz
-    version: 0.2.4
-  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz:
-    resolution:
-      integrity: sha512-hrwY11Np7ufQaqMBQyHJvOjN+fjCfFQ0kTQDzVgALay0ogmP7RLAvDtQmx7U3KOGrGKGoZKLnbeKfsNLCykB+Q==
-      tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz
-    version: 0.1.1
   esbuild@0.28.1:
     resolution:
       integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==
@@ -438,6 +439,22 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
+  '@fips/tcp@https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz':
+    resolution: {integrity: sha512-0j7ucAgb7SFLkHHKMjJmR4v29psVmGoShiSgpba5IgJqAT/lJGTTKlHoAItKie+oNsiPGf/ww4YMuLTRYov2TA==, tarball: https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz}
+    version: 0.2.3
+  '@hashtree/dexie@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz':
+    resolution: {integrity: sha512-i34YCDwA+d4puwtC2f+4NreOLRC/RRTOe3PDHXctJvaqg2Ig+xpGcb2I1cbjjCY0cVJ8/BTemNYrH0LfXckPwQ==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz}
+    version: 0.1.13
+  dexie@4.4.2:
+    resolution: {integrity: sha512-zMtV8q79EFE5U8FKZvt0Y/77PCU/Hr/RDxv1EDeo228L+m/HTbeN2AjoQm674rhQCX8n3ljK87lajt7UQuZfvw==}
+  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz:
+    resolution: {integrity: sha512-w2N8AE2bL5h7H0tOuTONOTprHS4/SVCP93lyipA/mekk+RogF3fZFh+s2lxLEDvW5tSjIJcBdX1lguX7wD5+2g==, tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz}
+    version: 0.1.2
+  nostr-pubsub@https://codeload.github.com/mmalmi/nostr-pubsub/tar.gz/67dcd8c93b617bc47fb1d5c971012bcb6d0439af#path:ts/packages/nostr-pubsub:
+    resolution: {path: ts/packages/nostr-pubsub, tarball: https://codeload.github.com/mmalmi/nostr-pubsub/tar.gz/67dcd8c93b617bc47fb1d5c971012bcb6d0439af}
+    version: 0.5.28
+    peerDependencies:
+      nostr-tools: '>=2.23.3 <3'
 snapshots:
   "@hashtree/nostr@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz(typescript@5.9.3)":
     dependencies:
@@ -493,13 +510,6 @@ snapshots:
   typescript@5.9.3: {}
   fflate@0.8.3: {}
   idb@7.1.1: {}
-  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3)):
-    dependencies:
-      "@fips/tcp": https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.5/fips-tcp-0.2.4.tgz
-      nostr-pubsub-reconcile: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz
-      nostr-tools: 2.25.2(typescript@5.9.3)
-  "@fips/tcp@https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.5/fips-tcp-0.2.4.tgz": {}
-  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz: {}
   esbuild@0.28.1:
     optionalDependencies:
       "@esbuild/aix-ppc64": 0.28.1
@@ -608,3 +618,15 @@ snapshots:
   whatwg-mimetype@3.0.0: {}
   ws@8.22.0: {}
   ws@8.21.1: {}
+  '@fips/tcp@https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz': {}
+  '@hashtree/dexie@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz':
+    dependencies:
+      '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
+      dexie: 4.4.2
+  dexie@4.4.2: {}
+  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz: {}
+  nostr-pubsub@https://codeload.github.com/mmalmi/nostr-pubsub/tar.gz/67dcd8c93b617bc47fb1d5c971012bcb6d0439af#path:ts/packages/nostr-pubsub(nostr-tools@2.25.2(typescript@5.9.3)):
+    dependencies:
+      '@fips/tcp': https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz
+      nostr-pubsub-reconcile: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz
+      nostr-tools: 2.25.2(typescript@5.9.3)

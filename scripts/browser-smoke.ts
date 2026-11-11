@@ -1,3 +1,4 @@
+import type { Event as NostrEvent } from 'nostr-tools/pure';
 // Run against a locally started ChromeDriver or geckodriver. No personal profile,
 // real X request, account credential, or public relay is used.
 import assert from 'node:assert/strict';
@@ -7,8 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocketServer } from 'ws';
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure';
 import { nsecEncode } from 'nostr-tools/nip19';
-import { profileHTML } from '../test/fixtures.js';
-import './build.js';
+import { profileHTML } from '../test/fixtures.ts';
+import './build.ts';
 
 const browser = process.argv[2] ?? 'chrome';
 if (!['chrome', 'firefox'].includes(browser)) throw Error('Choose chrome or firefox.');
@@ -30,7 +31,7 @@ const vendor =
       }
     : { 'moz:firefoxOptions': { args: ['-headless'], prefs } };
 if (process.env.BROWSER_BINARY) Object.values(vendor)[0].binary = process.env.BROWSER_BINARY;
-async function http(method, path, body) {
+async function http<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(driver + path, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -40,34 +41,41 @@ async function http(method, path, body) {
   if (!r.ok) throw Error(result.value?.message ?? r.statusText);
   return result.value;
 }
-const session = await http('POST', '/session', {
-  capabilities: { alwaysMatch: { browserName: browser, webSocketUrl: true, ...vendor } },
-});
+const session = await http<{ sessionId: string; capabilities: { webSocketUrl: string } }>(
+  'POST',
+  '/session',
+  {
+    capabilities: { alwaysMatch: { browserName: browser, webSocketUrl: true, ...vendor } },
+  },
+);
 const path = '/session/' + session.sessionId;
-let relay, socket;
+let relay: WebSocketServer | undefined, socket: WebSocket | undefined;
 try {
-  socket = new WebSocket(session.capabilities.webSocketUrl);
-  await new Promise((ok, fail) => {
-    socket.onopen = ok;
-    socket.onerror = fail;
+  const connection = (socket = new WebSocket(session.capabilities.webSocketUrl));
+  await new Promise<void>((ok, fail) => {
+    connection.onopen = () => ok();
+    connection.onerror = fail;
   });
   let seq = 0;
-  const pending = new Map();
-  function bidi(method, params) {
+  const pending = new Map<
+    number,
+    (response: { type: string; message?: string; result: unknown }) => void
+  >();
+  function bidi<T = unknown>(method: string, params: object) {
     const id = ++seq;
-    return new Promise((res, rej) => {
+    return new Promise<T>((res, rej) => {
       const t = setTimeout(() => {
         pending.delete(id);
         rej(Error(method + ' timed out'));
       }, 15000);
       pending.set(id, (r) => {
         clearTimeout(t);
-        r.type === 'error' ? rej(Error(r.message)) : res(r.result);
+        r.type === 'error' ? rej(Error(r.message)) : res(r.result as T);
       });
-      socket.send(JSON.stringify({ id, method, params }));
+      connection.send(JSON.stringify({ id, method, params }));
     });
   }
-  socket.onmessage = (e) => {
+  connection.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id) {
       pending.get(m.id)?.(m);
@@ -93,7 +101,7 @@ try {
     phases: ['beforeRequestSent'],
     urlPatterns: [{ type: 'pattern', protocol: 'https', hostname: 'x.com' }],
   });
-  const { extension } = await bidi('webExtension.install', {
+  const { extension } = await bidi<{ extension: string }>('webExtension.install', {
     extensionData: { type: 'path', path: resolve('dist', browser) },
   });
   const options =
@@ -101,14 +109,16 @@ try {
     '/archive.html';
   const key = generateSecretKey(),
     pubkey = getPublicKey(key),
-    saved = [];
+    saved: NostrEvent[] = [];
   const native = finalizeEvent({ kind: 1, created_at: 2, content: 'Native note', tags: [] }, key);
   relay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(relay, 'listening');
-  const url = 'ws://127.0.0.1:' + relay.address().port;
+  const address = relay.address();
+  assert.ok(address && typeof address !== 'string');
+  const url = 'ws://127.0.0.1:' + address.port;
   relay.on('connection', (ws) =>
     ws.on('message', (frame) => {
-      const [type, id, filter] = JSON.parse(frame);
+      const [type, id, filter] = JSON.parse(frame.toString());
       if (type === 'REQ') {
         if (filter.authors?.includes(pubkey) && filter.until >= 2 && (filter.since ?? 0) <= 2)
           ws.send(JSON.stringify(['EVENT', id, native]));
@@ -121,9 +131,10 @@ try {
       }
     }),
   );
-  const go = (url) => http('POST', path + '/url', { url });
-  const js = (script, ...args) => http('POST', path + '/execute/sync', { script, args });
-  async function waitFor(fn, label) {
+  const go = (url: string) => http('POST', path + '/url', { url });
+  const js = (script: string, ...args: unknown[]) =>
+    http('POST', path + '/execute/sync', { script, args });
+  async function waitFor(fn: () => unknown, label: string) {
     for (let i = 0; i < 120; i++) {
       if (await fn()) return;
       await delay(250);
@@ -136,8 +147,15 @@ try {
     'options page ready',
   );
   await js(
-    "const [pk,u]=arguments; document.querySelector('#pubkey').value=pk;document.querySelector('#handle').value='alice';document.querySelector('#relays').value=u;document.querySelector('#capture').checked=true;document.querySelector('#relaySync').checked=true;document.querySelector('#settings').requestSubmit()",
+    "location.hash='settings';document.querySelector('#watchKey').value=arguments[0];document.querySelector('#watch').requestSubmit()",
     pubkey,
+  );
+  await waitFor(
+    () => js("return !document.querySelector('#backupSettings').hidden"),
+    'read-only profile opened',
+  );
+  await js(
+    "const u=arguments[0];document.querySelector('#handle').value='alice';document.querySelector('#relays').value=u;document.querySelector('#capture').checked=true;document.querySelector('#relaySync').checked=true;document.querySelector('#backupSettings').requestSubmit()",
     url,
   );
   await waitFor(

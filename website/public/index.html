@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nostr Backup — Back up your Nostr and X posts</title>
+    <meta name="description" content="A browser extension that saves a local copy of your Nostr and X posts. Export your posts and saved media as a ZIP.">
+    <meta name="theme-color" content="#faf9f5">
+    <link rel="canonical" href="https://nostrbackup.iris.to/">
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <header class="bar wrap">
+      <a class="brand" href="./"><img src="./icon.svg" width="30" height="30" alt="">Nostr Backup</a>
+      <nav aria-label="Main navigation"><a href="#downloads">Downloads</a><a href="#source">Source</a></nav>
+    </header>
+    <main class="wrap">
+      <section class="hero" aria-labelledby="title">
+        <div class="intro">
+          <h1 id="title">Back up your<br>Nostr and X posts.</h1>
+          <p>A browser extension that saves your posts on this device. Import from Nostr relays, or capture your own X posts as you scroll your profile. Export your posts and saved media as a ZIP.</p>
+          <a class="primary" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="illustration" role="img" aria-label="A blue archive folder holding events.jsonl and media.json from an exported ZIP">
+          <div class="folder" aria-hidden="true">
+            <div class="folder-back"></div>
+            <div class="sheet sheet-back"><span>media.json</span></div>
+            <div class="sheet sheet-front"><span>events.jsonl</span></div>
+            <div class="folder-front">
+              <div class="folder-label"><img src="./icon.svg" alt="" width="42" height="42">Nostr Backup</div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="downloads" class="section" aria-labelledby="downloads-title">
+        <h2 id="downloads-title">Downloads</h2>
+        <div class="platform">
+          <h3>Chrome</h3>
+          <p>Unzip the download. Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, then choose <strong>Load unpacked</strong> and select the folder.</p>
+          <a class="download" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download Nostr Backup for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="platform">
+          <h3>Firefox <small>140+</small></h3>
+          <p>Open <code>about:debugging#/runtime/this-firefox</code>, choose <strong>Load Temporary Add-on</strong> and select the ZIP. Firefox removes temporary add-ons on restart, so export your archive first.</p>
+          <a class="download" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download Nostr Backup for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+        </div>
+        <details class="safari">
+          <summary>Safari <span>Experimental</span></summary>
+          <p>On a Mac with Xcode, unzip the package into a folder named <code>nostr-backup-safari</code>, then run this command from its parent folder. Open the generated Xcode project and build the app.</p>
+          <pre><code>xcrun safari-web-extension-packager nostr-backup-safari --app-name "Nostr Backup" --macos-only</code></pre>
+          <a class="download" href="./downloads/nostr-backup-safari.zip" download aria-label="Download the experimental Safari package as a ZIP">Download Safari ZIP <span aria-hidden="true">↓</span></a>
+        </details>
+      </section>
+      <section class="section start" aria-labelledby="start-title">
+        <h2 id="start-title">Your first backup</h2>
+        <div>
+          <p>Open the extension and go to <strong>Settings → Profile</strong>. Enter your Nostr public key, add your relay URLs and enable <strong>Import my Nostr posts</strong>.</p>
+          <p>For X, sign in with a private key or create a Nostr profile. Enter your X handle and enable capture. The extension signs each captured post and sends it to your chosen relays. Anyone can read posts you send to a public relay.</p>
+          <p>Choose <strong>Media → Back up media</strong> to save attachments, then <strong>Archive → Download ZIP</strong> to export a copy.</p>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap" id="source">
+      <h2>Source code</h2>
+      <div><a href="https://git.iris.to/#/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/nostr-backup">git.iris.to <span aria-hidden="true">↗</span></a>
+      <a href="https://github.com/mmalmi/nostr-backup">GitHub <span aria-hidden="true">↗</span></a></div>
+    </footer>
+  </body>
+</html>

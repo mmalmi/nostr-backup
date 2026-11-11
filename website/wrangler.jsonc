@@ -1,0 +1,6 @@
+{
+  "name": "nostr-backup-site",
+  "compatibility_date": "2026-04-29",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "nostrbackup.iris.to", "custom_domain": true }]
+}

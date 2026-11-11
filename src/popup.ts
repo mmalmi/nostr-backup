@@ -1,4 +1,5 @@
-import { api, el, on, send, notice } from './ui.js';
+import { api, el, on, send, notice } from './ui.ts';
+
 send('status')
   .then((s) => {
     el('summary').textContent =

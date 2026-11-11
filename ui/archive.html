@@ -3,92 +3,249 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Nostr Backup · Archive</title>
+    <title>Nostr Backup</title>
     <link href="icon.svg" rel="icon" />
     <link href="style.css" rel="stylesheet" />
     <script defer src="archive-ui.js"></script>
   </head>
-  <body>
+  <body class="archive">
     <main>
-      <header>
-        <h1>Nostr Backup</h1>
-        <p>Keep a local archive of your posts and publish copies from X to your relays.</p>
-      </header>
-      <section>
-        <h2>Your archive</h2>
-        <div class="stats">
-          <div><strong id="events">0</strong>Signed posts</div>
-          <div><strong id="drafts">0</strong>Awaiting signature</div>
-          <div><strong id="pending">0</strong>Relay deliveries pending</div>
+      <header><h1>Nostr Backup</h1></header>
+      <div class="workspace">
+        <nav aria-label="Archive sections">
+          <a href="#archive" aria-current="page">Archive</a>
+          <a href="#media">Media</a>
+          <a href="#storage">Storage</a>
+          <a href="#settings">Settings</a>
+        </nav>
+        <div class="panels">
+          <div data-panel="archive">
+            <h2>Your archive</h2>
+            <section aria-label="Archive contents">
+              <div class="stats">
+                <div><strong id="events">0</strong>Signed events</div>
+                <div><strong id="drafts">0</strong>Awaiting signature</div>
+                <div><strong id="pending">0</strong>Pending deliveries</div>
+              </div>
+              <button id="download">Download ZIP</button>
+              <p class="hint" id="setup" hidden>
+                <a href="#settings">Set up your archive</a> to start backing up posts.
+              </p>
+            </section>
+            <section>
+              <h3>Relay sync</h3>
+              <div class="actions">
+                <button id="sync" class="secondary">Sync now</button>
+                <button id="broadcast" class="secondary" disabled>Broadcast to saved relays</button>
+                <button id="rescan" class="quiet">Rescan relay history</button>
+              </div>
+              <p id="activity"></p>
+              <ul id="reports"></ul>
+            </section>
+            <section id="pointerSection" hidden>
+              <h3>Public event index</h3>
+              <label>Hashtree address<input id="indexAddress" readonly spellcheck="false" /></label>
+              <p id="pointerStatus"></p>
+              <div class="actions">
+                <button id="publishIndex" disabled>Publish index</button
+                ><button id="copyIndex" class="secondary">Copy address</button>
+              </div>
+              <p class="hint">
+                Uploads the index blocks to your Blossom server and publishes the public read key to
+                your relays.
+              </p>
+            </section>
+          </div>
+          <div data-panel="media" hidden>
+            <h2>Media</h2>
+            <section>
+              <h3>Local backup</h3>
+              <p>
+                Save files linked from your archived posts. Keep this page open while the backup
+                runs.
+              </p>
+              <div class="stats">
+                <div><strong id="savedFiles">0</strong>Local files</div>
+                <div><strong id="posterRefs">0</strong>Poster only</div>
+                <div><strong id="missingRefs">0</strong>Unavailable</div>
+              </div>
+              <button id="backupMedia" disabled>Back up media</button>
+              <p id="mediaProgress" role="status"></p>
+            </section>
+            <section>
+              <h3>Blossom copies</h3>
+              <p id="uploadHint">Choose a server in Settings to upload copies.</p>
+              <button id="uploadMedia" class="secondary" disabled>Upload saved files</button>
+            </section>
+            <section>
+              <h3>Attachments</h3>
+              <p id="mediaSummary"></p>
+              <ul id="mediaList"></ul>
+              <button class="quiet" id="moreMedia" hidden>Show more</button>
+            </section>
+          </div>
+          <div data-panel="storage" hidden>
+            <h2>Storage</h2>
+            <p id="storageState" role="status"></p>
+            <div id="storageDetails" hidden>
+              <section>
+                <h3>Local archive</h3>
+                <dl id="storageTotals"></dl>
+              </section>
+              <section>
+                <h3>Indexed events by kind</h3>
+                <p class="hint">
+                  Sizes are the encoded event payloads in the current Hashtree index. Open a kind to
+                  see individual events.
+                </p>
+                <div id="kindList"></div>
+              </section>
+            </div>
+            <button class="secondary" id="refreshStats">Refresh statistics</button>
+          </div>
+          <div data-panel="settings" hidden>
+            <h2>Settings</h2>
+            <section>
+              <h3>Profile</h3>
+              <p id="lockState"></p>
+              <label id="currentIdentity" hidden
+                >Public key<input id="accountNpub" readonly spellcheck="false"
+              /></label>
+              <form id="unlock">
+                <label
+                  >Private key<input
+                    id="secret"
+                    type="password"
+                    required
+                    placeholder="nsec1… or 64-character hex"
+                    autocomplete="off"
+                    spellcheck="false"
+                /></label>
+                <button>Log in with private key</button>
+              </form>
+              <p class="hint">The signer keeps your private key for this browser session.</p>
+              <div class="actions">
+                <button id="lock" class="secondary" hidden>Lock signer</button>
+                <button id="logout" class="secondary" hidden>Log out</button>
+              </div>
+              <div id="onboarding" hidden>
+                <button class="secondary" id="startProfile">Create new Nostr profile</button>
+                <form id="newProfile" hidden>
+                  <label
+                    >Profile name<input
+                      id="profileName"
+                      required
+                      maxlength="100"
+                      autocomplete="off"
+                  /></label>
+                  <label
+                    >Recovery private key<input
+                      id="recoveryKey"
+                      readonly
+                      spellcheck="false"
+                      autocomplete="off"
+                  /></label>
+                  <p class="hint">Save this key privately. You will need it to sign in again.</p>
+                  <label class="check"
+                    ><input id="keySaved" required type="checkbox" /> I saved my private key</label
+                  >
+                  <div class="actions">
+                    <button>Create profile</button
+                    ><button type="button" id="cancelProfile" class="quiet">Cancel</button>
+                  </div>
+                </form>
+                <details>
+                  <summary>Use a public key for read-only backup</summary>
+                  <form id="watch">
+                    <label
+                      >Public key<input
+                        id="watchKey"
+                        required
+                        placeholder="npub1… or 64-character hex"
+                        autocomplete="off"
+                        spellcheck="false" /></label
+                    ><button class="secondary">Open archive</button>
+                  </form>
+                </details>
+              </div>
+            </section>
+            <form id="backupSettings" hidden>
+              <section>
+                <h3>Relays</h3>
+                <label
+                  >Read and write relays<textarea
+                    id="relays"
+                    rows="3"
+                    placeholder="wss://relay.example.com"
+                    spellcheck="false"
+                  ></textarea>
+                </label>
+                <label class="check"
+                  ><input type="checkbox" id="relaySync" /> Import my Nostr posts every five
+                  minutes</label
+                >
+              </section>
+              <section>
+                <h3>X capture</h3>
+                <label
+                  >X handle<input
+                    id="handle"
+                    placeholder="@yourname"
+                    autocomplete="off"
+                    spellcheck="false"
+                /></label>
+                <label class="check"
+                  ><input type="checkbox" id="capture" /> Capture posts from my profile and publish
+                  them to my relays</label
+                >
+                <p class="hint">
+                  Copies are public on public relays, including posts from a protected X account.
+                </p>
+              </section>
+              <section>
+                <h3>Media backup</h3>
+                <label
+                  >Maximum download per file (MiB)<input
+                    id="mediaMiB"
+                    type="number"
+                    min="1"
+                    max="1024"
+                    value="64"
+                    required
+                /></label>
+                <label
+                  >Blossom server (optional)<input
+                    id="blossomServer"
+                    type="url"
+                    placeholder="https://media.example.com"
+                    spellcheck="false"
+                /></label>
+                <p class="hint">
+                  Used to look up files by hash and as the destination when you choose Upload saved
+                  files.
+                </p>
+              </section>
+              <button>Save settings</button>
+            </form>
+            <section id="manageArchive" hidden>
+              <h3>Local data</h3>
+              <p><a href="#storage">View storage statistics and indexed events</a></p>
+              <button id="deleteStart" class="secondary">Delete local archive…</button>
+              <div id="deleteConfirm" hidden>
+                <p>
+                  Delete the posts, drafts, media, settings and queued deliveries saved in this
+                  browser for this public key? Remote copies and downloaded ZIPs are kept.
+                </p>
+                <div class="actions">
+                  <button id="deleteAccount" class="danger">Delete local archive</button>
+                  <button id="cancelDelete" class="secondary">Cancel</button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <p id="notice" role="status" aria-live="polite"></p>
         </div>
-        <div class="actions">
-          <button id="download">Download ZIP</button
-          ><button class="secondary" id="sync">Sync now</button
-          ><button class="quiet" id="rescan">Rescan relay history</button>
-        </div>
-        <p id="activity"></p>
-        <ul id="reports"></ul>
-      </section>
-      <section>
-        <h2>Backup settings</h2>
-        <form id="settings">
-          <label
-            >Nostr public key<input
-              id="pubkey"
-              required
-              placeholder="npub1… or 64-character hex"
-              autocomplete="off"
-              spellcheck="false"
-          /></label>
-          <label
-            >Write and read relays<textarea
-              id="relays"
-              rows="3"
-              placeholder="wss://relay.example.com"
-              spellcheck="false"
-            ></textarea>
-          </label>
-          <label class="check"
-            ><input type="checkbox" id="relaySync" /> Import my Nostr posts from these relays every
-            five minutes</label
-          >
-          <label
-            >X handle<input
-              id="handle"
-              placeholder="@yourname"
-              autocomplete="off"
-              spellcheck="false"
-          /></label>
-          <label class="check"
-            ><input type="checkbox" id="capture" /> Capture my posts as I browse my X profile and
-            publish them to these relays</label
-          >
-          <p class="hint">
-            Copies are public on public relays, including copies from a protected X account. Each
-            copy links to the original post.
-          </p>
-          <button>Save settings</button>
-        </form>
-      </section>
-      <section>
-        <h2>Signing key</h2>
-        <p id="lockState"></p>
-        <form id="unlock">
-          <label
-            >Session secret key<input
-              id="secret"
-              type="password"
-              placeholder="nsec1…"
-              autocomplete="off" /></label
-          ><button>Unlock for this browser session</button>
-        </form>
-        <button id="lock" class="secondary" hidden>Lock signer</button>
-        <p class="hint">
-          A public key is enough to import from relays. Unlock to sign queued X posts or approve
-          website requests. Closing the browser clears the session key.
-        </p>
-      </section>
-      <p id="notice" role="status" aria-live="polite"></p>
+      </div>
     </main>
   </body>
 </html>

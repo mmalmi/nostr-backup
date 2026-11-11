@@ -1,0 +1,79 @@
+import type { Action, Approval, Message, Payloads, Result } from './types.ts';
+import { errorMessage } from './types.ts';
+
+export const api = globalThis.browser ?? chrome;
+export function el(
+  id:
+    | 'indexAddress'
+    | 'accountNpub'
+    | 'secret'
+    | 'profileName'
+    | 'recoveryKey'
+    | 'keySaved'
+    | 'watchKey'
+    | 'relaySync'
+    | 'handle'
+    | 'capture'
+    | 'mediaMiB'
+    | 'blossomServer',
+): HTMLElementTagNameMap['input'];
+export function el(
+  id:
+    | 'open'
+    | 'signer'
+    | 'deny'
+    | 'allow'
+    | 'download'
+    | 'sync'
+    | 'broadcast'
+    | 'rescan'
+    | 'publishIndex'
+    | 'copyIndex'
+    | 'backupMedia'
+    | 'uploadMedia'
+    | 'moreMedia'
+    | 'refreshStats'
+    | 'lock'
+    | 'logout'
+    | 'startProfile'
+    | 'cancelProfile'
+    | 'deleteStart'
+    | 'deleteAccount'
+    | 'cancelDelete',
+): HTMLElementTagNameMap['button'];
+export function el(id: 'relays'): HTMLElementTagNameMap['textarea'];
+export function el(id: 'newProfile' | 'backupSettings' | 'unlock' | 'watch'): HTMLFormElement;
+export function el(id: string): HTMLElement;
+export function el(id: string): HTMLElement {
+  const node = document.getElementById(id);
+  if (!node) throw Error('Missing page element ' + id);
+  return node;
+}
+export function notice(message: string) {
+  el('notice').textContent = message;
+}
+export function send(
+  type: 'approval',
+  body: { id: string; decision?: undefined },
+): Promise<Approval>;
+export function send<K extends Action>(
+  type: K,
+  ...args: {} extends Payloads[K]
+    ? [body?: Payloads[K] & { account?: string }]
+    : [body: Payloads[K] & { account?: string }]
+): Promise<Result<K>>;
+export async function send(type: Action, body: object = {}) {
+  const response = await api.runtime.sendMessage({ type, ...body } as Message);
+  if (!response?.ok) throw Error(response?.error ?? 'Extension unavailable.');
+  return response.value;
+}
+export function on(id: string, event: string, handler: () => unknown) {
+  el(id).addEventListener(event, async (e) => {
+    e.preventDefault();
+    try {
+      await handler();
+    } catch (err) {
+      notice(errorMessage(err));
+    }
+  });
+}

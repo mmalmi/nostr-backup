@@ -1,7 +1,9 @@
-import { capturePosts } from './x.js';
+import type { CaptureConfig } from './types.ts';
+import { capturePosts } from './x.ts';
+
 const api = globalThis.browser ?? chrome;
-let config,
-  timer,
+let config: CaptureConfig | undefined,
+  timer: ReturnType<typeof setTimeout> | undefined,
   busy = false,
   again = false;
 const seen = new Map();
@@ -17,9 +19,13 @@ async function scan() {
       .filter((p) => seen.get(p.id) !== p.text)
       .slice(0, 50);
     if (posts.length) {
-      const reply = await api.runtime.sendMessage({ type: 'capture', posts });
+      const reply = await api.runtime.sendMessage({
+        type: 'capture',
+        posts,
+        account: config.pubkey,
+      });
       if (reply?.ok) for (const p of posts) seen.set(p.id, p.text);
-      if (seen.size > 2000) seen.delete(seen.keys().next().value);
+      if (seen.size > 2000) seen.delete(seen.keys().next().value!);
       if (posts.length === 50) again = true;
     }
   } catch {
@@ -41,7 +47,7 @@ function schedule() {
 }
 async function configure() {
   const reply = await api.runtime.sendMessage({ type: 'captureConfig' });
-  config = reply?.value;
+  config = reply?.ok ? reply.value : undefined;
   seen.clear();
   schedule();
 }
@@ -53,7 +59,7 @@ new MutationObserver(schedule).observe(document.documentElement, {
   subtree: true,
   characterData: true,
   attributes: true,
-  attributeFilter: ['href', 'datetime', 'data-testid'],
+  attributeFilter: ['href', 'datetime', 'data-testid', 'src', 'poster'],
 });
 addEventListener('popstate', schedule);
 void configure();

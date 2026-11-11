@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const {
   outputFiles: [bundle],
 } = await build({
-  entryPoints: ['test/browser-check.js'],
+  entryPoints: ['test/browser-check.ts'],
   bundle: true,
   write: false,
   format: 'iife',

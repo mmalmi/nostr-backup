@@ -1,4 +1,4 @@
-export function article(author, id, text = 'A post 🌲', extra = '') {
+export function article(author: string, id: string, text: string | null = 'A post 🌲', extra = '') {
   return (
     '<article data-testid="tweet"><div data-testid="User-Name"><a role="link" href="/' +
     author +

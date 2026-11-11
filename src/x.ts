@@ -1,29 +1,34 @@
+import type { Capture } from './types.ts';
+
 const profile = /^\/([a-z\d_]{1,15})(?:\/(?:with_replies|media))?\/?$/i;
 const status = /^\/([a-z\d_]{1,15})\/status\/(\d{1,20})\/?$/i;
 const tweet = 'article[data-testid="tweet"]';
-function xPath(value) {
+function xPath(value?: string | null) {
   try {
+    if (!value) return '';
     const url = new URL(value, 'https://x.com');
     return url.origin === 'https://x.com' ? url.pathname : '';
   } catch {
     return '';
   }
 }
-export function profileHandle(url) {
+export function profileHandle(url?: string) {
   return profile.exec(xPath(url))?.[1].toLowerCase();
 }
-function bodyText(node) {
-  if (node.nodeType === 3) return node.textContent;
-  if (node.tagName === 'BR') return '\n';
-  if (node.tagName === 'IMG') return node.getAttribute('alt') || '';
-  if (node.getAttribute?.('aria-hidden') === 'true') return '';
-  if (node.tagName === 'A') {
-    const url = node.getAttribute('title') || node.getAttribute('href');
-    if (/^https?:\/\//i.test(url) && !/^https?:\/\/x\.com\//i.test(url)) return url;
+function bodyText(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? '';
+  if (node.nodeType !== 1) return '';
+  const element = node as Element;
+  if (element.tagName === 'BR') return '\n';
+  if (element.tagName === 'IMG') return element.getAttribute('alt') || '';
+  if (element.getAttribute?.('aria-hidden') === 'true') return '';
+  if (element.tagName === 'A') {
+    const url = element.getAttribute('title') || element.getAttribute('href');
+    if (url && /^https?:\/\//i.test(url) && !/^https?:\/\/x\.com\//i.test(url)) return url;
   }
   return Array.from(node.childNodes, bodyText).join('');
 }
-export function capturePosts(doc, url, handle) {
+export function capturePosts(doc: Document, url: string, handle?: string): Capture[] {
   if (!handle || profileHandle(url) !== handle) return [];
   const ownLink = doc.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
   if (profileHandle(ownLink?.getAttribute('href') || '/') !== handle) return [];
@@ -35,31 +40,50 @@ export function capturePosts(doc, url, handle) {
     )
       continue;
     // Quote cards can have their own name, timestamp and text inside a link container.
-    const primary = (selector) =>
+    const primary = (selector: string) =>
       Array.from(article.querySelectorAll(selector)).find(
         (node) =>
           node.closest(tweet) === article &&
           !node.closest('[role="link"],[data-testid="quoteTweet"]'),
       );
     const header = primary('[data-testid="User-Name"]');
-    const time = header?.querySelector('a[href] time[datetime]');
+    const time = header?.querySelector<HTMLTimeElement>('a[href] time[datetime]');
     const match = status.exec(xPath(time?.closest('a')?.getAttribute('href')));
-    if (!match || match[1].toLowerCase() !== handle) continue;
+    if (!time || !match || match[1].toLowerCase() !== handle) continue;
     const text = primary('[data-testid="tweetText"]');
     const content = text && bodyText(text).trim();
-    const millis = Date.parse(time.dateTime || time.getAttribute('datetime'));
+    const millis = Date.parse(time.dateTime || time.getAttribute('datetime') || '');
     const timestamp = Math.floor(millis / 1000);
-    const attachments = [];
-    for (const img of article.querySelectorAll('[data-testid="tweetPhoto"] img,video[poster]')) {
+    const attachments = [],
+      posters = [];
+    for (const img of article.querySelectorAll<HTMLImageElement | HTMLVideoElement>(
+      '[data-testid="tweetPhoto"] img,video',
+    )) {
       if (
         img.closest(tweet) !== article ||
         img.closest('[role="link"]:not(a),[data-testid="quoteTweet"]')
       )
         continue;
       try {
-        const url = new URL(img.getAttribute('poster') || img.getAttribute('src'));
-        if (url.protocol === 'https:' && url.hostname === 'pbs.twimg.com')
+        if (img.tagName === 'VIDEO') {
+          const urls = [
+            img.currentSrc,
+            img.getAttribute('src'),
+            ...Array.from(img.querySelectorAll('source[src]'), (s) => s.getAttribute('src')),
+          ];
+          const video = urls.find(
+            (s) => s && /^https:\/\/video\.twimg\.com\/[^?#]*\.mp4(?:[?#]|$)/i.test(s),
+          );
+          if (video) {
+            attachments.push(video);
+            continue;
+          }
+        }
+        const url = new URL(img.getAttribute('poster') || img.getAttribute('src') || '');
+        if (url.protocol === 'https:' && url.hostname === 'pbs.twimg.com') {
           attachments.push(url.href);
+          if (img.tagName === 'VIDEO') posters.push(url.href);
+        }
       } catch {
         /* An image can be present before its source loads. */
       }
@@ -77,6 +101,7 @@ export function capturePosts(doc, url, handle) {
         author: handle,
         time: timestamp,
         ...(millis % 1000 ? { timeMs: millis } : {}),
+        ...(posters.length ? { posters } : {}),
         text: parts.join('\n\n'),
       });
   }

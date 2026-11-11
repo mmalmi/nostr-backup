@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { capturePosts } from '../src/x.js';
-import { xTemplate, relayList } from '../src/model.js';
-import { profileHTML, article } from './fixtures.js';
-function capture(html, url = 'https://x.com/alice', handle = 'alice') {
+import { capturePosts } from '../src/x.ts';
+import { xTemplate, relayList } from '../src/model.ts';
+import { profileHTML, article } from './fixtures.ts';
+function capture(html: string, url = 'https://x.com/alice', handle = 'alice') {
   const win = new Window({
     url,
     settings: {
@@ -14,7 +14,7 @@ function capture(html, url = 'https://x.com/alice', handle = 'alice') {
     },
   });
   win.document.body.innerHTML = html;
-  const posts = capturePosts(win.document, url, handle);
+  const posts = capturePosts(win.document as unknown as Document, url, handle);
   win.happyDOM.abort();
   return posts;
 }
@@ -66,7 +66,7 @@ test('media-only post retains its image URL', () => {
       null,
       '<div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/abc.jpg"></div>',
     );
-  assert.equal(capture(html).at(-1).text, 'https://pbs.twimg.com/media/abc.jpg');
+  assert.equal(capture(html).at(-1)?.text, 'https://pbs.twimg.com/media/abc.jpg');
 });
 test('relay validation and deduplication', () => {
   assert.deepEqual(relayList('wss://example.org\nwss://example.org/'), ['wss://example.org/']);
@@ -99,4 +99,24 @@ test('signed ms tag preserves source precision and cross-checks Snowflake timest
   const [legacy] = capture(profileHTML.replace('03:04:05Z', '03:04:05.123Z'));
   assert.deepEqual(xTemplate(legacy, 'alice').tags.at(-1), ['ms', '1704164645123']);
   assert.ok(!xTemplate({ ...p, time: p.time + 2 }, 'alice').tags.some((t) => t[0] === 'ms'));
+});
+
+test('video capture prefers a direct MP4 and identifies a poster-only capture', () => {
+  const video = 'https://video.twimg.com/ext_tw_video/123/clip.mp4?tag=1';
+  const image = 'https://pbs.twimg.com/media/poster.jpg';
+  const player = (src: string) =>
+    article(
+      'alice',
+      '333',
+      null,
+      '<video poster="' + image + '"><source src="' + src + '"></video>',
+    );
+  const direct = capture(profileHTML + player(video)).at(-1);
+  assert.ok(direct);
+  assert.equal(direct.text, video);
+  assert.equal(direct.posters, undefined);
+  const poster = capture(profileHTML + player('blob:https://x.com/123')).at(-1);
+  assert.ok(poster);
+  assert.deepEqual(poster.posters, [image]);
+  assert.equal(poster.text, image);
 });

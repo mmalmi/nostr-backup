@@ -1,4 +1,5 @@
-import { el, on, send, notice } from './ui.js';
+import { el, on, send, notice } from './ui.ts';
+
 const id = location.hash.slice(1);
 send('approval', { id })
   .then((r) => {

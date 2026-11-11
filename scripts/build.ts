@@ -12,6 +12,7 @@ const common = {
   description: 'Archive your X and Nostr posts locally, publish to your relays, and export a ZIP.',
   permissions: ['storage', 'alarms', 'scripting', 'activeTab', 'unlimitedStorage'],
   host_permissions: ['https://x.com/*'],
+  optional_host_permissions: ['https://*/*'],
   icons,
   action: { default_title: 'Nostr Backup', default_popup: 'popup.html', default_icon: icons },
   options_ui: { page: 'archive.html', open_in_tab: true },
@@ -19,11 +20,11 @@ const common = {
 };
 const bundles = await build({
   entryPoints: [
-    'src/background.js',
-    'src/content.js',
-    'src/archive-ui.js',
-    'src/popup.js',
-    'src/approve.js',
+    'src/background.ts',
+    'src/content.ts',
+    'src/archive-ui.ts',
+    'src/popup.ts',
+    'src/approve.ts',
   ],
   bundle: true,
   format: 'iife',
@@ -41,19 +42,22 @@ for (const target of ['chrome', 'firefox', 'safari']) {
     ...common,
     background:
       target === 'chrome' ? { service_worker: 'background.js' } : { scripts: ['background.js'] },
-  };
-  if (target === 'firefox')
-    manifest.browser_specific_settings = {
-      gecko: {
-        id: 'nostr-backup@extensions.local',
-        strict_min_version: '140.0',
-        data_collection_permissions: { required: ['websiteContent', 'personallyIdentifyingInfo'] },
+    ...(target === 'firefox' && {
+      browser_specific_settings: {
+        gecko: {
+          id: 'nostr-backup@extensions.local',
+          strict_min_version: '140.0',
+          data_collection_permissions: {
+            required: ['websiteContent', 'personallyIdentifyingInfo'],
+          },
+        },
       },
-    };
+    }),
+  };
   await writeFile(dir + '/manifest.json', JSON.stringify(manifest, null, 2) + '\n');
   for (const file of bundles.outputFiles)
     await writeFile(dir + '/' + file.path.split('/').pop(), file.contents);
-  const files = {};
+  const files: Record<string, Uint8Array> = {};
   for (const name of (await readdir(dir)).sort())
     files[name] = new Uint8Array(await readFile(dir + '/' + name));
   await writeFile('dist/nostr-backup-' + target + '.zip', zipSync(files, { level: 6 }));
