@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Nostr Backup">
+  <!-- A forget-me-not: what you posted is kept. -->
+  <defs>
+    <linearGradient id="petal" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9ad8ff"/>
+      <stop offset="1" stop-color="#4f7dff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#050507"/>
+  <g transform="translate(0 9)">
+    <g fill="url(#petal)">
+      <circle cx="256" cy="156" r="76"/>
+      <circle cx="351.1" cy="225.1" r="76"/>
+      <circle cx="314.8" cy="336.9" r="76"/>
+      <circle cx="197.2" cy="336.9" r="76"/>
+      <circle cx="160.9" cy="225.1" r="76"/>
+    </g>
+    <path fill="none" stroke="#050507" stroke-linecap="round" stroke-width="10" d="M256 256l77.6-106.8M256 256l125.5 40.8M256 256v132M256 256l-125.5 40.8M256 256l-77.6-106.8"/>
+    <circle cx="256" cy="256" r="56" fill="#050507"/>
+    <circle cx="256" cy="256" r="38" fill="#ffd66e"/>
+  </g>
+</svg>
