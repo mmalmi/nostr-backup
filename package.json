@@ -1,0 +1,39 @@
+{
+  "name": "nostr-backup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node --test test/*.test.js",
+    "test:browser": "node scripts/browser-smoke.js",
+    "test:page": "node scripts/browser-check.js"
+  },
+  "dependencies": {
+    "@hashtree/nostr": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz",
+    "fflate": "0.8.3",
+    "idb": "7.1.1",
+    "nostr-tools": "2.25.2",
+    "nostr-pubsub": "https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "fake-indexeddb": "6.2.5",
+    "happy-dom": "20.14.6",
+    "ws": "8.21.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@hashtree/nostr>@hashtree/collection": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-collection-0.2.11.tgz",
+      "@hashtree/nostr>@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz",
+      "@hashtree/nostr>@hashtree/index": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz"
+    },
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

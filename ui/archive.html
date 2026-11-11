@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nostr Backup · Archive</title>
+    <link href="style.css" rel="stylesheet" />
+    <script defer src="archive-ui.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Nostr Backup</h1>
+        <p>Keep a local archive of your posts and publish copies from X to your relays.</p>
+      </header>
+      <section>
+        <h2>Your archive</h2>
+        <div class="stats">
+          <div><strong id="events">0</strong>Signed posts</div>
+          <div><strong id="drafts">0</strong>Awaiting signature</div>
+          <div><strong id="pending">0</strong>Relay deliveries pending</div>
+        </div>
+        <div class="actions">
+          <button id="download">Download ZIP</button
+          ><button class="secondary" id="sync">Sync now</button
+          ><button class="quiet" id="rescan">Rescan relay history</button>
+        </div>
+        <p id="activity"></p>
+        <ul id="reports"></ul>
+      </section>
+      <section>
+        <h2>Backup settings</h2>
+        <form id="settings">
+          <label
+            >Nostr public key<input
+              id="pubkey"
+              required
+              placeholder="npub1… or 64-character hex"
+              autocomplete="off"
+              spellcheck="false"
+          /></label>
+          <label
+            >Write and read relays<textarea
+              id="relays"
+              rows="3"
+              placeholder="wss://relay.example.com"
+              spellcheck="false"
+            ></textarea>
+          </label>
+          <label class="check"
+            ><input type="checkbox" id="relaySync" /> Import my Nostr posts from these relays every
+            five minutes</label
+          >
+          <label
+            >X handle<input
+              id="handle"
+              placeholder="@yourname"
+              autocomplete="off"
+              spellcheck="false"
+          /></label>
+          <label class="check"
+            ><input type="checkbox" id="capture" /> Capture my posts as I browse my X profile and
+            publish them to these relays</label
+          >
+          <p class="hint">
+            Copies are public on public relays, including copies from a protected X account. Each
+            copy links to the original post.
+          </p>
+          <button>Save settings</button>
+        </form>
+      </section>
+      <section>
+        <h2>Signing key</h2>
+        <p id="lockState"></p>
+        <form id="unlock">
+          <label
+            >Session secret key<input
+              id="secret"
+              type="password"
+              placeholder="nsec1…"
+              autocomplete="off" /></label
+          ><button>Unlock for this browser session</button>
+        </form>
+        <button id="lock" class="secondary" hidden>Lock signer</button>
+        <p class="hint">
+          A public key is enough to import from relays. Unlock to sign queued X posts or approve
+          website requests. Closing the browser clears the session key.
+        </p>
+      </section>
+      <p id="notice" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>
