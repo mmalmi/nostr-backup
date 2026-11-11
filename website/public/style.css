@@ -30,7 +30,7 @@ h1 { font-size: clamp(3.1rem, 5.6vw, 5rem); line-height: 1.02; letter-spacing: -
 .primary:hover { background: #1e3b8c; color: white; }
 .primary span, .download span { font-size: 1.2em; line-height: 1; }
 
-/* Two of the actual files in an exported archive, tucked into a folder. */
+/* An X post and its signed Nostr copy. */
 .illustration { display: grid; place-items: center; aspect-ratio: 1.3; border: 1px solid #dbe1ed; border-radius: .7rem; overflow: hidden; background-color: #edf1f8; background-image: radial-gradient(#bdc8dc 1px, transparent 1px); background-size: 11px 11px; }
 .folder { position: relative; width: 68%; aspect-ratio: 1.22; transform: rotate(-8deg); }
 .folder-back, .folder-front, .sheet { position: absolute; border: 1px solid #3656aa; }

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Nostr Backup — Back up your Nostr and X posts</title>
-    <meta name="description" content="A browser extension that saves a local copy of your Nostr and X posts. Export your posts and saved media as a ZIP.">
+    <title>Nostr Backup — Back up your posts to Nostr</title>
+    <meta name="description" content="Back up your X posts to Nostr and copy existing Nostr posts between relays. You can also export a local ZIP with your posts and saved media.">
     <meta name="theme-color" content="#faf9f5">
     <link rel="canonical" href="https://nostrbackup.iris.to/">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -18,17 +18,17 @@
     <main class="wrap">
       <section class="hero" aria-labelledby="title">
         <div class="intro">
-          <h1 id="title">Back up your<br>Nostr and X posts.</h1>
-          <p>A browser extension that saves your posts on this device. Import from Nostr relays, or capture your own X posts as you scroll your profile. Export your posts and saved media as a ZIP.</p>
+          <h1 id="title">Back up your posts<br>to Nostr.</h1>
+          <p>This browser extension publishes your X posts to the Nostr relays you choose as you scroll your profile. It can also copy your existing Nostr posts between relays.</p>
           <a class="primary" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
         </div>
-        <div class="illustration" role="img" aria-label="A blue archive folder holding events.jsonl and media.json from an exported ZIP">
+        <div class="illustration" role="img" aria-label="An X post backed up as a signed note on Nostr relays">
           <div class="folder" aria-hidden="true">
             <div class="folder-back"></div>
-            <div class="sheet sheet-back"><span>media.json</span></div>
-            <div class="sheet sheet-front"><span>events.jsonl</span></div>
+            <div class="sheet sheet-back"><span>Original X post</span></div>
+            <div class="sheet sheet-front"><span>Signed Nostr note</span></div>
             <div class="folder-front">
-              <div class="folder-label"><img src="./icon.svg" alt="" width="42" height="42">Nostr Backup</div>
+              <div class="folder-label"><img src="./icon.svg" alt="" width="42" height="42">Nostr relays</div>
             </div>
           </div>
         </div>
@@ -55,9 +55,9 @@
       <section class="section start" aria-labelledby="start-title">
         <h2 id="start-title">Your first backup</h2>
         <div>
-          <p>Open the extension and go to <strong>Settings → Profile</strong>. Enter your Nostr public key, add your relay URLs and enable <strong>Import my Nostr posts</strong>.</p>
-          <p>For X, sign in with a private key or create a Nostr profile. Enter your X handle and enable capture. The extension signs each captured post and sends it to your chosen relays. Anyone can read posts you send to a public relay.</p>
-          <p>Choose <strong>Media → Back up media</strong> to save attachments, then <strong>Archive → Download ZIP</strong> to export a copy.</p>
+          <p><strong>From X.</strong> Open <strong>Settings → Profile</strong>. Sign in with your Nostr key or create a profile, add your relay URLs and enable capture for your X handle. Scroll your X profile to publish each post as a signed Nostr note. Posts sent to public relays are public.</p>
+          <p><strong>From Nostr.</strong> Enter your public key, add the relays you want to read from and write to, and enable <strong>Import my Nostr posts</strong>. Choose <strong>Archive → Broadcast and import</strong> to copy missing posts between those relays.</p>
+          <p><strong>For a local copy,</strong> choose <strong>Archive → Download ZIP</strong>. To include attachments, run <strong>Media → Back up media</strong> first.</p>
         </div>
       </section>
     </main>
