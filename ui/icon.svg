@@ -5,18 +5,20 @@
       <stop offset="0" stop-color="#9ad8ff"/>
       <stop offset="1" stop-color="#4f7dff"/>
     </linearGradient>
+    <mask id="cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <path fill="none" stroke="#000" stroke-linecap="round" stroke-width="10" d="M256 256l77.6-106.8M256 256l125.5 40.8M256 256v132M256 256l-125.5 40.8M256 256l-77.6-106.8"/>
+      <circle cx="256" cy="256" r="56"/>
+    </mask>
   </defs>
-  <rect width="512" height="512" rx="128" fill="#050507"/>
-  <g transform="translate(0 9)">
-    <g fill="url(#petal)">
+  <g transform="translate(256 256) scale(1.44) translate(-256 -246.5)">
+    <g fill="url(#petal)" mask="url(#cuts)">
       <circle cx="256" cy="156" r="76"/>
       <circle cx="351.1" cy="225.1" r="76"/>
       <circle cx="314.8" cy="336.9" r="76"/>
       <circle cx="197.2" cy="336.9" r="76"/>
       <circle cx="160.9" cy="225.1" r="76"/>
     </g>
-    <path fill="none" stroke="#050507" stroke-linecap="round" stroke-width="10" d="M256 256l77.6-106.8M256 256l125.5 40.8M256 256v132M256 256l-125.5 40.8M256 256l-77.6-106.8"/>
-    <circle cx="256" cy="256" r="56" fill="#050507"/>
     <circle cx="256" cy="256" r="38" fill="#ffd66e"/>
   </g>
 </svg>
