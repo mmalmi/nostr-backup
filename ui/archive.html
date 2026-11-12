@@ -11,26 +11,95 @@
   <body class="archive">
     <main>
       <header><h1>Nostr Backup</h1></header>
-      <div class="workspace">
-        <nav aria-label="Archive sections">
-          <a href="#archive" aria-current="page">Archive</a>
+      <section id="onboarding" aria-label="Profile setup" hidden>
+        <form id="nameForm">
+          <h2>Sign up</h2>
+          <input
+            id="profileName"
+            aria-label="Your name"
+            placeholder="What's your name?"
+            autocomplete="off"
+            maxlength="100"
+            required
+          />
+          <button type="submit">Go</button>
+          <div class="existingProfile">
+            <span>Already on Nostr?</span>
+            <button type="button" class="secondary" id="existingProfile">Sign in</button>
+          </div>
+        </form>
+        <div id="existingLogin" hidden>
+          <h2>Use your Nostr profile</h2>
+          <fieldset id="keyChoice">
+            <legend>Choose a key</legend>
+            <label><input type="radio" name="keyType" id="usePrivate" checked /> Private key</label>
+            <label
+              ><input type="radio" name="keyType" id="usePublic" /> Public key (read-only)</label
+            >
+          </fieldset>
+          <form id="loginForm">
+            <label
+              >Private key<input
+                id="loginKey"
+                type="password"
+                required
+                placeholder="nsec1… or 64-character hex"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+            <p class="hint">Use your private key to sign posts in this browser session.</p>
+            <button>Log in</button>
+          </form>
+          <form id="watch" hidden>
+            <label
+              >Public key<input
+                id="watchKey"
+                required
+                placeholder="npub1… or 64-character hex"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+            <p class="hint">Back up posts you’ve already signed.</p>
+            <button>Continue read-only</button>
+          </form>
+          <button class="quiet" id="cancelLogin">Back</button>
+        </div>
+        <form id="newProfile" hidden>
+          <h2>Save your private key</h2>
+          <label
+            >Recovery key<input
+              id="recoveryKey"
+              readonly
+              spellcheck="false"
+              autocomplete="off"
+          /></label>
+          <p class="hint">Save this key privately. You will need it to sign in again.</p>
+          <label class="check"
+            ><input id="keySaved" required type="checkbox" /> I saved my private key</label
+          >
+          <div class="actions">
+            <button>Continue</button
+            ><button type="button" id="cancelProfile" class="quiet">Back</button>
+          </div>
+        </form>
+      </section>
+      <div class="workspace" id="workspace" hidden>
+        <nav aria-label="Backup sections">
+          <a href="#archive" aria-current="page">Backup</a>
           <a href="#media">Media</a>
           <a href="#storage">Storage</a>
           <a href="#settings">Settings</a>
         </nav>
         <div class="panels">
           <div data-panel="archive">
-            <h2>Your archive</h2>
-            <section aria-label="Archive contents">
+            <h2>Your backup</h2>
+            <section aria-label="Backup contents">
               <div class="stats">
                 <div><strong id="events">0</strong>Signed events</div>
                 <div><strong id="drafts">0</strong>Awaiting signature</div>
                 <div><strong id="pending">0</strong>Pending deliveries</div>
               </div>
               <button id="download">Download ZIP</button>
-              <p class="hint" id="setup" hidden>
-                <a href="#settings">Set up your archive</a> to start backing up posts.
-              </p>
             </section>
             <section>
               <h3>Relay sync</h3>
@@ -121,52 +190,12 @@
                     autocomplete="off"
                     spellcheck="false"
                 /></label>
-                <button>Log in with private key</button>
+                <button>Unlock signer</button>
+                <p class="hint">Your private key is used for this browser session.</p>
               </form>
-              <p class="hint">The signer keeps your private key for this browser session.</p>
               <div class="actions">
                 <button id="lock" class="secondary" hidden>Lock signer</button>
                 <button id="logout" class="secondary" hidden>Log out</button>
-              </div>
-              <div id="onboarding" hidden>
-                <button class="secondary" id="startProfile">Create new Nostr profile</button>
-                <form id="newProfile" hidden>
-                  <label
-                    >Profile name<input
-                      id="profileName"
-                      required
-                      maxlength="100"
-                      autocomplete="off"
-                  /></label>
-                  <label
-                    >Recovery private key<input
-                      id="recoveryKey"
-                      readonly
-                      spellcheck="false"
-                      autocomplete="off"
-                  /></label>
-                  <p class="hint">Save this key privately. You will need it to sign in again.</p>
-                  <label class="check"
-                    ><input id="keySaved" required type="checkbox" /> I saved my private key</label
-                  >
-                  <div class="actions">
-                    <button>Create profile</button
-                    ><button type="button" id="cancelProfile" class="quiet">Cancel</button>
-                  </div>
-                </form>
-                <details>
-                  <summary>Use a public key for read-only backup</summary>
-                  <form id="watch">
-                    <label
-                      >Public key<input
-                        id="watchKey"
-                        required
-                        placeholder="npub1… or 64-character hex"
-                        autocomplete="off"
-                        spellcheck="false" /></label
-                    ><button class="secondary">Open archive</button>
-                  </form>
-                </details>
               </div>
             </section>
             <form id="backupSettings" hidden>
@@ -243,9 +272,9 @@
               </div>
             </section>
           </div>
-          <p id="notice" role="status" aria-live="polite"></p>
         </div>
       </div>
+      <p id="notice" role="status" aria-live="polite"></p>
     </main>
   </body>
 </html>

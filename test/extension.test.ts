@@ -118,7 +118,7 @@ function listener<F = () => void>() {
   const list: F[] = [];
   return { addListener: (f: F) => list.push(f), list };
 }
-function area() {
+function area(onSet?: (values: Record<string, unknown>) => void) {
   const state: Record<string, unknown> = {};
   return {
     async get(k: string) {
@@ -126,6 +126,7 @@ function area() {
     },
     async set(v: Record<string, unknown>) {
       Object.assign(state, structuredClone(v));
+      onSet?.(v);
     },
     async clear() {
       for (const k of Object.keys(state)) delete state[k];
@@ -143,15 +144,32 @@ function approvalScreen() {
   return { ...ui, url: winURL };
 }
 type Injection = { world?: 'MAIN'; target: { tabId: number }; func: Function; args?: unknown[] };
+const storageChanged = listener<(changes: object, area: string) => void>();
+let popupPath: string | undefined;
 const api = {
+  action: {
+    onClicked: listener(),
+    setPopup: async ({ popup }: { popup: string }) => {
+      popupPath = popup;
+    },
+  },
   scripting: {
     executeScript: async (_: Injection): Promise<{ result: unknown }[]> => {
       throw Error('Unexpected script injection');
     },
   },
-  storage: { local: area(), session: area() },
+  storage: {
+    onChanged: storageChanged,
+    local: area((values) => {
+      if ('settings' in values)
+        for (const f of storageChanged.list)
+          f({ settings: { newValue: values.settings } }, 'local');
+    }),
+    session: area(),
+  },
   runtime: {
     id: extensionId,
+    openOptionsPage: async () => {},
     getURL: (p: string) => ext + p,
     onMessage:
       listener<
@@ -230,6 +248,59 @@ async function until(fn: () => unknown) {
   assert.fail('timed out');
 }
 
+test('the toolbar opens welcome when signed out and shows the backup popup for an active profile', async (t) => {
+  const options = t.mock.method(api.runtime, 'openOptionsPage');
+  await until(() => popupPath === '');
+  api.action.onClicked.list[0]();
+  assert.equal(options.mock.callCount(), 1);
+  const page = await extensionPage(t, 'archive', installPageStorage, ext + 'archive.html#media');
+  const id = pageElements(page);
+  await until(() => !id('onboarding').hidden);
+  assert.equal(id('workspace').hidden, true);
+  assert.equal(page.document.activeElement?.id, 'profileName');
+  assert.equal(id('newProfile').hidden, true);
+  id('profileName').value = 'Example';
+  id('nameForm').requestSubmit();
+  assert.match(id('recoveryKey').value, /^nsec1/);
+  id('cancelProfile').click();
+  assert.equal(id('recoveryKey').value, '');
+  assert.equal(id('profileName').value, 'Example');
+  id('existingProfile').click();
+  id('loginKey').value = 'invalid';
+  id('loginForm').requestSubmit();
+  await until(() => id('notice').textContent.includes('private key'));
+  assert.equal(id('loginKey').value, '');
+  id('usePublic').click();
+  assert.equal(id('loginForm').hidden, true);
+  assert.equal(id('watch').hidden, false);
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  id('watchKey').value = npubEncode(owner);
+  id('watch').requestSubmit();
+  await until(() => !id('workspace').hidden);
+  assert.equal(id('onboarding').hidden, true);
+  assert.equal(popupPath, 'popup.html');
+  assert.equal((await success('status')).unlocked, false);
+  const popup = await extensionPage(t, 'popup');
+  await until(() => !pageElements(popup)('backupActions').hidden);
+  assert.equal(pageElements(popup)('open').textContent, 'View backup');
+  assert.equal(pageElements(popup)('signer').hidden, true);
+  id('logout').click();
+  await until(() => !id('onboarding').hidden);
+  assert.equal(popupPath, '');
+  assert.equal(id('nameForm').hidden, false);
+  assert.equal(id('profileName').value, '');
+  id('profileName').value = nsecEncode(secret);
+  id('nameForm').requestSubmit();
+  assert.equal(id('profileName').value, '');
+  assert.equal(id('loginForm').hidden, false);
+  assert.equal(id('loginKey').value, nsecEncode(secret));
+  id('loginForm').requestSubmit();
+  await until(() => !id('workspace').hidden);
+  assert.equal((await success('status')).unlocked, true);
+  assert.equal(id('loginKey').value, '');
+  await success('logout', { pubkey: owner });
+});
 test('background entry point handles locked capture, signed import, rejection and acknowledged retry', async () => {
   assert.equal((await call('settings', { pubkey }, x)).ok, false);
   await success('settings', {
@@ -365,6 +436,8 @@ test('the popup injects window.nostr and the page signs a login event through th
     },
   );
   const popup = await extensionPage(t, 'popup');
+  await until(() => !pageElements(popup)('backupActions').hidden);
+  assert.equal(pageElements(popup)('signer').hidden, false);
   pageElements(popup)('signer').click();
   await until(() => pageElements(popup)('notice').textContent.includes('Signer enabled'));
   assert.deepEqual(worlds, ['ISOLATED', 'MAIN']);
@@ -442,8 +515,11 @@ async function extensionPage(
   t.after(() => page.happyDOM.abort());
   Object.defineProperty(page, 'chrome', {
     value: {
-      storage: api.storage,
-      runtime: { sendMessage: ({ type, ...body }: Message) => call(type, body, { ...ui, url }) },
+      storage: { local: api.storage.local, session: api.storage.session },
+      runtime: {
+        openOptionsPage: () => api.runtime.openOptionsPage(),
+        sendMessage: ({ type, ...body }: Message) => call(type, body, { ...ui, url }),
+      },
     },
   });
   page.document.documentElement.innerHTML = await readFile('ui/' + name + '.html', 'utf8');
@@ -760,18 +836,18 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
   await until(() => id('notice').textContent.startsWith('Uploaded '));
   assert.deepEqual((await db.get('mediaFiles', file.sha256))?.copies, [server]);
 });
-test('Settings creates a recoverable profile, logs out, isolates accounts and deletes only the confirmed archive', async (t) => {
+test('Welcome creates a recoverable profile, logs out, isolates accounts and deletes only the confirmed archive', async (t) => {
   const previous = await success('status');
   if (previous.conf.pubkey) await success('logout', { pubkey: previous.conf.pubkey });
   const page = await archivePage(t, installPageStorage);
   const id = pageElements(page);
   await until(() => !id('onboarding').hidden);
-  id('startProfile').click();
+  id('profileName').value = 'Example';
+  id('nameForm').requestSubmit();
   const nsec = id('recoveryKey').value;
   const decoded = decode(nsec);
   assert.equal(decoded.type, 'nsec');
   const owner = getPublicKey(decoded.data);
-  id('profileName').value = 'Example';
   id('keySaved').checked = true;
   id('newProfile').requestSubmit();
   await until(() => id('notice').textContent.includes('created locally'));

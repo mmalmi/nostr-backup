@@ -260,9 +260,49 @@ ul:empty {
   font-weight: 600;
 }
 #onboarding {
-  margin-top: 16px;
+  width: min(100%, 440px);
+  margin: clamp(24px, 8vh, 84px) auto;
+  padding: clamp(18px, 4vw, 32px);
 }
-#newProfile,
+#nameForm {
+  display: grid;
+  gap: 14px;
+}
+#nameForm h2,
+#nameForm input {
+  margin: 0;
+}
+.existingProfile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  color: var(--muted);
+}
+#keyChoice {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+#keyChoice legend {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+#keyChoice label {
+  display: inline-block;
+  font-size: 0.9rem;
+  margin: 4px 12px 4px 0;
+}
+#keyChoice input {
+  display: inline;
+  width: auto;
+  accent-color: var(--brand);
+}
+#cancelLogin {
+  margin-top: 8px;
+}
 #deleteConfirm {
   border-top: 1px solid var(--line);
   margin-top: 14px;

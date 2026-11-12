@@ -82,6 +82,8 @@ try {
       pending.delete(m.id);
       return;
     }
+    if (m.method === 'log.entryAdded' && m.params.level === 'error')
+      console.error('Browser error:', m.params.text);
     if (m.method === 'network.beforeRequestSent' && m.params.isBlocked) {
       void bidi('network.provideResponse', {
         request: m.params.request.request,
@@ -96,7 +98,7 @@ try {
       });
     }
   };
-  await bidi('session.subscribe', { events: ['network.beforeRequestSent'] });
+  await bidi('session.subscribe', { events: ['network.beforeRequestSent', 'log.entryAdded'] });
   await bidi('network.addIntercept', {
     phases: ['beforeRequestSent'],
     urlPatterns: [{ type: 'pattern', protocol: 'https', hostname: 'x.com' }],
@@ -143,15 +145,15 @@ try {
   }
   await go(options);
   await waitFor(
-    () => js("return !!document.querySelector('#lockState')?.textContent"),
+    () => js("return !document.querySelector('#onboarding').hidden"),
     'options page ready',
   );
   await js(
-    "location.hash='settings';document.querySelector('#watchKey').value=arguments[0];document.querySelector('#watch').requestSubmit()",
+    "document.querySelector('#existingProfile').click();document.querySelector('#usePublic').click();document.querySelector('#watchKey').value=arguments[0];document.querySelector('#watch').requestSubmit()",
     pubkey,
   );
   await waitFor(
-    () => js("return !document.querySelector('#backupSettings').hidden"),
+    () => js("return !document.querySelector('#workspace').hidden && location.hash==='#settings'"),
     'read-only profile opened',
   );
   await js(
@@ -168,7 +170,24 @@ try {
   );
   await waitFor(() => js("return !document.querySelector('#lock').hidden"), 'signer unlock');
   await go('https://x.com/alice');
-  await waitFor(() => saved.length === 1, 'published X event');
+  try {
+    await waitFor(() => saved.length === 1, 'published X event');
+  } catch (error) {
+    console.error(
+      'Capture page:',
+      await js("return {url:location.href,articles:document.querySelectorAll('article').length}"),
+    );
+    await go(options);
+    await waitFor(
+      () => js("return !document.querySelector('#workspace').hidden"),
+      'diagnostic page ready',
+    );
+    console.error(
+      'Archive state:',
+      await js("return Object.fromEntries(['events','drafts','pending','notice','activity','reports'].map(id=>[id,document.getElementById(id)?.textContent]))"),
+    );
+    throw error;
+  }
   assert.equal(saved[0].content, 'Hello\nbackup 🌲');
   await go(options);
   await waitFor(

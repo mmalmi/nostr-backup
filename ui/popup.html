@@ -10,10 +10,14 @@
   <body class="popup">
     <main>
       <h1>Nostr Backup</h1>
-      <p id="summary"></p>
-      <button id="open">Open archive</button
-      ><button class="secondary" id="signer">Enable NIP-07 for this tab</button>
-      <p class="hint">Shares your public key with this page. Each signature needs your approval.</p>
+      <div id="backupActions" hidden>
+        <p id="summary"></p>
+        <button id="open">View backup</button
+        ><button class="secondary" id="signer">Enable NIP-07 for this tab</button>
+        <p class="hint" id="signerHint">
+          Shares your public key with this page. Each signature needs your approval.
+        </p>
+      </div>
       <p id="notice" role="status"></p>
     </main>
   </body>

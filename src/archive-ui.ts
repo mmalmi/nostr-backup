@@ -1,6 +1,6 @@
 import { defaults } from './accounts.ts';
-import { generateSecretKey } from 'nostr-tools/pure';
-import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
+import { resetOnboarding, setupOnboarding } from './onboarding.ts';
+import { npubEncode } from 'nostr-tools/nip19';
 import { indexName } from './index-pointer.ts';
 import { showStorage } from './storage-ui.ts';
 import { api, el, send, notice, on } from './ui.ts';
@@ -13,19 +13,11 @@ let mediaState: string | undefined,
   confirmingDelete: string | undefined,
   publishing = false,
   refreshId = 0;
-function closeCreate() {
-  el('newProfile').hidden = true;
-  el('recoveryKey').value = '';
-  el('keySaved').checked = false;
-  el('profileName').value = '';
-  el('startProfile').hidden = false;
-}
 function cancelDelete() {
   confirmingDelete = undefined;
   el('deleteConfirm').hidden = true;
   el('deleteStart').hidden = false;
 }
-window.addEventListener('pagehide', closeCreate);
 function selectSection() {
   const links = [...document.querySelectorAll<HTMLAnchorElement>('nav a')];
   const current = links.find((link) => link.hash === location.hash) ?? links[0];
@@ -36,7 +28,6 @@ function selectSection() {
   for (const panel of document.querySelectorAll<HTMLElement>('[data-panel]'))
     panel.hidden = '#' + panel.dataset.panel !== current.hash;
   if (current.hash !== '#settings') {
-    closeCreate();
     cancelDelete();
     el('secret').value = '';
   }
@@ -63,10 +54,9 @@ async function refresh(initial = false) {
     preparingIndex,
   } = await send('status');
   if (request !== refreshId) return;
-  if (initial && !conf.pubkey && !location.hash) location.hash = 'settings';
   const changed = pubkey !== conf.pubkey;
   if (changed) {
-    closeCreate();
+    resetOnboarding();
     cancelDelete();
     el('secret').value = '';
     el('watchKey').value = '';
@@ -75,9 +65,16 @@ async function refresh(initial = false) {
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
   mediaConfig(conf, unlocked);
-  el('setup').hidden = !!pubkey;
+  if (pubkey && !el('onboarding').hidden && !location.hash) {
+    history.replaceState(null, '', conf.relays.length ? '#archive' : '#settings');
+    selectSection();
+  }
+  const enteringWelcome = !pubkey && el('onboarding').hidden;
+  el('onboarding').hidden = !!pubkey;
+  if (enteringWelcome) el('profileName').focus();
+  el('workspace').hidden = !pubkey;
   const state = JSON.stringify([events, unlocked, conf.blossomServer]);
-  if (location.hash === '#media' && mediaState !== state) {
+  if (pubkey && location.hash === '#media' && mediaState !== state) {
     await refreshMedia();
     if (request !== refreshId) return;
     mediaState = state;
@@ -91,7 +88,6 @@ async function refresh(initial = false) {
     for (const k of ['capture', 'relaySync'] as const) el(k).checked = conf[k];
   }
   el('backupSettings').hidden = !pubkey;
-  el('onboarding').hidden = !!pubkey;
   el('manageArchive').hidden = !pubkey;
   el('logout').hidden = !pubkey;
   el('currentIdentity').hidden = !pubkey;
@@ -129,9 +125,7 @@ async function refresh(initial = false) {
   for (const [k, n] of Object.entries({ events, drafts, pending })) el(k).textContent = String(n);
   el('lockState').textContent = unlocked
     ? 'Signer unlocked for this session.'
-    : pubkey
-      ? 'Signer locked.'
-      : 'Choose how to open your archive.';
+    : 'Read-only. Unlock your signer to sign posts.';
   el('unlock').hidden = unlocked;
   el('lock').hidden = !unlocked;
   el('sync').disabled = running || !pubkey;
@@ -183,29 +177,7 @@ on('lock', 'click', async () => {
   await refresh();
   notice('Signer locked.');
 });
-on('startProfile', 'click', () => {
-  el('recoveryKey').value = nsecEncode(generateSecretKey());
-  el('newProfile').hidden = false;
-  el('startProfile').hidden = true;
-  el('profileName').focus();
-});
-on('cancelProfile', 'click', closeCreate);
-on('newProfile', 'submit', async () => {
-  if (!el('keySaved').checked) throw Error('Save your private key before creating the profile.');
-  await send('createProfile', {
-    key: el('recoveryKey').value,
-    name: el('profileName').value,
-    account: pubkey,
-  });
-  closeCreate();
-  await refresh(true);
-  notice('Profile created locally. Use Broadcast in Archive to publish it to your saved relays.');
-});
-on('watch', 'submit', async () => {
-  await send('watch', { pubkey: el('watchKey').value, account: pubkey });
-  await refresh(true);
-  notice('Read-only archive opened.');
-});
+setupOnboarding(() => refresh(true));
 on('logout', 'click', async () => {
   await send('logout', { pubkey });
   await refresh(true);

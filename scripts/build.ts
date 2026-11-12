@@ -14,7 +14,7 @@ const common = {
   host_permissions: ['https://x.com/*'],
   optional_host_permissions: ['https://*/*'],
   icons,
-  action: { default_title: 'Nostr Backup', default_popup: 'popup.html', default_icon: icons },
+  action: { default_title: 'Nostr Backup', default_icon: icons },
   options_ui: { page: 'archive.html', open_in_tab: true },
   content_scripts: [{ matches: ['https://x.com/*'], js: ['content.js'], run_at: 'document_idle' }],
 };
@@ -43,6 +43,12 @@ for (const target of ['chrome', 'firefox', 'safari']) {
     background:
       target === 'chrome' ? { service_worker: 'background.js' } : { scripts: ['background.js'] },
     ...(target === 'firefox' && {
+      // Firefox otherwise upgrades even loopback ws: relays to wss:.
+      // Keep scripts local and allow plaintext connections only on loopback.
+      content_security_policy: {
+        extension_pages:
+          "script-src 'self'; object-src 'self'; connect-src 'self' https: wss: ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+      },
       browser_specific_settings: {
         gecko: {
           id: 'nostr-backup@extensions.local',
@@ -60,6 +66,9 @@ for (const target of ['chrome', 'firefox', 'safari']) {
   const files: Record<string, Uint8Array> = {};
   for (const name of (await readdir(dir)).sort())
     files[name] = new Uint8Array(await readFile(dir + '/' + name));
-  await writeFile('dist/nostr-backup-' + target + '.zip', zipSync(files, { level: 6 }));
+  await writeFile(
+    'dist/nostr-backup-' + target + '.zip',
+    zipSync(files, { level: 6, mtime: new Date(1980, 0, 1) }),
+  );
   console.log('Built ' + dir);
 }

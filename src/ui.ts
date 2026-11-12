@@ -10,6 +10,9 @@ export function el(
     | 'profileName'
     | 'recoveryKey'
     | 'keySaved'
+    | 'loginKey'
+    | 'usePrivate'
+    | 'usePublic'
     | 'watchKey'
     | 'relaySync'
     | 'handle'
@@ -35,14 +38,15 @@ export function el(
     | 'refreshStats'
     | 'lock'
     | 'logout'
-    | 'startProfile'
     | 'cancelProfile'
     | 'deleteStart'
     | 'deleteAccount'
     | 'cancelDelete',
 ): HTMLElementTagNameMap['button'];
 export function el(id: 'relays'): HTMLElementTagNameMap['textarea'];
-export function el(id: 'newProfile' | 'backupSettings' | 'unlock' | 'watch'): HTMLFormElement;
+export function el(
+  id: 'nameForm' | 'loginForm' | 'newProfile' | 'backupSettings' | 'unlock' | 'watch',
+): HTMLFormElement;
 export function el(id: string): HTMLElement;
 export function el(id: string): HTMLElement {
   const node = document.getElementById(id);

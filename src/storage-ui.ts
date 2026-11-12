@@ -76,9 +76,7 @@ export function showStorage(conf: Pick<Settings, 'archiveName'>, visible: boolea
   el('kindList').replaceChildren();
   el('storageTotals').replaceChildren();
   el('refreshStats').hidden = !name;
-  el('storageState').textContent = name
-    ? 'Reading the local index…'
-    : 'Open a profile in Settings to view its local storage.';
+  el('storageState').textContent = name ? 'Reading the local index…' : '';
   if (!name) return;
   (async () => {
     const db = await openArchive(name);

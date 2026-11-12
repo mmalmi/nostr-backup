@@ -29,6 +29,10 @@ interface Area<T> {
   clear(): Promise<void>;
 }
 interface ExtensionAPI {
+  action: {
+    onClicked: Listener<() => void>;
+    setPopup(details: { popup: string }): Promise<void>;
+  };
   storage: {
     local: Area<LocalData>;
     session: Area<SessionData>;

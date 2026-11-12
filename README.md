@@ -23,22 +23,22 @@ pnpm build
 xcrun safari-web-extension-packager dist/safari --app-name "Nostr Backup" --macos-only
 ```
 
-The build also writes a ZIP for each browser. Unzip the Chrome package before loading it. Firefox release distribution requires a Mozilla-signed package. Export your archive before removing or replacing a temporary installation.
+The build also writes a ZIP for each browser, with fixed entry timestamps so repeated builds from the same inputs produce identical packages. Unzip the Chrome package before loading it. Firefox release distribution requires a Mozilla-signed package. Export your archive before removing or replacing a temporary installation.
 
 ## First backup
 
-1. Open **Nostr Backup → Open archive → Settings → Profile**. Log in with an nsec or 64-character hex private key, choose **Create new Nostr profile**, or open a read-only archive with an npub or hex public key. Add your relay URLs, one per line.
+1. Click the Nostr Backup toolbar icon. Enter your name and choose **Go** to start a new Nostr profile. If you already have a profile, choose **Sign in** and use a private key to sign or a public key to continue read-only. Both accept Nostr-encoded keys (nsec or npub respectively) and 64-character hex keys. Add your relay URLs in **Settings**, one per line.
 2. Enable **Import my Nostr posts** to back up notes with just the public key. The importer requests kinds 0, 1, 6, 16, 20, 21, 22, 1063, 1111, and 30023 and verifies the author, event ID and signature.
 3. To mirror X, enter your handle and enable capture. Choose **Save settings**. If you opened the archive with a public key, log in with its private key to sign captures.
 4. Visit your own signed-in X profile and scroll. The extension requires agreement between the profile route, the signed-in navigation link, and the post author's timestamp permalink. It handles Posts, Replies and Media profile tabs. A locked signer queues captures on disk.
-5. **Download ZIP** exports a snapshot. The archive screen shows local signed posts, captures awaiting signature, pending deliveries, and the most recent result for each relay.
+5. **Download ZIP** exports a snapshot. The Backup tab shows local signed posts, captures awaiting signature, pending deliveries, and the most recent result for each relay.
 6. **Broadcast to saved relays** sends the signed posts currently in your archive, including imported Nostr posts and signed X copies. With import enabled, the button reads **Broadcast and import** and also checks each saved relay for posts missing from your archive. This works with a locked signer and can restore an empty archive.
 
 **Publishing is public on public relays.** Enabling X capture also enables publishing, even for a protected X profile. The extension starts with capture off and an empty relay list. A relay import by itself never republishes the imported events.
 
 ## Profile and local storage
 
-**Create new Nostr profile** generates a private key in the extension. Save the recovery key before confirming your profile name. The extension stores the signed kind 0 profile in your local archive. Choose **Archive → Broadcast to saved relays** when you want to publish it.
+After you enter your name, the extension generates your private key. Save the recovery key and choose **Continue**. The extension stores the signed kind 0 profile in your local archive. Choose **Backup → Broadcast to saved relays** when you want to publish it.
 
 Each public key has its own local archive and settings. **Lock signer** clears the session key and keeps the archive open for capture and relay import. **Log out** pauses backup for that public key and revokes tab signing permissions. Log back in or open the same public key read-only to return to its archive. If you used an earlier version, opening the same profile reopens your original archive.
 
@@ -48,7 +48,7 @@ Open **Storage** for event versions, index blocks and bytes, media counts and si
 
 ## Public event index
 
-**Archive → Public event index** displays your copyable `htree://<npub>/my-events` address. To publish it, save a Blossom server and at least one relay, sign in with the archive key, then choose **Publish index**. The extension uploads the blocks reachable from the current event index, then signs a public Hashtree kind 30064 pointer named `my-events`. The extension uses `HashTree.push`, `BlossomStore` and `createNostrRefResolver().publish` from the TypeScript Hashtree packages. The pointer includes the root hash, its read key and a Blossom server hint. Anyone who resolves it can read the signed events and their attachment URLs. Use **Media → Upload saved files** to publish the media bytes themselves.
+**Backup → Public event index** displays your copyable `htree://<npub>/my-events` address. To publish it, save a Blossom server and at least one relay, sign in with the archive key, then choose **Publish index**. The extension uploads the blocks reachable from the current event index, then signs a public Hashtree kind 30064 pointer named `my-events`. The extension uses `HashTree.push`, `BlossomStore` and `createNostrRefResolver().publish` from the TypeScript Hashtree packages. The pointer includes the root hash, its read key and a Blossom server hint. Anyone who resolves it can read the signed events and their attachment URLs. Use **Media → Upload saved files** to publish the media bytes themselves.
 
 The Archive page shows the block server, pending relays, acknowledgements and whether the local index has advanced. Choose **Publish index** again to update the same address. Readers need access to a relay that accepted the pointer and a Blossom server holding the blocks. New indexes use 33-byte, suite-prefixed CHK keys. A reader limited to the older 32-byte key format needs an upgrade.
 
@@ -66,7 +66,7 @@ Each completed download is saved in `@hashtree/dexie`, Hashtree’s IndexedDB bl
 
 The Media page distinguishes saved files, poster-only captures, and unavailable sources. **Back up media** retries unfinished attachments, including after closing the page. **Settings** controls the per-file download limit (64 MiB by default). Downloads use HTTPS and omit credentials. If a host blocks browser access, the Media page can request permission for that host.
 
-**Download file** reads a saved file locally. **Archive → Download ZIP** includes the media index and all referenced blocks. To extract ordinary media files from a ZIP offline, run the command below in this project with dependencies installed. It checks each restored file’s length and SHA-256 and names the output by its hash.
+**Download file** reads a saved file locally. **Backup → Download ZIP** includes the media index and all referenced blocks. To extract ordinary media files from a ZIP offline, run the command below in this project with dependencies installed. It checks each restored file’s length and SHA-256 and names the output by its hash.
 
 ```sh
 node --experimental-strip-types scripts/extract-media.ts nostr-backup-2026-11-11.zip restored-media
@@ -77,6 +77,8 @@ For a remote copy, save a Blossom server in **Settings**, unlock the signer, and
 ## Relay and index behavior
 
 The extension uses `nostr-pubsub` for history cursors and acknowledged publishing, `nostr-tools` for signing, verification and WebSocket connections, and `@hashtree/nostr` for the event index. A concrete per-relay subscription distinguishes wire EOSE from connection loss. Progress is checkpointed after each complete page. Partial pages preserve verified events for the next attempt, and tied timestamps grow the page size up to a 1,600-event boundary.
+
+Remote relays require `wss://`. Local relays can use `ws://` on `localhost`, `127.0.0.1`, or `[::1]`. The Firefox package explicitly preserves those loopback connections instead of upgrading them to TLS; its connection policy permits HTTPS, WSS and loopback WS only.
 
 The five-minute alarm resumes unfinished work. Scheduled imports request missing events and overlap the previous day. **Rescan relay history** checks all available history, including older, late-arriving events. The paged importer reads up to eight pages per relay per pass. History coverage depends on what each configured relay serves. Read and write operations currently cover relays that accept the connection without NIP-42 authentication.
 
@@ -119,6 +121,8 @@ The automated suite tests profile creation, archive isolation by public key, log
 `test/live-profile.html` preserves the relevant ancestry of a signed-in X profile inspected in Chrome on 2026-11-11. Account, status ID, body, URLs and timestamp have been replaced. Other fixtures deliberately exercise edge cases. The live check found one rendered own post whose Snowflake timestamp agreed with the DOM to the second and supplied the missing milliseconds.
 
 For an installed-extension smoke test, start a current ChromeDriver or geckodriver on port 4444, then run one command per matching driver. Chrome for Testing supports unpacked extension automation. Set `BROWSER_BINARY` for a non-default installation or `DRIVER_URL` for another local driver endpoint.
+
+For Firefox, start `geckodriver --host 127.0.0.1 --port 4444 --allow-system-access`. Current Firefox requires this driver flag to let the test open the extension's own pages. Use it only with the disposable test profile.
 
 ```sh
 pnpm test:browser chrome

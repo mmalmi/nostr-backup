@@ -279,7 +279,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         running: false,
       } satisfies Status;
     if (msg.type === 'captureConfig') return { capture: false, handle: '' };
-    throw Error('Open a profile in Settings first.');
+    throw Error('Choose a Nostr profile to start your backup.');
   }
   const db = await openArchive(conf.archiveName);
   try {
@@ -410,6 +410,20 @@ api.runtime.onMessage.addListener((msg, sender, respond) => {
     (err) => respond({ ok: false, error: err.message }),
   );
   return true;
+});
+// A toolbar click opens the full-page welcome screen until a profile is active.
+api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
+function setToolbarPopup(pubkey?: string) {
+  return api.action.setPopup({ popup: pubkey ? 'popup.html' : '' });
+}
+let toolbarSettingsChanged = false;
+api.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  toolbarSettingsChanged = true;
+  void setToolbarPopup(changes.settings.newValue?.pubkey);
+});
+void settings().then((conf) => {
+  if (!toolbarSettingsChanged) return setToolbarPopup(conf.pubkey);
 });
 async function arm() {
   if (!(await api.alarms.get('backup'))) await api.alarms.create('backup', { periodInMinutes: 5 });
