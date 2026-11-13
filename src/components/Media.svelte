@@ -11,6 +11,11 @@
   import { accountRecord } from '../account-storage.ts';
   import { api, downloadBlob, notice, send } from '../ui.ts';
   import { page } from './page.svelte.ts';
+  import { form } from './settings.svelte.ts';
+
+  // Saves the settings form when a media setting is finished. The page shows errors.
+  let { save }: { save: () => Promise<void> } = $props();
+  const saveField = () => void save().catch(() => {});
 
   interface Snapshot {
     files: MediaFile[];
@@ -170,6 +175,34 @@
     action().catch((e) => notice(errorMessage(e)));
   };
 </script>
+
+<h2>Media</h2>
+<section>
+  <h3>Photo and video settings</h3>
+  <label
+    >Maximum download per file (MiB)<input
+      id="mediaMiB"
+      type="number"
+      min="1"
+      max="1024"
+      required
+      bind:value={form.mediaMiB}
+      onchange={saveField}
+    /></label
+  >
+  <label
+    >Blossom servers <small>(one per line)</small>
+    <textarea
+      id="blossomServer"
+      rows="3"
+      placeholder="https://blossom.band"
+      spellcheck="false"
+      bind:value={form.blossomServers}
+      onchange={saveField}
+    ></textarea></label
+  >
+  <p class="hint">Files are saved on this device. These servers store extra copies of public files.</p>
+</section>
 
 <section>
   <h3>Local backup</h3>

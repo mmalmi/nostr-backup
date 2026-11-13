@@ -501,9 +501,11 @@ test('saved include and exclude selections rescan historical events through eith
     const page = await archivePage(t), el = pageElements(page);
     await until(() => el('kindMode').value === 'include');
     assert.equal(el('downloadKinds').value, '7');
-    el('kindMode').value = 'exclude';
+    // Fields are bound to page state, so set them the way a user does.
     el('downloadKinds').value = '1';
-    el('backupSettings').requestSubmit();
+    page.document.getElementById('downloadKinds')!.dispatchEvent(new page.Event('input', { bubbles: true }));
+    el('kindMode').value = 'exclude';
+    page.document.getElementById('kindMode')!.dispatchEvent(new page.Event('change', { bubbles: true }));
     await until(async () => (await success('status')).conf.relayKinds?.mode === 'exclude');
     await idle();
     assert.deepEqual(new Set(await db.getAllKeys('events')), new Set([reaction, contacts]));
@@ -1146,8 +1148,10 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
   for (const old of ['#x', '#profiles']) {
     tab(old);
     assert.equal(page.location.hash, '#sources');
-    assert.equal(page.document.querySelector('a[aria-current="page"]')?.getAttribute('href'), '#sources');
+    await until(() => page.document.querySelector('a[aria-current="page"]')?.getAttribute('href') === '#sources');
     assert.equal(page.document.querySelector('[data-panel="sources"]')?.hasAttribute('hidden'), false);
+    tab('#account');
+    await until(() => page.document.querySelector('a[aria-current="page"]')?.getAttribute('href') === '#account');
   }
   tab('#media');
   await until(() => !id('backupMedia').disabled);
@@ -1249,8 +1253,10 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
       });
     },
   );
-  id('relays').value = relayUrl;
-  id('blossomServer').value = server;
+  for (const [field, value] of [['relays', relayUrl], ['blossomServer', server]]) {
+    id(field as 'relays').value = value;
+    page.document.getElementById(field)!.dispatchEvent(new page.Event('input', { bubbles: true }));
+  }
   id('backupSettings').requestSubmit();
   await until(() => id('notice').textContent === 'Saved.');
   page.location.hash = '#archive';
@@ -1828,6 +1834,7 @@ test('X images are archived locally, retried on the selected Blossom server and 
     gate.resolve();
     await until(async () => (await success('status')).x.mediaError?.includes('503'));
     fields('blossomServer').value = local + '\n' + custom;
+    page.document.getElementById('blossomServer')!.dispatchEvent(new page.Event('input', { bubbles: true }));
     fields('backupSettings').requestSubmit();
     await until(() => relay.sent.some((e) => e.content.includes(cdnURL)));
     const id = await db.get('sources', 'x:191');

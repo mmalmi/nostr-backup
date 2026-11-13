@@ -79,6 +79,11 @@ const server = createServer(async (req, res) => {
       return;
     }
     let data = await readFile('dist/chrome/' + file);
+    // Extension pages run under the extension's own content security policy.
+    if (file.endsWith('.html')) {
+      const manifest = JSON.parse(await readFile('dist/chrome/manifest.json', 'utf8'));
+      res.setHeader('Content-Security-Policy', manifest.content_security_policy.extension_pages);
+    }
     if (file.endsWith('.html'))
       data = Buffer.from(
         data

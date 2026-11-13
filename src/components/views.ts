@@ -17,8 +17,3 @@ export interface SourceSettings {
   social: Record<import('../types.ts').SocialNetwork, { handle: string; capture: boolean }>;
 }
 
-export interface SourcesPanel {
-  show(view: SourcesView, mode: 'replace' | 'sync' | 'none'): void;
-  values(): SourceSettings;
-  hasUnsavedChanges(): boolean;
-}

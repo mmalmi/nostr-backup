@@ -65,10 +65,6 @@
     };
   }
 
-  export function hasUnsavedChanges() {
-    return anyDirty;
-  }
-
   async function saveUsername(source: Source) {
     if (!dirty(source) || saving) return;
     const previous = saved[source];
