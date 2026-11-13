@@ -1545,16 +1545,21 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   const carol = generateSecretKey(), carolKey = getPublicKey(carol);
   const url = 'wss://tips.example/';
   const relay = fixtureRelay(url);
+  const provider = generateSecretKey();
+  const copy = finalizeEvent({ kind: 1, created_at: 1700000000, content: 'Hello', tags: [['i', 'https://x.com/carol/status/42']] }, carol);
+  const receipt = (key: Uint8Array) =>
+    finalizeEvent({ kind: 9735, created_at: 6, content: '', tags: [['e', copy.id], ['bolt11', 'lnbc210n1p' + 'q'.repeat(60)]] }, key);
   for (const event of [
     finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:carol', '88']] }, carol),
     finalizeEvent({ kind: 0, created_at: 5, content: JSON.stringify({ name: 'Carol', lud16: 'carol@wallet.example' }), tags: [] }, carol),
+    copy, receipt(provider), receipt(generateSecretKey()),
   ]) relay.stored.set(event.id, event);
   const zaps: Record<string, unknown>[] = [];
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
     const target = new URL(String(input));
     if (target.origin === 'https://x.com') return publicTweet(input, 'Verifying my account on nostr My Public Key: ' + carolKey);
     if (target.pathname === '/.well-known/lnurlp/carol')
-      return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay', minSendable: 1000, maxSendable: 1e9, allowsNostr: true, nostrPubkey: carolKey });
+      return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay', minSendable: 1000, maxSendable: 1e9, allowsNostr: true, nostrPubkey: getPublicKey(provider) });
     if (target.pathname === '/pay') {
       zaps.push(JSON.parse(target.searchParams.get('nostr')!));
       return Response.json({ pr: 'lnbc1u1p' + 'q'.repeat(60) });
@@ -1569,9 +1574,12 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
     assert.equal((await success('captureConfig', {}, page)).tips, true);
     const targets = await success('tipTargets', { handles: ['carol', 'dave'] }, page);
     assert.deepEqual(targets, { carol: { pubkey: carolKey, lightning: 'carol@wallet.example' }, dave: null });
-    // 100 sats is 1u in an invoice.
+    // Opening the popover finds the post's Nostr copy; only the provider's receipt counts.
+    assert.deepEqual(await success('tipPost', { handle: 'carol', post: '42' }, page), { note: copy.id, sats: 21, tips: 1 });
+    // 100 sats is 1u in an invoice. The zap goes to the post's note.
     assert.equal(await success('tipInvoice', { handle: 'carol', sats: 100, post: '42' }, page), 'lnbc1u1p' + 'q'.repeat(60));
     assert.equal(zaps[0].pubkey, owner);
+    assert.deepEqual((zaps[0].tags as string[][]).find(([t]) => t === 'e'), ['e', copy.id]);
     assert.equal(zaps[0].content, 'https://x.com/carol/status/42');
     assert.equal((await call('tipInvoice', { handle: 'dave', sats: 100 }, page)).ok, false);
     assert.equal(await success('tipRate', { currency: 'EUR' }, page), 90000);

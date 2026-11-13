@@ -238,6 +238,7 @@ export interface Payloads {
   xFollows: { handles: string[] };
   tipTargets: { handles: string[] };
   tipInvoice: { handle: string; sats: number; post?: string };
+  tipPost: { handle: string; post: string; time?: number; text?: string };
   tipRate: { currency: string };
   findXFollows: {};
   followOnNostr: { pubkeys: string[] };
@@ -261,6 +262,8 @@ interface ActionResults {
   followOnNostr: number;
   tipTargets: Record<string, TipTarget | null>;
   tipInvoice: string;
+  /** The post's Nostr copy by the verified author, and the tips it has received. */
+  tipPost: { note?: string; sats: number; tips: number };
   /** Units of the currency per bitcoin, for showing tips in fiat. */
   tipRate: number | null;
 }

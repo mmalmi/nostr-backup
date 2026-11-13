@@ -18,9 +18,23 @@ function author(article: Element) {
     if (handle) return handle;
   }
 }
-function postId(article: Element) {
+// The post's ID, time and opening text, used to find its Nostr copy when a tip popover opens.
+interface Post {
+  id: string;
+  time?: number;
+  text?: string;
+}
+function postInfo(article: Element): Post | undefined {
   const time = Array.from(article.querySelectorAll('a[href] time')).find((t) => t.closest('article') === article);
-  return xPermalink(time?.closest('a')?.getAttribute('href') ?? '')?.id;
+  const id = xPermalink(time?.closest('a')?.getAttribute('href') ?? '')?.id;
+  if (!id) return;
+  const seconds = Math.floor(Date.parse(time?.getAttribute('datetime') ?? '') / 1000);
+  const text = Array.from(article.querySelectorAll('[data-testid="tweetText"]')).find((t) => t.closest('article') === article);
+  return {
+    id,
+    ...(Number.isSafeInteger(seconds) ? { time: seconds } : {}),
+    ...(text?.textContent ? { text: text.textContent.slice(0, 280) } : {}),
+  };
 }
 
 export function createTipButtons(send: Send, doc: Document = document) {
@@ -37,7 +51,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     popover?.remove();
     popover = undefined;
   }
-  function button(handle: string, post: string | undefined, own: boolean) {
+  function button(handle: string, post: Post | undefined, own: boolean) {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
@@ -54,7 +68,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     return node;
   }
 
-  function open(anchor: HTMLElement, handle: string, post: string | undefined, own: boolean) {
+  function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
     close();
     const target = targets.get(handle);
     if (!target) return;
@@ -68,7 +82,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       .box{font:14px/1.4 system-ui,sans-serif;background:#fff;color:#1c2434;border:1px solid #dce2ec;border-radius:12px;
         padding:12px 14px;width:240px;box-shadow:0 8px 24px #0002}
       @media (prefers-color-scheme:dark){.box{background:#181c26;color:#e9ecf3;border-color:#2a3142}}
-      p{margin:0 0 10px} small{opacity:.7;display:block;margin-top:8px}
+      p{margin:0 0 10px} small{opacity:.7;display:block;margin-top:8px} small:empty{display:none}
       .row{display:flex;gap:6px} button small{display:block;margin:2px 0 0;font-weight:400}
       button,a{flex:1;font:600 13px system-ui;border-radius:8px;padding:7px 0;cursor:pointer;
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
@@ -82,8 +96,20 @@ export function createTipButtons(send: Send, doc: Document = document) {
       text.textContent = 'Tips for your posts go to ' + target.lightning + '.';
       box.append(text);
     } else {
-      show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small>Sent as a Nostr zap from your wallet.</small>');
+      show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small>');
       const row = box.querySelector('.row')!;
+      // Look for this post's Nostr copy now, not while scrolling, so relays only learn about posts you tip.
+      if (post)
+        void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
+          .then((reply) => {
+            const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
+            const line = box.querySelector('.onNostr');
+            if (!found?.note || !line) return;
+            line.textContent = found.tips
+              ? 'On Nostr · ' + found.sats.toLocaleString() + ' sats from ' + found.tips + (found.tips === 1 ? ' tip' : ' tips')
+              : 'This post is on Nostr.';
+          })
+          .catch(() => {});
       rate ??= send({ type: 'tipRate', currency })
         .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
         .catch(() => null);
@@ -98,7 +124,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
         });
         choice.addEventListener('click', async () => {
           show('<p>Getting an invoice…</p>');
-          const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post } : {}) }).catch(() => undefined);
+          const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
           if (!reply?.ok || typeof reply.value !== 'string') {
             box.textContent = '';
             const error = doc.createElement('p');
@@ -151,7 +177,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       const handle = author(article);
       if (!handle || !targets.get(handle) || article.querySelector(`[${MARK}]`)) continue;
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
-      bar?.append(button(handle, postId(article), handle === own));
+      bar?.append(button(handle, postInfo(article), handle === own));
     }
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`))
       name.append(button(profile, undefined, profile === own));

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { lightningAddress, tipInvoice } from '../src/x-tips.ts';
+import { lightningAddress, matchingNote, tipInvoice, zapTotal } from '../src/x-tips.ts';
 
 const secret = generateSecretKey(), tipper = generateSecretKey();
 const profile = (content: object) => finalizeEvent({ kind: 0, created_at: 1, tags: [], content: JSON.stringify(content) }, secret);
@@ -58,6 +58,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     sent.push(message as Record<string, unknown>);
     if (message.type === 'tipTargets') return { ok: true, value: { alice: target, bob: null, me: { ...target, lightning: 'me@wallet.example' } } };
     if (message.type === 'tipRate') return { ok: true, value: 100000 };
+    if (message.type === 'tipPost') return { ok: true, value: { note: 'ab'.repeat(32), sats: 1234, tips: 3 } };
     return { ok: true, value: 'lnbc210n1pinvoice' };
   }, doc);
   try {
@@ -75,6 +76,12 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     await new Promise((resolve) => setTimeout(resolve, 10));
     // Amounts show a fiat estimate from the page's currency.
     assert.match(box().querySelector('button small')!.textContent!, /^(≈|<) /);
+    // Opening the popover looks for this post's Nostr copy, with its time and opening text.
+    const lookup = sent.find((m) => m.type === 'tipPost')!;
+    assert.equal(lookup.post, '9');
+    assert.equal(lookup.text, 'Great post');
+    assert.equal(lookup.time, Math.floor(Date.parse('2024-01-02T03:04:05Z') / 1000));
+    assert.equal(box().querySelector('.onNostr')!.textContent, 'On Nostr · 1,234 sats from 3 tips');
     (box().querySelector('button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 21, post: '9' });
@@ -86,4 +93,25 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
   } finally {
     await window.happyDOM.abort();
   }
+});
+
+test('a post matches its tagged Nostr copy, or one from the same minute with the same opening text', () => {
+  const url = 'https://x.com/alice/status/9';
+  const note = (content: string, created_at: number, tags: string[][] = []) =>
+    finalizeEvent({ kind: 1, created_at, content, tags }, secret);
+  const tagged = note('anything', 5, [['i', url]]);
+  const near = note('Great post about Nostr https://t.co/x', 1030);
+  assert.equal(matchingNote([near, tagged], url, 1000, 'Great post about Nostr'), tagged);
+  assert.equal(matchingNote([near], url, 1000, 'Great post about Nostr https://t.co/abc'), near);
+  assert.equal(matchingNote([near], url, 1200, 'Great post about Nostr'), undefined);
+  assert.equal(matchingNote([near], url, 1000, 'Something else entirely'), undefined);
+  assert.equal(matchingNote([near], url, 1000, 'Great'), undefined);
+});
+
+test('only zap receipts signed by the recipient lightning provider count', () => {
+  const provider = generateSecretKey(), faker = generateSecretKey();
+  const receipt = (key: Uint8Array, bolt11: string) => finalizeEvent({ kind: 9735, created_at: 1, content: '', tags: [['bolt11', bolt11]] }, key);
+  const pad = 'q'.repeat(60);
+  assert.deepEqual(zapTotal([receipt(provider, 'lnbc210n1p' + pad), receipt(provider, 'lnbc1u1p' + pad), receipt(faker, 'lnbc1m1p' + pad)], getPublicKey(provider)),
+    { sats: 121, tips: 2 });
 });

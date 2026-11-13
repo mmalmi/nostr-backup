@@ -27,7 +27,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import { ArchiveEventBus, archiveRouter } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
 import { contactsTemplate, findXMatches, identityTemplate, IDENTITY_KIND, isProofPost, type XClaim } from './x-identity.ts';
-import { lightningAddress, tipInvoice } from './x-tips.ts';
+import { lightningAddress, matchingNote, payInfo, tipInvoice, zapTotal } from './x-tips.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
@@ -379,12 +379,15 @@ const newestProfile = <T extends { kind: number; pubkey: string; created_at: num
   events.filter((e) => e.kind === 0 && e.pubkey === pubkey).sort((a, b) => b.created_at - a.created_at)[0] as T | undefined;
 
 // Tip buttons: X handles with a verified Nostr profile that has a lightning address.
-// Each handle is looked up once every few days; lookups run one batch at a time.
+// Lookups run one batch at a time.
 let tipLookups: Promise<unknown> = Promise.resolve();
+// Notes matched when a tip popover opened, so the tip can zap that post.
+const tipNotes = new Map<string, string>();
 function tipTargets(db: Archive, conf: Settings, handles: string[]) {
   const run = tipLookups.then(async () => {
     const result: Record<string, TipTarget | null> = {};
-    const fresh = Date.now() - 3 * 86400000;
+    // Each handle is looked up on relays at most once a week.
+    const fresh = Date.now() - 7 * 86400000;
     const unknown: string[] = [];
     for (const handle of handles) {
       const cached = (await db.get('meta', ['xTip', handle])) as (Partial<TipTarget> & { at: number }) | undefined;
@@ -801,7 +804,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipTargets', 'tipInvoice', 'tipRate'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -873,7 +876,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       void kick();
       return;
     }
-    if (msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate') {
+    if (msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost') {
       if (captureNetwork(sender.url) !== 'x' || !sender.tab || conf.tipButtons === false) throw Error('Tips are off.');
       if (msg.type === 'tipRate') {
         // A fiat estimate: saved for 15 minutes, from Snort's signed rate events or Coinbase.
@@ -904,6 +907,30 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
       const target = handlePattern.test(handle) ? (await tipTargets(db, conf, [handle]))[handle] : null;
       if (!target) throw Error('This account has no verified Nostr profile to tip.');
+      if (msg.type === 'tipPost') {
+        // Only when the user opens a tip popover: find this post's Nostr copy and its tips.
+        if (!/^\d{1,20}$/.test(msg.post)) throw Error('Invalid post.');
+        const url = 'https://x.com/' + handle + '/status/' + msg.post;
+        const time = Number.isSafeInteger(msg.time) ? msg.time : undefined;
+        const text = typeof msg.text === 'string' ? msg.text.slice(0, 500) : undefined;
+        const relays = new SimplePool();
+        try {
+          let notes = await relays.querySync(conf.relays, { kinds: [1], authors: [target.pubkey], '#i': [url] }, { maxWait: 4000 });
+          if (!notes.length && time)
+            notes = await relays.querySync(conf.relays, { kinds: [1], authors: [target.pubkey], since: time - 60, until: time + 60 }, { maxWait: 4000 });
+          const note = matchingNote(notes, url, time, text);
+          if (!note) return { sats: 0, tips: 0 };
+          tipNotes.set(handle + ':' + msg.post, note.id);
+          if (tipNotes.size > 200) tipNotes.delete(tipNotes.keys().next().value!);
+          const [receipts, pay] = await Promise.all([
+            relays.querySync(conf.relays, { kinds: [9735], '#e': [note.id] }, { maxWait: 4000 }),
+            payInfo(target.lightning).catch(() => undefined),
+          ]);
+          return { note: note.id, ...(typeof pay?.nostrPubkey === 'string' ? zapTotal(receipts, pay.nostrPubkey) : { sats: 0, tips: 0 }) };
+        } finally {
+          relays.destroy();
+        }
+      }
       const key = await sessionKey();
       if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock Social Backup to tip.');
       if (msg.post !== undefined && !/^\d{1,20}$/.test(msg.post)) throw Error('Invalid post.');
@@ -921,6 +948,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           comment: msg.post ? 'https://x.com/' + handle + '/status/' + msg.post : undefined,
           relays: conf.relays,
           sign: (template) => finalizeEvent(template, unhex(key)),
+          note: msg.post ? tipNotes.get(handle + ':' + msg.post) : undefined,
         });
       } finally {
         relays.destroy();
