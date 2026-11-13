@@ -63,8 +63,7 @@
       <div class="workspace" id="workspace" hidden>
         <nav aria-label="Backup sections">
           <a href="#archive" aria-current="page">Backup</a>
-          <a href="#x">X</a>
-          <a href="#profiles">Instagram &amp; Facebook</a>
+          <a href="#sources">Sources</a>
           <a href="#media">Media</a>
           <a href="#storage">Storage</a>
           <a href="#account">Account</a>
@@ -141,25 +140,14 @@
               </details>
             </section>
           </div>
-          <div data-panel="x" hidden>
-            <h2>X</h2>
-            <section aria-label="X capture statistics">
-              <div class="stats">
-                <div><strong id="xCaptured">0</strong>Posts found</div>
-                <div><strong id="xSigned">0</strong>New copies</div>
-                <div><strong id="xMatched">0</strong>Already on Nostr</div>
-                <div><strong id="xDrafts">0</strong>Preparing</div>
-              </div>
-              <p id="localXCount" class="hint" hidden></p>
-              <p id="xImageState" class="hint" hidden></p>
-            </section>
-            <section>
-              <h3>X backup</h3>
-              <p id="captureReadOnly" class="hint" hidden>
-                Read-only mode. Sign in with your secret key to back up X posts.
-              </p>
+          <div data-panel="sources" hidden>
+            <h2>Sources</h2>
+            <p class="hint">Turn on backup for a profile, save, then visit it and scroll. Only public posts are shared. Other posts stay on this device.</p>
+            <p id="sourcesReadOnly" class="hint" hidden>Read-only mode. Sign in with your secret key to turn on backup.</p>
+            <section class="source" aria-labelledby="xTitle">
+              <h3 id="xTitle">X</h3>
               <label
-                >X username<input
+                >Username<input
                   id="handle"
                   form="backupSettings"
                   placeholder="@yourname"
@@ -170,27 +158,26 @@
                 ><input type="checkbox" id="capture" form="backupSettings" /> Back up my X posts as I browse</label
               >
               <label class="check"><input type="checkbox" id="skipCrossposts" form="backupSettings" /> Skip posts already on Nostr</label>
-              <p class="hint">
-                Only public posts are shared. Other posts stay on this device.
-              </p>
-              <button form="backupSettings">Save</button>
+              <div class="stats" aria-label="X backup statistics">
+                <div><strong id="xCaptured">0</strong>Posts found</div>
+                <div><strong id="xSigned">0</strong>New copies</div>
+                <div><strong id="xMatched">0</strong>Already on Nostr</div>
+                <div><strong id="xDrafts">0</strong>Preparing</div>
+              </div>
+              <p id="localXCount" class="hint" hidden></p>
+              <p id="xImageState" class="hint" hidden></p>
             </section>
-          </div>
-          <div data-panel="profiles" hidden>
-            <h2>Instagram &amp; Facebook</h2>
-            <p class="hint">Visit your profile and scroll to back up your posts. Only public posts are shared. Other posts stay on this device.</p>
-            <p id="profilesReadOnly" class="hint" hidden>Sign in with your secret key to turn on backup.</p>
-            <section aria-label="Instagram backup">
-              <h3>Instagram</h3>
+            <section class="source" aria-labelledby="instagramTitle">
+              <h3 id="instagramTitle">Instagram</h3>
               <label>Username<input id="instagramHandle" form="backupSettings" placeholder="@yourname" autocomplete="off" spellcheck="false" /></label>
               <label class="check"><input type="checkbox" id="instagramCapture" form="backupSettings" /> Back up my Instagram posts as I browse</label>
-              <p id="instagramCount" class="hint"></p>
+              <p id="instagramCount" class="sourceCount"></p>
             </section>
-            <section aria-label="Facebook backup">
-              <h3>Facebook</h3>
+            <section class="source" aria-labelledby="facebookTitle">
+              <h3 id="facebookTitle">Facebook</h3>
               <label>Username or numeric profile ID<input id="facebookHandle" form="backupSettings" placeholder="yourname" autocomplete="off" spellcheck="false" /></label>
               <label class="check"><input type="checkbox" id="facebookCapture" form="backupSettings" /> Back up my Facebook posts as I browse</label>
-              <p id="facebookCount" class="hint"></p>
+              <p id="facebookCount" class="sourceCount"></p>
             </section>
             <button form="backupSettings">Save</button>
           </div>

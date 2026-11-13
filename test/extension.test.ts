@@ -353,7 +353,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   assert.equal(id('profileInitials').hidden, false);
   assert.equal(id('profileMode').hidden, false);
   assert.equal(id('capture').disabled, true);
-  assert.equal(id('captureReadOnly').hidden, false);
+  assert.equal(id('sourcesReadOnly').hidden, false);
   assert.equal(id('signedInProfile').textContent.includes('npub'), false);
   await until(async () => !(await success('status')).running);
   page.document.querySelector('#relayChoices')!.querySelector('input')!.click();
@@ -1131,6 +1131,13 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
     page.document.querySelector('a[aria-current="page"]')?.getAttribute('href'),
     '#account',
   );
+  // Old X and Instagram & Facebook links land on the merged Sources page.
+  for (const old of ['#x', '#profiles']) {
+    tab(old);
+    assert.equal(page.location.hash, '#sources');
+    assert.equal(page.document.querySelector('a[aria-current="page"]')?.getAttribute('href'), '#sources');
+    assert.equal(page.document.querySelector('[data-panel="sources"]')?.hasAttribute('hidden'), false);
+  }
   tab('#media');
   await until(() => !id('backupMedia').disabled);
   id('backupMedia').click();

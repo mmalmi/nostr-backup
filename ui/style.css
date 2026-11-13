@@ -62,7 +62,11 @@ header {
   align-items: center;
   gap: 10px;
 }
+.brand {
+  line-height: 1;
+}
 .brand img {
+  display: block;
   width: 1.15em;
   height: 1.15em;
   flex-shrink: 0;
@@ -480,6 +484,24 @@ ul:empty {
   list-style: none;
   padding: 0;
 }
+.source .stats {
+  gap: 10px 28px;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.source .stats strong {
+  font-size: 1.3rem;
+}
+.source .hint:last-child,
+.sourceCount {
+  margin-bottom: 0;
+}
+.sourceCount {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 0.86rem;
+}
 #mediaList li {
   padding: 10px 0;
   border-top: 1px solid var(--line);
@@ -642,7 +664,7 @@ ul:empty {
   .archive section {
     padding: 16px;
   }
-  .archive main:has([data-panel='profiles']:not([hidden])) #notice {
+  .archive main:has([data-panel='sources']:not([hidden])) #notice {
     position: static;
   }
 }

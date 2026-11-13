@@ -45,6 +45,7 @@ function cancelDelete() {
 }
 function selectSection() {
   if (location.hash === '#settings') history.replaceState(null, '', '#account');
+  if (location.hash === '#x' || location.hash === '#profiles') history.replaceState(null, '', '#sources');
   const links = [...document.querySelectorAll<HTMLAnchorElement>('nav a')];
   const current = links.find((link) => link.hash === location.hash) ?? links[0];
   for (const link of links) {
@@ -97,7 +98,7 @@ async function refresh(initial = false) {
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
   showProfile(pubkey, profile, !unlocked);
-  el('profilesReadOnly').hidden = unlocked;
+  el('sourcesReadOnly').hidden = unlocked;
   for (const site of socialNetworks) {
     el(`${site}Capture`).disabled = !unlocked;
     const counts = social?.[site];
@@ -113,7 +114,6 @@ async function refresh(initial = false) {
   el('localXCount').textContent = (localX ?? 0).toLocaleString() + ' local only';
   el('capture').disabled = !unlocked;
   el('skipCrossposts').disabled = !unlocked;
-  el('captureReadOnly').hidden = unlocked;
   el('xCaptured').textContent = x.captured.toLocaleString();
   el('xMatched').textContent = x.matched.toLocaleString();
   el('xSigned').textContent = x.signed.toLocaleString();
