@@ -10,7 +10,6 @@
   --line: #d8d9d6;
   --edge: #b6c2d9;
   --tint: #edf1f8;
-  --dot: #bdc8dc;
   --chip: #e8edf7;
   --focus: #3459be;
   font: 100%/1.55 "Inter", system-ui, sans-serif;
@@ -29,7 +28,6 @@
     --line: #293040;
     --edge: #3b465c;
     --tint: #171c28;
-    --dot: #2f3a50;
     --chip: #272e3f;
     --focus: #9dbaff;
   }
@@ -52,7 +50,7 @@ nav, footer div { gap: 1.6rem; }
 nav a, .brand, .button { text-decoration: none; }
 nav a { font-size: .94rem; }
 nav a:hover, footer a:hover { text-decoration: underline; }
-.hero { display: grid; grid-template-columns: 1.35fr 1fr; gap: 2.5rem; align-items: center; padding-block: clamp(3rem, 7vw, 6.5rem); }
+.hero { display: grid; grid-template-columns: 1fr 1.45fr; gap: 2.5rem; align-items: center; padding-block: clamp(3rem, 7vw, 6.5rem); }
 h1, h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; text-wrap: balance; }
 h1 { font-size: clamp(3.1rem, 5.6vw, 5rem); line-height: 1.02; letter-spacing: -.065em; }
 p, li { text-wrap: pretty; }
@@ -64,19 +62,9 @@ p, li { text-wrap: pretty; }
 .button.quiet { border: 1px solid var(--edge); background: none; color: var(--blue); }
 .button.quiet:hover { background: var(--tint); color: var(--blue); }
 
-/* An X post and its signed Nostr copy. The folder keeps its own colours in both themes. */
-.illustration { display: grid; place-items: center; aspect-ratio: 1.3; border: 1px solid var(--line); border-radius: .7rem; overflow: hidden; background-color: var(--tint); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 11px 11px; }
-.folder { position: relative; width: 68%; aspect-ratio: 1.22; transform: rotate(-8deg); color: #1c2434; }
-.folder-back, .folder-front, .sheet { position: absolute; border: 1px solid #3656aa; }
-.folder-back { inset: 25% 0 0; background: #6b87d0; border-radius: 7px 13px 12px 12px; }
-.folder-back::before { content: ""; position: absolute; left: -1px; bottom: 100%; width: 38%; height: 13%; border: inherit; border-bottom: 0; border-radius: 8px 13px 0 0; background: inherit; }
-.sheet { inset: auto 6% 12% 9%; height: 71%; padding: 4% 6%; border-color: #aeb8c8; border-radius: 6px; background: #fffefa; box-shadow: 0 2px 3px #23345814; font: 500 clamp(.65rem, 1.2vw, .85rem)/1.2 ui-monospace, monospace; color: #46546d; }
-.sheet-back { bottom: 26%; transform: rotate(13deg); }
-.sheet-front { bottom: 15%; transform: rotate(3deg); }
-.sheet span { padding-bottom: .35em; display: block; border-bottom: 1px solid #d8dce4; }
-.folder-front { inset: 39% -2% 0 0; display: flex; align-items: flex-end; padding: 7%; border-radius: 7px 7px 12px 12px; background: linear-gradient(130deg, #b5cdff, #86aaf2); box-shadow: inset 0 2px #d6e5ff, 0 9px 10px -6px #273e7866; }
-.folder-label { display: inline-flex; align-items: center; gap: .5em; padding: .3em .65em .3em .4em; border: 1px solid #7b92bf; border-radius: 4px; background: #fffdf4; font-family: Georgia, serif; font-size: clamp(.85rem, 1.7vw, 1.35rem); letter-spacing: -.04em; }
-.folder-label img { width: 1.4em; height: 1.4em; }
+.backup-preview { margin: 0; min-width: 0; }
+.backup-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: .7rem; }
+.backup-preview figcaption { margin-top: .55rem; color: var(--muted); font-size: .85rem; }
 
 .section { border-top: 1px solid var(--line); padding-block: 3rem 3.5rem; scroll-margin-top: 1rem; }
 h2 { margin-bottom: 1.6rem; font-size: clamp(2rem, 3.4vw, 2.7rem); line-height: 1.15; letter-spacing: -.055em; }
@@ -114,10 +102,6 @@ footer a { color: var(--blue); }
 @media (max-width: 46rem) {
   .hero { grid-template-columns: 1fr; gap: 2rem; padding-block: 2.5rem; }
   h1 { font-size: clamp(2.6rem, 10.5vw, 3.6rem); }
-  .illustration { aspect-ratio: 2.2; }
-  .folder { width: 45%; }
-  .sheet { font-size: clamp(.6rem, 2vw, .8rem); }
-  .folder-label { font-size: clamp(.8rem, 2.8vw, 1.2rem); }
   .platforms { grid-template-columns: 1fr; }
   .section { padding-block: 2.2rem 2.6rem; }
 }
