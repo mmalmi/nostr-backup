@@ -12,6 +12,7 @@ import type {
   SocialCapture,
   Capture,
   Settings,
+  TipTarget,
   XLink,
 } from './types.ts';
 import type { EventTemplate } from 'nostr-tools/pure';
@@ -26,6 +27,8 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import { ArchiveEventBus, archiveRouter } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
 import { contactsTemplate, findXMatches, identityTemplate, IDENTITY_KIND, isProofPost, type XClaim } from './x-identity.ts';
+import { lightningAddress, tipInvoice } from './x-tips.ts';
+import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
 import { relaySource, RelayRateLimitError, retryRelayOutbox } from 'nostr-pubsub';
@@ -361,6 +364,57 @@ async function publishOwn(db: Archive, conf: Settings, template: EventTemplate) 
   void kick();
 }
 
+// Finds verified Nostr keys for X handles on the user's relays. Proof checks are remembered.
+function lookupXMatches(db: Archive, conf: Settings, relays: SimplePool, handles: string[]) {
+  const proofKey = (claim: XClaim) => ['xProof', claim.pubkey, claim.handle, claim.proof];
+  return findXMatches(handles, {
+    query: (identities) => relays.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], '#i': identities }, { maxWait: 6000 }),
+    remembered: async (claim) => (await db.get('meta', proofKey(claim))) as boolean | undefined,
+    remember: (claim, ok) => db.put('meta', ok, proofKey(claim)).then(() => {}),
+    // One check per second keeps the load on X low.
+    pause: () => new Promise((resolve) => setTimeout(resolve, 1000)),
+  });
+}
+const newestProfile = <T extends { kind: number; pubkey: string; created_at: number }>(events: T[], pubkey: string) =>
+  events.filter((e) => e.kind === 0 && e.pubkey === pubkey).sort((a, b) => b.created_at - a.created_at)[0] as T | undefined;
+
+// Tip buttons: X handles with a verified Nostr profile that has a lightning address.
+// Each handle is looked up once every few days; lookups run one batch at a time.
+let tipLookups: Promise<unknown> = Promise.resolve();
+function tipTargets(db: Archive, conf: Settings, handles: string[]) {
+  const run = tipLookups.then(async () => {
+    const result: Record<string, TipTarget | null> = {};
+    const fresh = Date.now() - 3 * 86400000;
+    const unknown: string[] = [];
+    for (const handle of handles) {
+      const cached = (await db.get('meta', ['xTip', handle])) as (Partial<TipTarget> & { at: number }) | undefined;
+      if (!cached || cached.at < fresh) unknown.push(handle);
+      else result[handle] = cached.pubkey && cached.lightning ? { pubkey: cached.pubkey, lightning: cached.lightning } : null;
+    }
+    if (!unknown.length || !conf.relays.length) return result;
+    const relays = new SimplePool();
+    try {
+      const { matches, unchecked } = await lookupXMatches(db, conf, relays, unknown);
+      const keys = [...new Set(matches.map((match) => match.pubkey))];
+      const profiles = keys.length ? await relays.querySync(conf.relays, { kinds: [0], authors: keys }, { maxWait: 5000 }) : [];
+      for (const handle of unknown) {
+        const match = matches.find((m) => m.handle === handle);
+        // A handle X did not let us check yet is asked about again next time.
+        if (!match && unchecked) continue;
+        const lightning = match && lightningAddress(newestProfile(profiles, match.pubkey));
+        const target = match && lightning ? { pubkey: match.pubkey, lightning } : null;
+        await db.put('meta', { at: Date.now(), ...target }, ['xTip', handle]);
+        result[handle] = target;
+      }
+    } finally {
+      relays.destroy();
+    }
+    return result;
+  });
+  tipLookups = run.catch(() => {});
+  return run;
+}
+
 async function run() {
   const importNow = syncRequested;
   syncRequested = false;
@@ -599,6 +653,7 @@ async function configure(msg: Message<'settings'>) {
     capture: !!msg.capture,
     social,
     skipCrossposts: msg.skipCrossposts ?? prev.skipCrossposts ?? true,
+    tipButtons: msg.tipButtons ?? prev.tipButtons ?? true,
     relaySync: !!msg.relaySync,
     relayKinds,
     blossomServer,
@@ -746,7 +801,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && msg.type !== 'captureConfig' && msg.type !== 'capture' && msg.type !== 'xFollows')
+  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipTargets', 'tipInvoice', 'tipRate'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -755,7 +810,12 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       if (!network || !sender.tab || !sender.url) throw Error('Invalid capture source.');
       const selected = network === 'x' ? conf : conf.social?.[network];
       if (msg.type === 'captureConfig')
-        return { handle: selected?.handle ?? '', capture: !!selected?.capture && !!(await sessionKey()), pubkey: conf.pubkey };
+        return {
+          handle: selected?.handle ?? '',
+          capture: !!selected?.capture && !!(await sessionKey()),
+          pubkey: conf.pubkey,
+          tips: network === 'x' && conf.tipButtons !== false,
+        };
       const handle = selected?.handle;
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
         (network === 'x' ? profileHandle(url) === handle : socialProfile(network, url) === handle ||
@@ -812,6 +872,59 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       kickMedia();
       void kick();
       return;
+    }
+    if (msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate') {
+      if (captureNetwork(sender.url) !== 'x' || !sender.tab || conf.tipButtons === false) throw Error('Tips are off.');
+      if (msg.type === 'tipRate') {
+        // A fiat estimate: saved for 15 minutes, from Snort's signed rate events or Coinbase.
+        if (typeof msg.currency !== 'string' || !/^[A-Z]{3}$/.test(msg.currency)) throw Error('Invalid currency.');
+        const key = ['rate', msg.currency], now = Date.now() / 1000;
+        const saved = (await db.get('meta', key)) as { value: number; at: number } | undefined;
+        if (saved && now - saved.at < FRESH_SECONDS) return saved.value;
+        const relays = new SimplePool();
+        let value: number | undefined;
+        try {
+          const events = conf.relays.length
+            ? await relays.querySync(conf.relays, { kinds: [SNORT_RATES.kind], authors: [SNORT_RATES.pubkey], '#d': ['BTC' + msg.currency] }, { maxWait: 2500 })
+            : [];
+          value = events.sort((a, b) => b.created_at - a.created_at).map((e) => snortRate(e, msg.currency)).find(Boolean);
+        } finally {
+          relays.destroy();
+        }
+        value ??= await coinbaseRate(msg.currency).catch(() => undefined);
+        if (value) await db.put('meta', { value, at: now }, key);
+        return value ?? (saved && now - saved.at < 4 * 3600 ? saved.value : null);
+      }
+      if (msg.type === 'tipTargets') {
+        if (!Array.isArray(msg.handles) || msg.handles.length > 50 || !msg.handles.every((h) => typeof h === 'string' && handlePattern.test(h)))
+          throw Error('Invalid handles.');
+        // Await before the archive closes when this handler returns.
+        return await tipTargets(db, conf, [...new Set(msg.handles.map((h) => h.toLowerCase()))]);
+      }
+      const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
+      const target = handlePattern.test(handle) ? (await tipTargets(db, conf, [handle]))[handle] : null;
+      if (!target) throw Error('This account has no verified Nostr profile to tip.');
+      const key = await sessionKey();
+      if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock Social Backup to tip.');
+      if (msg.post !== undefined && !/^\d{1,20}$/.test(msg.post)) throw Error('Invalid post.');
+      const relays = new SimplePool();
+      try {
+        const profile = newestProfile(
+          await relays.querySync(conf.relays, { kinds: [0], authors: [target.pubkey] }, { maxWait: 5000 }),
+          target.pubkey,
+        );
+        if (!profile) throw Error('The Nostr profile could not be loaded.');
+        return await tipInvoice({
+          profile,
+          sats: msg.sats,
+          // The post being tipped, so the recipient sees what it was for.
+          comment: msg.post ? 'https://x.com/' + handle + '/status/' + msg.post : undefined,
+          relays: conf.relays,
+          sign: (template) => finalizeEvent(template, unhex(key)),
+        });
+      } finally {
+        relays.destroy();
+      }
     }
     if (msg.type === 'xFollows') {
       // Handles read from the user's own X following list, to find them on Nostr later.
@@ -974,15 +1087,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const handles = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
         if (!conf.relays.length) throw Error('Select a relay first.');
         const relays = new SimplePool();
-        const proofKey = (claim: XClaim) => ['xProof', claim.pubkey, claim.handle, claim.proof];
         try {
-          const found = await findXMatches(handles, {
-            query: (identities) => relays.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], '#i': identities }, { maxWait: 6000 }),
-            remembered: async (claim) => (await db.get('meta', proofKey(claim))) as boolean | undefined,
-            remember: (claim, ok) => db.put('meta', ok, proofKey(claim)).then(() => {}),
-            // One check per second keeps the load on X low.
-            pause: () => new Promise((resolve) => setTimeout(resolve, 1000)),
-          });
+          const found = await lookupXMatches(db, conf, relays, handles);
           const contacts = await latestOwn(db, conf, 3);
           const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
           return { ...found, following: found.matches.map((match) => match.pubkey).filter((key) => following.has(key)) };

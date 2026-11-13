@@ -6,7 +6,12 @@
   import type { SourcesView } from './views.ts';
 
   // Two optional things: link your X account to this Nostr profile, and follow people you follow on X.
-  let { view }: { view?: SourcesView } = $props();
+  // Tip buttons are a saved switch; `onchange` saves it with the other Sources settings.
+  let {
+    view,
+    tipButtons = $bindable(true),
+    onchange,
+  }: { view?: SourcesView; tipButtons?: boolean; onchange: () => void } = $props();
 
   const handle = $derived(view?.conf.handle ?? '');
   const pubkey = $derived(view?.conf.pubkey ?? '');
@@ -44,6 +49,15 @@
 
 <details class="xNostr">
   <summary>On Nostr</summary>
+  <h4>Tips</h4>
+  <label class="check"
+    ><input type="checkbox" id="tipButtons" bind:checked={tipButtons} {onchange} /> Show tip buttons on X</label
+  >
+  <p class="hint">
+    A ⚡ button appears on posts by people who linked a Nostr profile that can receive Bitcoin tips. To find them, the
+    X accounts you see are looked up on your relays.
+    {#if view && !view.lightning}Add a lightning address to your Nostr profile to receive tips yourself.{/if}
+  </p>
   {#if !handle}
     <p class="hint">Save your X username first.</p>
   {:else}

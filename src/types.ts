@@ -21,6 +21,8 @@ export interface Settings {
   capture: boolean;
   social?: Partial<Record<SocialNetwork, { handle: string; capture: boolean }>>;
   skipCrossposts?: boolean;
+  /** Show tip buttons on X for people with a verified Nostr profile. On unless turned off. */
+  tipButtons?: boolean;
   relaySync: boolean;
   relayKinds?: RelayKindFilter;
   relays: string[];
@@ -101,7 +103,7 @@ export interface BlossomDelivery {
 export interface ArchiveSchema extends DBSchema {
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
   blocks: { key: string; value: Uint8Array };
-  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink };
+  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink | (Partial<TipTarget> & { at: number }) | { value: number; at: number } };
   events: { key: string; value: Event; indexes: { created_at: number } };
   drafts: { key: string; value: Capture | SocialCapture };
   localCaptures: { key: string; value: Capture | SocialCapture };
@@ -159,6 +161,7 @@ export interface Profile {
   name: string;
   displayName: string;
   picture?: string;
+  lightning?: string;
 }
 /** The X post that proves this profile's X account, published as a NIP-39 claim. */
 export interface XLink {
@@ -189,6 +192,12 @@ export interface CaptureConfig {
   handle: string;
   capture: boolean;
   pubkey?: string;
+  tips?: boolean;
+}
+/** A verified Nostr profile with a lightning address, for a tip button on X. */
+export interface TipTarget {
+  pubkey: string;
+  lightning: string;
 }
 export type Sign = (template: EventTemplate) => Promise<Event> | Event;
 export interface Approval {
@@ -227,6 +236,9 @@ export interface Payloads {
   nip07: { token: string; method: string; event?: unknown };
   approval: { id: string; decision?: boolean; remember?: boolean };
   xFollows: { handles: string[] };
+  tipTargets: { handles: string[] };
+  tipInvoice: { handle: string; sats: number; post?: string };
+  tipRate: { currency: string };
   findXFollows: {};
   followOnNostr: { pubkeys: string[] };
 }
@@ -247,6 +259,10 @@ interface ActionResults {
   broadcast: number;
   findXFollows: { matches: XMatch[]; unchecked: number; following: string[] };
   followOnNostr: number;
+  tipTargets: Record<string, TipTarget | null>;
+  tipInvoice: string;
+  /** Units of the currency per bitcoin, for showing tips in fiat. */
+  tipRate: number | null;
 }
 export type Result<K extends Action> = K extends keyof ActionResults
   ? ActionResults[K]

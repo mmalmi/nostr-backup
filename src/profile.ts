@@ -1,3 +1,4 @@
+import { lightningAddress } from './x-tips.ts';
 import type { Archive, Profile } from './types.ts';
 import { archiveRouter } from './archive-event-bus.ts';
 
@@ -22,7 +23,8 @@ export async function readProfile(db: Archive, pubkey: string): Promise<Profile 
         /* Keep the initials when the avatar URL is invalid. */
       }
     }
-    return { name, displayName: text(data.display_name) || name, picture };
+    const lightning = lightningAddress(event);
+    return { name, displayName: text(data.display_name) || name, picture, ...(lightning ? { lightning } : {}) };
   } catch {
     return;
   }

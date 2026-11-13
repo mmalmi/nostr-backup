@@ -4,6 +4,7 @@ import { captureFollows, capturePosts, followingHandle, profileHandle } from './
 import { captureNetwork, socialProfile } from './social.ts';
 import { captureInstagramPosts, createInstagramCollector, instagramPermalink } from './instagram.ts';
 import { createFacebookCollector } from './facebook.ts';
+import { createTipButtons } from './x-tip-buttons.ts';
 
 function startCapture() {
   const network = captureNetwork(location.href);
@@ -12,6 +13,7 @@ function startCapture() {
   const onProfile = (handle: string) => network === 'x' ? profileHandle(location.href) === handle :
     socialProfile(network, location.href) === handle || (network === 'instagram' && !!instagramPermalink(location.href, handle));
   const api = globalThis.browser ?? chrome;
+  const tips = network === 'x' ? createTipButtons((message) => api.runtime.sendMessage(message)) : undefined;
   let config: CaptureConfig | undefined;
   let configuring = false,
     sending = false;
@@ -104,10 +106,11 @@ function startCapture() {
   }
 
   function schedule() {
-    if (frame !== undefined || !config?.handle) return;
+    if (frame !== undefined || (!config?.handle && !config?.tips)) return;
     frame = requestAnimationFrame(() => {
       frame = undefined;
       collect();
+      if (config?.tips) tips?.scan(config.handle);
     });
   }
 
@@ -142,6 +145,7 @@ function startCapture() {
         }
       }
       collect();
+      if (config?.tips) tips?.scan(config.handle);
     } catch {
       retryLater();
     } finally {

@@ -21,6 +21,7 @@
   let typed = $state<Record<Source, string>>({ x: '', instagram: '', facebook: '' });
   let capture = $state<Record<Source, boolean>>({ x: true, instagram: true, facebook: true });
   let skipCrossposts = $state(true);
+  let tipButtons = $state(true);
   let saving = $state<Source>();
 
   // Matches how settings store a username.
@@ -51,6 +52,7 @@
       facebook: conf.social?.facebook?.capture ?? true,
     };
     skipCrossposts = conf.skipCrossposts !== false;
+    tipButtons = conf.tipButtons !== false;
   }
 
   /** Stages usernames from the setup step as saved; the caller then saves settings. */
@@ -69,6 +71,7 @@
       handle: saved.x,
       capture: capture.x,
       skipCrossposts,
+      tipButtons,
       social: {
         instagram: { handle: saved.instagram, capture: capture.instagram },
         facebook: { handle: saved.facebook, capture: capture.facebook },
@@ -144,7 +147,7 @@
     posts already on Nostr</label
   >
   <XStats x={view?.x} localX={view?.localX} />
-  <XOnNostr {view} />
+  <XOnNostr {view} bind:tipButtons onchange={toggle} />
 </section>
 
 {#each networks as network (network.id)}

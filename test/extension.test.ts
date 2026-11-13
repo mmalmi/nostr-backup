@@ -1540,6 +1540,50 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
   }
 });
 
+test('tips on X go to verified Nostr profiles with a lightning address and can be turned off', async (t) => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const carol = generateSecretKey(), carolKey = getPublicKey(carol);
+  const url = 'wss://tips.example/';
+  const relay = fixtureRelay(url);
+  for (const event of [
+    finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:carol', '88']] }, carol),
+    finalizeEvent({ kind: 0, created_at: 5, content: JSON.stringify({ name: 'Carol', lud16: 'carol@wallet.example' }), tags: [] }, carol),
+  ]) relay.stored.set(event.id, event);
+  const zaps: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    const target = new URL(String(input));
+    if (target.origin === 'https://x.com') return publicTweet(input, 'Verifying my account on nostr My Public Key: ' + carolKey);
+    if (target.pathname === '/.well-known/lnurlp/carol')
+      return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay', minSendable: 1000, maxSendable: 1e9, allowsNostr: true, nostrPubkey: carolKey });
+    if (target.pathname === '/pay') {
+      zaps.push(JSON.parse(target.searchParams.get('nostr')!));
+      return Response.json({ pr: 'lnbc1u1p' + 'q'.repeat(60) });
+    }
+    if (target.hostname === 'api.coinbase.com') return Response.json({ data: { currency: 'BTC', rates: { EUR: '90000' } } });
+    throw Error('Unexpected fetch ' + target.href);
+  });
+  const page = { ...x, url: 'https://x.com/home', tab: { id: 1, url: 'https://x.com/home' } };
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url });
+    assert.equal((await success('captureConfig', {}, page)).tips, true);
+    const targets = await success('tipTargets', { handles: ['carol', 'dave'] }, page);
+    assert.deepEqual(targets, { carol: { pubkey: carolKey, lightning: 'carol@wallet.example' }, dave: null });
+    // 100 sats is 1u in an invoice.
+    assert.equal(await success('tipInvoice', { handle: 'carol', sats: 100, post: '42' }, page), 'lnbc1u1p' + 'q'.repeat(60));
+    assert.equal(zaps[0].pubkey, owner);
+    assert.equal(zaps[0].content, 'https://x.com/carol/status/42');
+    assert.equal((await call('tipInvoice', { handle: 'dave', sats: 100 }, page)).ok, false);
+    assert.equal(await success('tipRate', { currency: 'EUR' }, page), 90000);
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipButtons: false });
+    assert.equal((await success('captureConfig', {}, page)).tips, false);
+    assert.equal((await call('tipTargets', { handles: ['carol'] }, page)).ok, false);
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
     publicTweet(url, 'Post ' + String(url).split('/').pop()));
