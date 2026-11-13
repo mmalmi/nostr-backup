@@ -74,18 +74,20 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     (buttons[0] as HTMLElement).click();
     const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // Amounts show a fiat estimate from the page's currency.
-    assert.match(box().querySelector('button small')!.textContent!, /^(≈|<) /);
+    // Amounts are in the page's currency, here 0.10 at 100,000 per bitcoin, with sats in small print.
+    assert.match(box().querySelector('.row button')!.textContent!, /^👍 \D?0[.,]10/);
+    assert.equal(box().querySelector('.row button small')!.textContent, '100 sats');
     assert.match(box().querySelector('.address')!.textContent!, /alice@wallet\.example/);
     // Opening the popover looks for this post's Nostr copy, with its time and opening text.
     const lookup = sent.find((m) => m.type === 'tipPost')!;
     assert.equal(lookup.post, '9');
     assert.equal(lookup.text, 'Great post');
     assert.equal(lookup.time, Math.floor(Date.parse('2024-01-02T03:04:05Z') / 1000));
-    assert.equal(box().querySelector('.onNostr')!.textContent, 'On Nostr · 1,234 sats from 3 tips');
-    (box().querySelector('button') as HTMLElement).click();
+    assert.match(box().querySelector('.onNostr')!.textContent!, /^On Nostr · \D?1[.,]23\D* from 3 tips$/);
+    (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 21, post: '9' });
+    assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 100, post: '9' });
+    assert.match(box().querySelector('p b')!.textContent!, /100 sats/);
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
     // A QR code lets a phone wallet pay the same invoice.
     assert.ok(box().querySelector('.qr svg'));

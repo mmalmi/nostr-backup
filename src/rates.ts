@@ -46,10 +46,18 @@ export async function coinbaseRate(currency: string, fetcher: typeof fetch = fet
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-/** "≈ €0.02" for an amount of sats, or "< €0.01" for very small amounts. */
-export function fiatLabel(sats: number, perBitcoin: number, currency: string, locale?: string) {
-  const value = (sats / 1e8) * perBitcoin;
-  const format = (n: number) =>
-    new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 2, minimumFractionDigits: n < 10 ? 2 : 0 }).format(n);
-  return value < 0.01 ? '< ' + format(0.01) : '≈ ' + format(value);
+// Tip presets in the user's currency: about a dime, a coin and a note, sized for each currency.
+const PRESET_SCALE: Record<string, number> = { JPY: 100, INR: 100, CNY: 10, SEK: 10, NOK: 10, DKK: 10 };
+export function tipPresets(currency: string, perBitcoin: number) {
+  return [0.1, 1, 5].map((step) => {
+    const fiat = step * (PRESET_SCALE[currency] ?? 1);
+    return { fiat, sats: Math.max(1, Math.round((fiat / perBitcoin) * 1e8)) };
+  });
+}
+
+/** A fiat amount such as "€0.10" or "¥100". */
+export function formatFiat(value: number, currency: string, locale?: string) {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency', currency, minimumFractionDigits: value < 10 && value % 1 ? 2 : 0, maximumFractionDigits: 2,
+  }).format(value);
 }

@@ -1,14 +1,15 @@
 import type { Message, TipTarget } from './types.ts';
 import { profileHandle, xPermalink } from './x.ts';
-import { fiatLabel, localCurrency } from './rates.ts';
+import { formatFiat, localCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 
 // Adds a quiet ⚡ button to X posts and profiles of people with a verified Nostr profile
 // that can receive tips. Paying happens in the user's own wallet via a lightning: link.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
-// The same presets as Iris.
-const AMOUNTS: [number, string][] = [[21, '👍'], [100, '💯'], [1000, '🔥']];
+// Small, medium and large tips, with Iris's emoji. Sats are used when no exchange rate is available.
+const EMOJI = ['👍', '💯', '🔥'];
+const SATS = [21, 100, 1000];
 const MARK = 'data-social-backup-tip';
 
 function author(article: Element) {
@@ -76,7 +77,10 @@ export function createTipButtons(send: Send, doc: Document = document) {
     if (!target) return;
     popover = doc.createElement('div');
     const rect = anchor.getBoundingClientRect();
-    popover.style.cssText = `position:fixed;z-index:2147483647;top:${Math.round(rect.bottom + 6)}px;left:${Math.max(8, Math.round(rect.left - 120))}px`;
+    // Below the button, centred on it, and always inside the window.
+    const width = 268, view = doc.defaultView;
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), (view?.innerWidth ?? 1024) - width - 8);
+    popover.style.cssText = `position:fixed;z-index:2147483647;top:${Math.round(rect.bottom + 6)}px;left:${Math.round(left)}px`;
     // Clicks inside the popover never reach X or the close-on-outside-click handler.
     popover.addEventListener('click', (event) => event.stopPropagation());
     const root = popover.attachShadow({ mode: 'open' });
@@ -106,6 +110,11 @@ export function createTipButtons(send: Send, doc: Document = document) {
       box.querySelector('.address span')!.textContent = target.lightning;
       box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(target.lightning));
       const row = box.querySelector('.row')!;
+      rate ??= send({ type: 'tipRate', currency })
+        .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
+        .catch(() => null);
+      const amount = (sats: number, perBitcoin: number | null) =>
+        perBitcoin ? formatFiat((sats / 1e8) * perBitcoin, currency) : sats.toLocaleString() + ' sats';
       // Look for this post's Nostr copy now, not while scrolling, so relays only learn about posts you tip.
       if (post)
         void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
@@ -113,47 +122,51 @@ export function createTipButtons(send: Send, doc: Document = document) {
             const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
             const line = box.querySelector('.onNostr');
             if (!found?.note || !line) return;
-            line.textContent = found.tips
-              ? 'On Nostr · ' + found.sats.toLocaleString() + ' sats from ' + found.tips + (found.tips === 1 ? ' tip' : ' tips')
-              : 'This post is on Nostr.';
+            const show = (perBitcoin: number | null) => {
+              line.textContent = found.tips
+                ? 'On Nostr · ' + amount(found.sats, perBitcoin) + ' from ' + found.tips + (found.tips === 1 ? ' tip' : ' tips')
+                : 'This post is on Nostr.';
+            };
+            void rate!.then(show);
           })
           .catch(() => {});
-      rate ??= send({ type: 'tipRate', currency })
-        .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
-        .catch(() => null);
-      for (const [sats, emoji] of AMOUNTS) {
-        const choice = doc.createElement('button');
-        choice.textContent = emoji + ' ' + sats.toLocaleString();
-        void rate.then((perBitcoin) => {
-          if (!perBitcoin) return;
-          const estimate = doc.createElement('small');
-          estimate.textContent = fiatLabel(sats, perBitcoin, currency);
-          choice.append(estimate);
-        });
-        choice.addEventListener('click', async () => {
-          show('<p>Getting an invoice…</p>');
-          const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
-          if (!reply?.ok || typeof reply.value !== 'string') {
-            box.textContent = '';
-            const error = doc.createElement('p');
-            error.textContent = reply?.error ?? 'Social Backup is unavailable.';
-            box.append(error);
-            return;
+      // Amounts appear once the exchange rate is known: in fiat, with sats in small print.
+      void rate!.then((perBitcoin) => {
+        const presets = perBitcoin ? tipPresets(currency, perBitcoin) : SATS.map((sats) => ({ sats, fiat: 0 }));
+        presets.forEach(({ sats, fiat }, i) => {
+          const choice = doc.createElement('button');
+          choice.textContent = EMOJI[i] + ' ' + (fiat ? formatFiat(fiat, currency) : sats.toLocaleString() + ' sats');
+          if (fiat) {
+            const small = doc.createElement('small');
+            small.textContent = sats.toLocaleString() + ' sats';
+            choice.append(small);
           }
-          const invoice = reply.value;
-          if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
-          // Scan with a phone wallet, or open the wallet on this computer.
-          const qr = qrcode(0, 'M');
-          qr.addData('lightning:' + invoice);
-          qr.make();
-          show('<p>Pay ' + sats.toLocaleString() + ' sats in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
-            qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
-            '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
-          box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
-          box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
+          choice.addEventListener('click', async () => {
+            show('<p>Getting an invoice…</p>');
+            const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
+            if (!reply?.ok || typeof reply.value !== 'string') {
+              box.textContent = '';
+              const error = doc.createElement('p');
+              error.textContent = reply?.error ?? 'Social Backup is unavailable.';
+              box.append(error);
+              return;
+            }
+            const invoice = reply.value;
+            if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
+            // Scan with a phone wallet, or open the wallet on this computer.
+            const qr = qrcode(0, 'M');
+            qr.addData('lightning:' + invoice);
+            qr.make();
+            show('<p>Pay <b></b> in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
+              qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
+              '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
+            box.querySelector('b')!.textContent = fiat ? formatFiat(fiat, currency) + ' (' + sats.toLocaleString() + ' sats)' : sats.toLocaleString() + ' sats';
+            box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
+            box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
+          });
+          row.append(choice);
         });
-        row.append(choice);
-      }
+      });
     }
     doc.body.append(popover);
   }
@@ -194,8 +207,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
       bar?.append(button(handle, postInfo(article), handle === own));
     }
+    // On the name row, after the name and badges, rather than on a line of its own.
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`))
-      name.append(button(profile, undefined, profile === own));
+      (name.firstElementChild ?? name).append(button(profile, undefined, profile === own));
   }
   return { scan, targets };
 }
