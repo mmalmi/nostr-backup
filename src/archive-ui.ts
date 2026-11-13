@@ -1,13 +1,11 @@
 import { errorMessage, type Profile } from './types.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
-import { settings } from './accounts.ts';
 import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { relayList } from './model.ts';
 import { indexName } from './index-pointer.ts';
-import { api, el, send, notice, on } from './ui.ts';
+import { api, el, send, notice, on, downloadBlob } from './ui.ts';
 import { dump, openArchive } from './archive.ts';
-import { downloadBlob, mediaConfig, refreshMedia } from './media-ui.ts';
 import { DEFAULT_MEDIA_MIB } from './media-files.ts';
 import { mount } from 'svelte';
 import Sources from './components/Sources.svelte';
@@ -16,6 +14,7 @@ import type { SourcesPanel } from './components/views.ts';
 import Account from './components/Account.svelte';
 import Storage from './components/Storage.svelte';
 import Onboarding from './components/Onboarding.svelte';
+import Media from './components/Media.svelte';
 import { app, page } from './components/page.svelte.ts';
 
 const header = mount(ProfileSlot, { target: el('profileSlot') }) as {
@@ -33,6 +32,7 @@ const sources = mount(Sources, {
 }) as SourcesPanel;
 mount(Account, { target: el('accountPanel') });
 mount(Storage, { target: el('storagePanel') });
+mount(Media, { target: el('mediaPanel') });
 const onboarding = mount(Onboarding, { target: el('onboarding') }) as { focus(): void };
 app.refresh = (initial) => refresh(initial);
 
@@ -107,7 +107,6 @@ async function refresh(initial = false) {
   pubkey = conf.pubkey;
   header.show(pubkey, profile, !unlocked);
   sources.show({ conf, unlocked, x, social, localX }, changed ? 'replace' : initial ? 'sync' : 'none');
-  mediaConfig(conf, unlocked);
   if (pubkey && !el('onboarding').hidden && !location.hash) {
     history.replaceState(null, '', '#archive');
     selectSection();
@@ -116,10 +115,6 @@ async function refresh(initial = false) {
   el('onboarding').hidden = !!pubkey;
   if (enteringWelcome) onboarding.focus();
   el('workspace').hidden = !pubkey;
-  if (pubkey && location.hash === '#media') {
-    await refreshMedia();
-    if (request !== refreshId) return;
-  }
   if (initial || changed) {
     el('blossomServer').value = mediaServers(conf).join('\n');
     el('mediaMiB').value = String(conf.mediaMiB ?? DEFAULT_MEDIA_MIB);
@@ -280,10 +275,7 @@ on('download', 'click', async () => {
 });
 api.storage?.onChanged?.addListener((changes, area) => {
   if (area !== 'local' || !changes.settingsChanged) return;
-  settings().then(next => {
-    if (next.pubkey !== pubkey) mediaConfig(next, false);
-    return refresh();
-  }).catch(e => notice(e.message));
+  refresh().catch((e) => notice(e.message));
 });
 selectSection();
 refresh(true).catch((e) => notice(e.message));

@@ -118,32 +118,7 @@
               </p>
             </section>
 
-            <section>
-              <h3>Local backup</h3>
-              <p>
-                Save files linked from your archived posts. Keep this page open while the
-                backup runs.
-              </p>
-              <div class="stats">
-                <div><strong id="savedFiles">0</strong>Local files</div>
-                <div><strong id="posterRefs">0</strong>Video previews</div>
-                <div><strong id="missingRefs">0</strong>Unavailable</div>
-              </div>
-              <button id="backupMedia" disabled>Back up media</button>
-              <p id="mediaProgress" role="status"></p>
-            </section>
-            <section>
-              <h3>Copies on other servers</h3>
-              <p id="uploadHint"></p>
-              <ul id="blossomStatus" aria-label="Blossom server status"></ul>
-              <button id="uploadMedia" class="secondary" disabled>Sync media</button>
-            </section>
-            <section>
-              <h3>Attachments</h3>
-              <p id="mediaSummary"></p>
-              <ul id="mediaList"></ul>
-              <button class="quiet" id="moreMedia" hidden>Show more</button>
-            </section>
+            <div id="mediaPanel"></div>
           </div>
           <div data-panel="storage" id="storagePanel" hidden></div>
           <div data-panel="account" id="accountPanel" hidden></div>
