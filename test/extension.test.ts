@@ -1273,7 +1273,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.ok(details);
   details.open = true;
   details.dispatchEvent(new page.Event('toggle') as unknown as Event);
-  assert.ok(details.textContent.includes(profile.id));
+  await until(() => details.textContent.includes(profile.id));
   await api.storage.session.set({ 'grant-99': { token: 'old' } });
   suspendUploads = true;
   const interrupted = call('publishIndex', { account: owner });

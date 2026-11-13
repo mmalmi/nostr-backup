@@ -181,24 +181,7 @@
               <button class="quiet" id="moreMedia" hidden>Show more</button>
             </section>
           </div>
-          <div data-panel="storage" hidden>
-            <h2>Storage</h2>
-            <p id="storageState" role="status"></p>
-            <div id="storageDetails" hidden>
-              <section>
-                <h3>Local archive</h3>
-                <dl id="storageTotals"></dl>
-              </section>
-              <section>
-                <h3>Saved items by type</h3>
-                <p class="hint">
-                  Choose a type to see individual items and how much space they use.
-                </p>
-                <div id="kindList"></div>
-              </section>
-            </div>
-            <button class="secondary" id="refreshStats">Refresh statistics</button>
-          </div>
+          <div data-panel="storage" id="storagePanel" hidden></div>
           <div data-panel="account" id="accountPanel" hidden></div>
         </div>
       </div>

@@ -6,7 +6,6 @@ import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { relayList } from './model.ts';
 import { indexName } from './index-pointer.ts';
-import { showStorage } from './storage-ui.ts';
 import { api, el, send, notice, on } from './ui.ts';
 import { dump, openArchive } from './archive.ts';
 import { downloadBlob, mediaConfig, refreshMedia } from './media-ui.ts';
@@ -16,6 +15,7 @@ import Sources from './components/Sources.svelte';
 import ProfileSlot from './components/ProfileSlot.svelte';
 import type { SourcesPanel } from './components/views.ts';
 import Account from './components/Account.svelte';
+import Storage from './components/Storage.svelte';
 import { app, page } from './components/page.svelte.ts';
 
 const header = mount(ProfileSlot, { target: el('profileSlot') }) as {
@@ -32,6 +32,7 @@ const sources = mount(Sources, {
   },
 }) as SourcesPanel;
 mount(Account, { target: el('accountPanel') });
+mount(Storage, { target: el('storagePanel') });
 app.refresh = (initial) => refresh(initial);
 
 let archiveName: string | undefined,
@@ -119,7 +120,6 @@ async function refresh(initial = false) {
     await refreshMedia();
     if (request !== refreshId) return;
   }
-  showStorage(conf, location.hash === '#storage');
   if (initial || changed) {
     el('blossomServer').value = mediaServers(conf).join('\n');
     el('mediaMiB').value = String(conf.mediaMiB ?? DEFAULT_MEDIA_MIB);
