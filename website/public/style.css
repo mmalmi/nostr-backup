@@ -49,14 +49,18 @@ a:hover, summary:hover { color: var(--blue); }
 nav, footer div { gap: 1.6rem; }
 nav a, .brand, .button { text-decoration: none; }
 nav a { font-size: .94rem; }
+nav a, .brand { white-space: nowrap; }
 nav a:hover, footer a:hover { text-decoration: underline; }
 .hero { display: grid; grid-template-columns: 1fr 1.45fr; gap: 2.5rem; align-items: center; padding-block: clamp(3rem, 7vw, 6.5rem); }
 h1, h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; text-wrap: balance; }
 h1 { font-size: clamp(3.1rem, 5.6vw, 5rem); line-height: 1.02; letter-spacing: -.065em; }
 p, li { text-wrap: pretty; }
 .intro p { max-width: 31rem; margin-top: 1.4rem; color: var(--muted); font-size: 1.07rem; }
-.intro ul { margin: .8rem 0 1.7rem; padding-left: 1.25rem; color: var(--muted); }
-.intro li + li { margin-top: .3rem; }
+.intro ul { margin: .8rem 0 1.7rem; display: grid; gap: .3rem; padding-left: 1.25rem; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1.4rem; }
+.text-link { color: var(--blue); font-weight: 600; text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
+.intro .fine { margin-top: 1.1rem; font-size: .88rem; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: .7rem; width: fit-content; padding: .75rem 1.1rem; border-radius: .4rem; background: var(--button); color: white; font-weight: 620; white-space: nowrap; }
 .button:hover { background: var(--button-hover); color: white; }
 .button span { font-size: 1.2em; line-height: 1; }
@@ -72,35 +76,44 @@ p, li { text-wrap: pretty; }
 .section { border-top: 1px solid var(--line); padding-block: 3rem 3.5rem; scroll-margin-top: 1rem; }
 h2 { margin-bottom: 1.6rem; font-size: clamp(2rem, 3.4vw, 2.7rem); line-height: 1.15; letter-spacing: -.055em; }
 h3 { font-size: 1.18rem; font-weight: 620; letter-spacing: -.03em; }
-small, .safari summary span { color: var(--muted); font: 400 .86rem/1.5 system-ui, sans-serif; letter-spacing: normal; }
+small, .fold summary span { color: var(--muted); font: 400 .86rem/1.5 system-ui, sans-serif; letter-spacing: normal; }
 strong { font-weight: 600; color: var(--ink); }
 code { font: .9em/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
 
 .platforms { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
-.platform, .safari { border: 1px solid var(--line); border-radius: .7rem; }
+details.fold, .platform { border: 1px solid var(--line); border-radius: .7rem; }
 .platform { padding: 1.4rem 1.5rem 1.6rem; background: var(--card); }
 .platform-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .platform ol { display: grid; gap: .6rem; margin-top: 1.3rem; padding: 0; list-style: none; counter-reset: step; }
-.platform li, .safari p, .ways p, .note { color: var(--muted); }
+.platform li, .fold p, .steps p, .reasons p, .lead, .tip, .fine, .note { color: var(--muted); }
 .platform li { position: relative; padding-left: 2.2rem; counter-increment: step; }
-.platform li::before { content: counter(step); position: absolute; left: 0; top: .08rem; display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--chip); color: var(--ink); font: 600 .78rem/1 system-ui, sans-serif; }
+.platform li::before, .steps li::before { content: counter(step); position: absolute; left: 0; top: .08rem; display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--chip); color: var(--ink); font: 600 .78rem/1 system-ui, sans-serif; }
 .note { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line); font-size: .94rem; }
-.safari { margin-top: 1.25rem; padding-inline: 1.5rem; }
-.safari summary { cursor: pointer; font-weight: 600; padding-block: 1rem; }
-.safari summary span { margin-left: .35rem; }
-.safari p { max-width: 46rem; }
-.safari .button { margin-bottom: 1.5rem; }
+.fold { padding-inline: 1.5rem; background: var(--card); }
+.fold summary { cursor: pointer; font-weight: 600; padding-block: 1rem; }
+.fold summary span { margin-left: .35rem; }
+.fold p { max-width: 46rem; padding-bottom: 1.2rem; }
+.fold pre + .button { margin-bottom: 1.5rem; }
+#install .fold { margin-top: 1.25rem; }
+.faq { display: grid; gap: .75rem; max-width: 50rem; }
+.lead { max-width: 40rem; margin: -.6rem 0 1.6rem; font-size: 1.05rem; }
+.tip { margin-top: 1.1rem; font-size: .94rem; }
 pre { margin-block: 1rem; white-space: pre-wrap; background: var(--chip); padding: .8rem 1rem; border-radius: .35rem; }
 
-.ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem 2.5rem; }
-.ways h3 { margin-bottom: .5rem; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem 2.5rem; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.steps li { position: relative; padding-top: 2.6rem; counter-increment: step; }
+.steps li::before { top: 0; width: 1.9rem; height: 1.9rem; font-size: .9rem; }
+.steps h3, .reasons h3 { margin-bottom: .5rem; }
+.reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem 2.5rem; }
+.reasons p { max-width: 30rem; }
 
 footer { gap: 1.5rem; justify-content: space-between; border-top: 1px solid var(--line); padding-block: 2.2rem; }
 footer h2 { margin: 0; font: 600 1rem/1.5 system-ui, sans-serif; letter-spacing: -.015em; }
 footer a { color: var(--blue); }
 @media (max-width: 52rem) {
-  .ways { grid-template-columns: 1fr; gap: 1.5rem; }
-  .ways p { max-width: 40rem; }
+  .steps, .reasons { grid-template-columns: 1fr; gap: 1.5rem; }
+  .steps li { padding: .15rem 0 0 2.8rem; }
+  .steps p, .reasons p { max-width: 40rem; }
 }
 @media (max-width: 46rem) {
   .hero { grid-template-columns: 1fr; gap: 2rem; padding-block: 2.5rem; }
@@ -115,6 +128,7 @@ footer a { color: var(--blue); }
   .brand { font-size: 1rem; gap: .4rem; }
   .brand img { width: 25px; height: 25px; }
   nav a { font-size: .875rem; }
+  .wide-only { display: none; }
   .platform { padding: 1.15rem 1.15rem 1.35rem; }
-  .safari { padding-inline: 1.15rem; }
+  .fold { padding-inline: 1.15rem; }
 }

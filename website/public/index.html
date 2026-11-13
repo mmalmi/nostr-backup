@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Back up your posts | Nostr Backup</title>
-    <meta name="description" content="Automatically back up posts from X, Instagram and Facebook as you scroll. Keep a copy of your posts and saved media on your device.">
+    <meta name="description" content="Keep a copy of your X, Instagram and Facebook posts. Scroll your profile and the extension saves them as you go.">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
@@ -15,18 +15,23 @@
   <body>
     <header class="bar wrap">
       <a class="brand" href="./"><img src="./icon.svg" width="30" height="30" alt="">Nostr Backup</a>
-      <nav aria-label="Main navigation"><a href="#downloads">Downloads</a><a href="#source">Source</a></nav>
+      <nav aria-label="Main navigation"><a class="wide-only" href="#how">How it works</a><a href="#install">Install</a><a href="#questions">Questions</a></nav>
     </header>
     <main class="wrap">
       <section class="hero" aria-labelledby="title">
         <div class="intro">
           <h1 id="title">Back up your posts.</h1>
-          <p>Automatically back up your X, Instagram and Facebook posts as you scroll your profiles.</p>
+          <p>Keep a copy of your X, Instagram and Facebook posts. Just scroll your profile and the extension saves them as you go.</p>
           <ul>
-            <li>Download your posts and saved media.</li>
-            <li>Only public posts are shared.</li>
+            <li>Your copy stays on your computer.</li>
+            <li>Download your posts and photos anytime.</li>
+            <li>Public posts also appear on Nostr, so new readers can follow you.</li>
           </ul>
-          <a class="button" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
+          <div class="actions">
+            <a class="button" href="#install">Get the extension <span aria-hidden="true">↓</span></a>
+            <a class="text-link" href="#how">How it works</a>
+          </div>
+          <p class="fine">Free and open source. For Chrome and Firefox on a computer.</p>
         </div>
         <figure class="backup-preview">
           <picture>
@@ -35,20 +40,57 @@
             <source media="(prefers-color-scheme: dark)" srcset="./screenshots/toolbar-desktop-dark.webp" width="730" height="557">
             <img src="./screenshots/toolbar-desktop-light.webp" width="730" height="557" alt="The backup popup beneath its pinned Chrome toolbar icon, showing Chad’s avatar and eight captured X posts.">
           </picture>
-          <figcaption>The toolbar popup on a sample X profile.</figcaption>
+          <figcaption>The extension on a sample X profile.</figcaption>
         </figure>
       </section>
+
+      <section id="how" class="section" aria-labelledby="how-title">
+        <h2 id="how-title">How it works</h2>
+        <ol class="steps">
+          <li>
+            <h3>Make a profile</h3>
+            <p>Click the Nostr Backup icon and choose <strong>Create profile</strong>. Then choose <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, turn on backup and choose <strong>Save</strong>.</p>
+          </li>
+          <li>
+            <h3>Scroll your profile</h3>
+            <p>Visit your profile and scroll. Posts are saved as they appear, older ones too.</p>
+          </li>
+          <li>
+            <h3>Download your copy</h3>
+            <p>Choose <strong>Download ZIP</strong>. To include photos and videos, first choose <strong>Media → Back up media</strong>.</p>
+          </li>
+        </ol>
+        <figure class="backup-preview archive-preview">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/archive-dark.webp" width="760" height="396">
+            <img src="./screenshots/archive-light.webp" width="760" height="396" loading="lazy" alt="Chad’s sample backup has 134 saved items and a Download ZIP button.">
+          </picture>
+          <figcaption>Choose Open backup in the popup to see everything you’ve saved.</figcaption>
+        </figure>
+      </section>
+
       <section class="section" aria-labelledby="why-title">
         <h2 id="why-title">Why keep a copy?</h2>
-        <p>If a platform suspends your account, you still have the posts you’ve saved. You can read them offline or while the service is down. Sharing your public posts on <a href="https://nostr.how/en/what-is-nostr">Nostr</a> lets new readers find and follow you there, even if they don’t use the original platform.</p>
+        <div class="reasons">
+          <div>
+            <h3>Don’t lose your posts</h3>
+            <p>If a platform suspends your account or goes down, you still have your posts. You can read them offline, anytime.</p>
+          </div>
+          <div>
+            <h3>Reach new readers</h3>
+            <p>Your public posts also appear on <a href="https://nostr.how/en/what-is-nostr">Nostr</a>, an open social network no single company controls. People can find and follow you there without using the original platform.</p>
+          </div>
+        </div>
       </section>
-      <section id="downloads" class="section" aria-labelledby="downloads-title">
-        <h2 id="downloads-title">Downloads</h2>
+
+      <section id="install" class="section" aria-labelledby="install-title">
+        <h2 id="install-title">Install</h2>
+        <p class="lead">Nostr Backup isn’t in the browser stores yet, so adding it takes a few extra clicks.</p>
         <div class="platforms">
           <div class="platform">
             <div class="platform-head">
-              <h3>Chrome</h3>
-              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download the extension for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+              <h3>Chrome <small>Easiest</small></h3>
+              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download>Download for Chrome <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
               <li>Unzip the download.</li>
@@ -58,53 +100,52 @@
           </div>
           <div class="platform">
             <div class="platform-head">
-              <h3>Firefox <small>140+</small></h3>
-              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download the extension for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+              <h3>Firefox <small>140 or newer</small></h3>
+              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download>Download for Firefox <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
-              <li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>
-              <li>Choose <strong>Load Temporary Add-on</strong> and select the ZIP.</li>
+              <li>Type <code>about:debugging#/runtime/this-firefox</code> in the address bar.</li>
+              <li>Choose <strong>Load Temporary Add-on</strong> and select the download.</li>
             </ol>
-            <p class="note">Firefox removes temporary add-ons on restart, so export your archive first.</p>
+            <p class="note"><strong>Heads up:</strong> Firefox removes the extension when it restarts. Download your copy before closing Firefox.</p>
           </div>
         </div>
-        <details class="safari">
-          <summary>Safari <span>Experimental</span></summary>
+        <p class="tip">Don’t see the icon? Open your browser’s extensions menu (the puzzle piece) and pin Nostr Backup.</p>
+        <details class="fold">
+          <summary>Safari <span>Experimental, needs Xcode</span></summary>
           <p>On a Mac with Xcode, unzip the package into a folder named <code>nostr-backup-safari</code>, then run this command from its parent folder. Open the generated Xcode project and build the app.</p>
           <pre><code>xcrun safari-web-extension-packager nostr-backup-safari --app-name "Nostr Backup" --macos-only</code></pre>
-          <a class="button small quiet" href="./downloads/nostr-backup-safari.zip" download aria-label="Download the experimental Safari package as a ZIP">Download Safari ZIP <span aria-hidden="true">↓</span></a>
+          <a class="button small quiet" href="./downloads/nostr-backup-safari.zip" download>Download for Safari <span aria-hidden="true">↓</span></a>
         </details>
       </section>
-      <section class="section" aria-labelledby="start-title">
-        <h2 id="start-title">Your first backup</h2>
-        <div class="ways">
-          <div>
-            <h3>Choose a profile</h3>
-            <p>Click the extension icon beside your browser’s address bar. If it’s hidden, look in your browser’s extensions menu. Choose <strong>Create profile</strong> to get started, or sign in with your secret key. Keep that key private. Choose <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, turn on backup and select <strong>Save</strong>.</p>
-          </div>
-          <div>
-            <h3>Browse your posts</h3>
-            <p>Visit your profile and scroll. The extension saves posts as they appear, including older ones. Open the toolbar popup to see how many you’ve backed up.</p>
-          </div>
-          <div>
-            <h3>Download your copy</h3>
-            <p>Choose <strong>Backup → Download ZIP</strong> to save your archive. To include photos and videos, first choose <strong>Media → Back up media</strong>.</p>
-          </div>
+
+      <section id="questions" class="section" aria-labelledby="questions-title">
+        <h2 id="questions-title">Questions</h2>
+        <div class="faq">
+          <details class="fold">
+            <summary>What gets shared?</summary>
+            <p>Only posts that are public on the original site. They appear on Nostr, where anyone can read them, and can’t be taken back once shared. Private posts stay on your computer and are only in your download.</p>
+          </details>
+          <details class="fold">
+            <summary>What is my secret key?</summary>
+            <p>When you create a profile, the extension makes a secret key. It works like a password for your Nostr profile, but it can’t be reset. Choose <strong>Account → Copy secret key</strong> and keep it somewhere safe. Never share it.</p>
+          </details>
+          <details class="fold">
+            <summary>Already have a Nostr profile?</summary>
+            <p>Choose <strong>Sign in</strong> instead of Create profile and paste your secret key. The extension also saves a copy of your existing Nostr posts.</p>
+          </details>
+          <details class="fold">
+            <summary>Can I sign in to other sites with it?</summary>
+            <p>Yes, on sites that support Nostr login. Choose the browser extension and approve the sign-in. No separate username or password needed.</p>
+          </details>
+          <details class="fold">
+            <summary>Does it cost anything?</summary>
+            <p>No. It’s free, and anyone can read the source code.</p>
+          </details>
         </div>
-        <figure class="backup-preview archive-preview">
-          <picture>
-            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/archive-dark.webp" width="760" height="396">
-            <img src="./screenshots/archive-light.webp" width="760" height="396" loading="lazy" alt="Chad’s sample archive has 134 backed-up items and a Download ZIP button.">
-          </picture>
-          <figcaption>Choose Open backup in the popup to see everything you’ve saved.</figcaption>
-        </figure>
-      </section>
-      <section class="section" aria-labelledby="login-title">
-        <h2 id="login-title">Sign in without a password</h2>
-        <p>On sites that support Nostr login, choose the browser extension and approve the sign-in. You can use the same profile across those sites without entering a separate username or password.</p>
       </section>
     </main>
-    <footer class="wrap" id="source">
+    <footer class="wrap">
       <h2>Source code</h2>
       <div><a href="https://git.iris.to/#/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/nostr-backup">git.iris.to <span aria-hidden="true">↗</span></a>
       <a href="https://github.com/mmalmi/nostr-backup">GitHub <span aria-hidden="true">↗</span></a></div>
