@@ -15,6 +15,18 @@ function xPath(value?: string | null) {
 export function profileHandle(url?: string) {
   return profile.exec(xPath(url))?.[1].toLowerCase();
 }
+export function xPermalink(value: string) {
+  try {
+    const url = new URL(value, 'https://x.com');
+    if (!['x.com','www.x.com','twitter.com','www.twitter.com'].includes(url.hostname) ||
+        !['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port) return;
+    const match = status.exec(url.pathname);
+    if (match) {
+      const author = match[1].toLowerCase(), id = match[2];
+      return {author, id, url: 'https://x.com/' + author + '/status/' + id};
+    }
+  } catch { /* Incomplete permalink. */ }
+}
 function bodyText(node: Node): string {
   if (node.nodeType === 3) return node.textContent ?? '';
   if (node.nodeType !== 1) return '';
@@ -24,6 +36,8 @@ function bodyText(node: Node): string {
   if (element.getAttribute?.('aria-hidden') === 'true') return '';
   if (element.tagName === 'A') {
     const url = element.getAttribute('title') || element.getAttribute('href');
+    const postLink = url && xPermalink(url);
+    if (postLink) return postLink.url;
     if (url && /^https?:\/\//i.test(url) && !/^https?:\/\/x\.com\//i.test(url)) return url;
   }
   return Array.from(node.childNodes, bodyText).join('');
@@ -105,16 +119,16 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
     // the attachment before committing the immutable signed copy.
     if (photos.some(photo => !readyPhotos.has(photo))) continue;
     const parts = [content, ...new Set(attachments)].filter(Boolean);
-    const quote = article.querySelector(
-      '[data-testid="quoteTweet"] a[href*="/status/"], div[role="link"] a[href*="/status/"]',
-    );
-    const quoted = status.exec(xPath(quote?.getAttribute('href')));
-    if (quoted && quoted[2] !== match[2])
-      parts.push('https://x.com/' + quoted[1] + '/status/' + quoted[2]);
+    const card = article.querySelector('[data-testid="quoteTweet"]') ??
+      Array.from(article.querySelectorAll('div[role="link"]')).find(el =>
+        el.querySelector('[data-testid="User-Name"], [data-testid="tweetText"], a[href*="/status/"], time'));
+    const quote = card && Array.from(card.querySelectorAll('a[href]')).map(a => xPermalink(a.getAttribute('href')!)).find(Boolean);
+    if (quote && quote.id !== match[2] && !content?.includes(quote.url)) parts.push(quote.url);
     if (parts.length && Number.isFinite(timestamp))
       posts.push({
         id: match[2],
         author: handle,
+        ...(card ? {hasQuoteCard:true} : {}),
         ...(audience ? { visibility: 'private' as const } : {}),
         time: timestamp,
         ...(millis % 1000 ? { timeMs: millis } : {}),

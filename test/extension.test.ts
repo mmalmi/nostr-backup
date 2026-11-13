@@ -1666,3 +1666,201 @@ test('social profile backup keeps restricted posts local across duplicate captur
     } finally { db.close(); }
   } finally { await success('logout', { pubkey: owner }); }
 });
+
+test('self-quotes fetch and archive public originals on all three networks before signing, without relay receipts', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret),
+    relayURL = 'wss://quote.example/';
+  const relay = fixtureRelay(relayURL),
+    held = Promise.withResolvers<void>();
+  relay.holdPublish = held.promise;
+  const xLink = 'https://x.com/alice/status/10',
+    fb = 'https://www.facebook.com/alice/posts/22',
+    ig = 'https://www.instagram.com/p/MyPost/',
+    other = 'https://www.instagram.com/p/Theirs/';
+  const text = 'Read these: ' + [xLink, fb, ig, other, 'https://x.com/bob/status/11'].join(' ');
+  const html = (url: string, body: string) => {
+    const response = new Response(body, { headers: { 'content-type': 'text/html' } });
+    Object.defineProperty(response, 'url', { value: url });
+    return response;
+  };
+  const reads: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, opts?: RequestInit) => {
+    const url = String(input);
+    assert.equal(opts?.credentials, 'omit');
+    if (url.startsWith('https://publish.x.com/oembed?')) return publicEmbed(input, text);
+    reads.push(url);
+    if (url === xLink) {
+      const data = {
+        data: {
+          tweet_result_by_rest_id: {
+            result: {
+              __typename: 'Tweet',
+              rest_id: '10',
+              core: {
+                user_results: {
+                  result: { core: { screen_name: 'alice' }, privacy: { protected: false } },
+                },
+              },
+              details: { full_text: 'First on X', created_at_ms: 1600000000000 },
+              media_entities2: [],
+            },
+          },
+        },
+      };
+      return html(url, '<script>const data=' + JSON.stringify(JSON.stringify(data)) + '</script>');
+    }
+    if (url.startsWith('https://www.facebook.com/plugins/post.php?')) {
+      assert.equal(new URL(url).searchParams.get('href'), fb);
+      return html(
+        url,
+        '<div data-testid="newsFeedStream"><div role="feed"><a href="/alice"><img aria-label="Alice"></a>' +
+          '<a href="/alice/posts/22"><abbr data-utime="1600000001"></abbr></a><div data-testid="post_message">First on Facebook</div></div></div>',
+      );
+    }
+    for (const [link, author] of [
+      [ig, 'alice'],
+      [other, 'bob'],
+    ]) {
+      if (url === link + 'embed/captioned/')
+        return html(
+          url,
+          '<div class="Embed" data-permalink="' +
+            link +
+            '" data-media-type="GraphImage">' +
+            '<div class="Header"><a class="Username" href="https://www.instagram.com/' +
+            author +
+            '/"></a></div><div class="Caption"><a class="CaptionUsername" href="https://www.instagram.com/' +
+            author +
+            '/">Byline</a>First on Instagram</div>' +
+            '<div class="Content"><a class="EmbeddedMedia" href="' +
+            link +
+            '"><img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/a.jpg"></a></div></div>',
+        );
+    }
+    if (url === ig)
+      return html(
+        url,
+        '<link rel="canonical" href="' +
+          ig +
+          '"><meta property="og:type" content="article"><meta property="og:url" content="' +
+          ig +
+          '"><meta property="article:published_time" content="2020-09-13T12:26:42Z">',
+      );
+    throw Error('Unexpected lookup ' + url);
+  });
+  await success('login', { key: nsecEncode(secret) });
+  await success('settings', {
+    pubkey: owner,
+    handle: 'alice',
+    relays: relayURL,
+    capture: true,
+    relaySync: false,
+    social: {
+      instagram: { handle: 'alice', capture: true },
+      facebook: { handle: 'alice', capture: true },
+    },
+  });
+  const db = await openArchive('nostr-backup-' + owner);
+  try {
+    const post = { id: '99', author: 'alice', text, time: 1700000000 };
+    await success('capture', { posts: [post] }, x);
+    await until(async () => !!(await db.get('sources', 'x:99')));
+    const find = async (key: string) => (await db.get('events', (await db.get('sources', key))!))!;
+    const parent = await find('x:99');
+    assert.ok(verifyEvent(parent));
+    const references = [...parent.content.matchAll(/nostr:(nevent1[a-z0-9]+)/g)].map((m) =>
+      decode(m[1]),
+    );
+    for (const [i, key] of ['x:10', 'facebook:22', 'instagram:MyPost'].entries()) {
+      const original = await find(key);
+      assert.ok(verifyEvent(original));
+      assert.deepEqual(parent.tags.filter((tag) => tag[0] === 'q')[i], [
+        'q',
+        original.id,
+        '',
+        owner,
+      ]);
+      const ref = references[i];
+      assert.ok(ref.type === 'nevent' && ref.data.id === original.id && ref.data.author === owner);
+    }
+    for (const url of [xLink, fb, ig]) assert.ok(!parent.content.includes(url));
+    assert.ok(
+      parent.content.includes(other) && parent.content.includes('https://x.com/bob/status/11'),
+    );
+    assert.equal(await db.count('outbox'), 4);
+    const before = reads.length;
+    await success('capture', { posts: [{ ...post, id: '98' }] }, x);
+    await until(async () => !!(await db.getKey('sources', 'x:98')));
+    assert.equal(reads.length, before);
+    assert.equal(await db.count('events'), 5);
+  } finally {
+    held.resolve();
+    await idle();
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('unavailable own quote stays a local draft, and resolves when the original is later captured', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  const site = 'https://www.facebook.com/alice',
+    original = site + '/posts/100';
+  const sender = { ...x, url: site, tab: { id: 17, url: site } };
+  const relayURL = 'wss://quote-later.example/',
+    relay = fixtureRelay(relayURL);
+  t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 503 }));
+  await success('login', { key: nsecEncode(secret) });
+  await success('settings', {
+    pubkey: owner,
+    handle: '',
+    capture: false,
+    relays: relayURL,
+    relaySync: false,
+    social: { facebook: { handle: 'alice', capture: true } },
+  });
+  const db = await openArchive('nostr-backup-' + owner);
+  const post = (id: string, text: string, visibility: string) => ({
+    source: 'facebook',
+    author: 'alice',
+    time: 1600000000,
+    id,
+    text,
+    url: site + '/posts/' + id,
+    visibility,
+  });
+  try {
+    await success(
+      'capture',
+      {
+        posts: [
+          post('101', 'A quote: ' + original, 'public'),
+          post('100', 'Restricted', 'private'),
+          post('102', 'Unrelated', 'public'),
+        ],
+      },
+      sender,
+    );
+    await idle();
+    assert.ok(await db.getKey('drafts', 'facebook:101'));
+    assert.ok(await db.getKey('localCaptures', 'facebook:100'));
+    assert.ok(!(await db.getKey('sources', 'facebook:100')));
+    assert.deepEqual(
+      relay.sent.map((e) => e.content),
+      ['Unrelated'],
+    );
+    await success('capture', { posts: [post('100', 'Released original', 'public')] }, sender);
+    await idle();
+    const id = await db.get('sources', 'facebook:100');
+    const parent = await db.get('events', (await db.get('sources', 'facebook:101'))!);
+    assert.deepEqual(
+      parent?.tags.find((t) => t[0] === 'q'),
+      ['q', id, '', owner],
+    );
+    assert.equal(await db.count('drafts'), 0);
+  } finally {
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});

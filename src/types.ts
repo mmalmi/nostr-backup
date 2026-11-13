@@ -25,6 +25,7 @@ export interface Capture {
   timeMs?: number;
   text: string;
   posters?: string[];
+  hasQuoteCard?: boolean;
   visibility?: 'public' | 'private' | 'unknown';
 }
 export type SocialNetwork = 'instagram' | 'facebook';

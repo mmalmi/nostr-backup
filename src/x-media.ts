@@ -1,4 +1,5 @@
 import { publicMediaURL } from './media-refs.ts';
+import { applyQuotes } from './quotes.ts';
 import { finalizeEvent } from 'nostr-tools/pure';
 import type { Archive, Capture, Entry } from './types.ts';
 import { errorMessage } from './types.ts';
@@ -33,6 +34,8 @@ export async function readyXEntry(
   post: Capture,
   servers: string[],
   secret: Uint8Array,
+  links: Map<string,string>,
+  owner: string,
 ): Promise<Entry | undefined> {
   const event = xTemplate(post, post.author);
   const urls = new Map<string, string>();
@@ -63,7 +66,7 @@ export async function readyXEntry(
     });
   }
   return {
-    event: finalizeEvent(event, secret),
+    event: finalizeEvent(applyQuotes(event, links, owner), secret),
     source: 'x:' + post.id,
     posters: post.posters?.map((url) => urls.get(url) ?? url),
   };

@@ -28,7 +28,9 @@ import { DEFAULT_BLOSSOM_SERVER, blossomOrigin, mediaServers, publicMediaURL } f
 import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
 import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemplate, canDeliverCapture, validateSocialPost } from './social.ts';
 import { instagramPermalink } from './instagram.ts';
-import { confirmPublicXPost } from './x-audience.ts';
+import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
+import { readQuoteOriginal } from './quote-originals.ts';
+import { confirmPublicXPost, readPublicXOriginal } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
 import { identity, hex, unhex, handlePattern, relayList, xTemplate } from './model.ts';
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
@@ -99,57 +101,161 @@ function write<T>(fn: () => T | Promise<T>): Promise<T> {
   );
   return result;
 }
-async function signDrafts(db: Archive, source?: string) {
+async function signDrafts(db: Archive) {
   const conf = await settings(),
     key = await sessionKey();
   if (!key || getPublicKey(unhex(key)) !== conf.pubkey) return;
   const archive = new ArchiveEventBus(db, conf.pubkey, conf.relays);
   const secret = unhex(key);
-  const queued = source ? [await db.get('drafts', source)] : await db.getAll('drafts');
-  const drafts: Capture[] = [];
-  const socialEntries = [];
-  for (const post of queued) {
-    if (post?.visibility !== 'public') continue;
-    if ('source' in post) {
-      const network = conf.social?.[post.source];
-      if (network?.capture && network.handle === post.author)
-        socialEntries.push({ event: finalizeEvent(socialTemplate(post), secret),
-          source: post.source + ':' + post.id, posters: post.posters });
-    } else if (conf.capture && post.author === conf.handle) drafts.push(post);
-  }
-  if (socialEntries.length) await archive.publishBatch(socialEntries);
-  for (let i = 0; i < drafts.length && !changing; i += 50) {
-    const batch = drafts.slice(i, i + 50);
-    const matches =
-      conf.skipCrossposts === false
-        ? new Map<string, string>()
-        : await findCrossposts(db, conf.pubkey, batch);
-    if (matches.size) {
-      const tx = db.transaction(['sources', 'drafts', 'xMatches'], 'readwrite');
-      for (const post of batch) {
-        const eventId = matches.get(post.id);
-        if (!eventId) continue;
-        const source = 'x:' + post.id;
-        tx.objectStore('sources').put(eventId, source);
-        tx.objectStore('xMatches').put(post, source);
-        tx.objectStore('drafts').delete(source);
-      }
-      await tx.done;
-    }
-    const entries = [];
-    for (const post of batch) {
-      if (matches.has(post.id)) continue;
-      const entry = await readyXEntry(
-        db,
-        post,
-        mediaServers(conf),
-        secret,
+  let pending = (await db.getAll('drafts')).filter((post) => {
+    const account = 'source' in post ? conf.social?.[post.source] : conf;
+    return post.visibility === 'public' && account?.capture && account.handle === post.author;
+  });
+  // Commit each ready layer before resolving quotes in the next. Unrelated
+  // drafts can finish even if a quoted original needs media or a later retry.
+  while (pending.length && !changing) {
+    const waiting: typeof pending = [];
+    let committed = 0;
+    for (let i = 0; i < pending.length; i += 50) {
+      const batch = pending.slice(i, i + 50);
+      const plainX = batch.filter(
+        (post) => !('source' in post) && !quoteTargets(post, conf).length,
       );
-      if (entry) entries.push(entry);
+      const matches =
+        conf.skipCrossposts === false || !plainX.length
+          ? new Map<string, string>()
+          : await findCrossposts(db, conf.pubkey, plainX);
+      const entries = [];
+      for (const post of batch) {
+        const references = quoteTargets(post, conf);
+        const links = await resolveQuotes(db, references, conf);
+        if (!links) {
+          waiting.push(post);
+          continue;
+        }
+        if ('source' in post) {
+          entries.push({
+            event: finalizeEvent(applyQuotes(socialTemplate(post), links, conf.pubkey), secret),
+            source: post.source + ':' + post.id,
+            posters: post.posters,
+          });
+        } else {
+          const match = matches.get(post.id);
+          if (match) {
+            const tx = db.transaction(['sources', 'drafts', 'xMatches'], 'readwrite'),
+              source = 'x:' + post.id;
+            tx.objectStore('sources').put(match, source);
+            tx.objectStore('xMatches').put(post, source);
+            tx.objectStore('drafts').delete(source);
+            await tx.done;
+            committed++;
+            continue;
+          }
+          const entry = await readyXEntry(db, post, mediaServers(conf), secret, links, conf.pubkey);
+          if (entry) entries.push(entry);
+        }
+      }
+      if (entries.length) {
+        await archive.publishBatch(entries);
+        committed += entries.length;
+      }
     }
-    if (entries.length) await archive.publishBatch(entries);
+    if (!committed) break;
+    pending = waiting;
   }
 }
+
+let quoteJob: Promise<void> | undefined,
+  quoteController: AbortController | undefined,
+  quotesAgain = false;
+function kickQuotes() {
+  if (changing) return;
+  if (quoteJob) {
+    quotesAgain = true;
+    return;
+  }
+  quoteController = new AbortController();
+  quoteJob = fetchMissingOriginals(quoteController.signal)
+    .catch((error) => console.error('Quote lookup:', errorMessage(error)))
+    .finally(() => {
+      quoteJob = undefined;
+      quoteController = undefined;
+      if (quotesAgain) {
+        quotesAgain = false;
+        kickQuotes();
+      }
+    });
+}
+async function fetchMissingOriginals(signal: AbortSignal) {
+  const conf = await settings();
+  if (!conf.pubkey || !(await sessionKey())) return;
+  const db = await openArchive(conf.archiveName);
+  try {
+    const targets = new Map<string, ReturnType<typeof quoteTargets>[number]>();
+    for (const draft of await db.getAll('drafts')) {
+      const account = 'source' in draft ? conf.social?.[draft.source] : conf;
+      if (draft.visibility !== 'public' || !account?.capture || account.handle !== draft.author)
+        continue;
+      for (const q of quoteTargets(draft, conf)) targets.set(targetKey(q), q);
+    }
+    for (const [key, q] of targets) {
+      if (signal.aborted) return;
+      const enabled = q.network === 'x' ? conf : conf.social?.[q.network];
+      if (!enabled?.capture || changing) continue;
+      if (await db.getKey('drafts', key)) continue;
+      const existing = await db.get('sources', key);
+      if (existing && !(await db.getKey('heldEvents', existing))) continue;
+      if (!q.attributed && (await db.get('meta', ['quoteUnowned', q.handle, key]))) continue;
+      const retryKey = ['quoteRetry', q.handle, key];
+      const retry = (await db.get('meta', retryKey)) as number | undefined;
+      if (retry && retry > Date.now()) continue;
+      await db.put('meta', Date.now() + 300000, retryKey);
+      let original: Awaited<ReturnType<typeof readQuoteOriginal>>;
+      try {
+        original = await readQuoteOriginal(
+          q,
+          AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+        );
+      } catch {
+        continue;
+      }
+      if (signal.aborted) return;
+      if (!original) continue;
+      const post = original;
+      if (changing) return;
+      await write(async () => {
+        const current = await settings(),
+          account = q.network === 'x' ? current : current.social?.[q.network];
+        if (
+          current.pubkey !== conf.pubkey ||
+          account?.handle !== q.handle ||
+          !account.capture ||
+          !(await sessionKey())
+        )
+          return;
+        if (post === 'other-author') {
+          if (q.attributed) return;
+          await db.put('meta', 1, ['quoteUnowned', q.handle, key]);
+        } else {
+          if (post.author !== q.handle || post.id !== q.id || post.visibility !== 'public') return;
+          if (q.network !== 'x') {
+            const social = post as SocialCapture;
+            validateSocialPost(social, q.network, q.handle);
+            await saveSocialCaptures(db, [social]);
+          } else {
+            xTemplate(post, q.handle);
+            await stagePosts(db, [post]);
+          }
+        }
+        await signDrafts(db);
+        void kick();
+      });
+    }
+  } finally {
+    db.close();
+  }
+}
+
 // Network I/O for images never holds the local writer or a relay pass.
 let mediaJob: Promise<void> | undefined,
   mediaController: AbortController | undefined,
@@ -236,6 +342,7 @@ async function run() {
   const db = await openArchive(conf.archiveName);
   try {
     await write(() => signDrafts(db));
+    kickQuotes();
     kickMedia();
     const archive = new ArchiveEventBus(db, conf.pubkey);
     const reports: Record<string, string> = {};
@@ -460,6 +567,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
       throw Error('The active profile changed. Reopen Account.');
     const deleting = msg.type === 'deleteAccount';
     if (deleting && msg.confirmed !== true) throw Error('Confirm deletion in Settings.');
+    quoteController?.abort();
     mediaController?.abort();
     indexController?.abort();
     await revokeSession();
@@ -475,7 +583,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
     relayOwner = '';
     relayProgress.clear();
     pool.destroy();
-    await Promise.allSettled([running, preparing, mediaJob]);
+    await Promise.allSettled([running, preparing, mediaJob, quoteJob]);
 
     if (deleting) {
       recovery = undefined;
@@ -608,10 +716,17 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         }
         // Confirm audience outside the writer so a slow site cannot block settings or relay imports.
         for (let start = 0; start < msg.posts.length; start += 4) {
-          const group = await Promise.all(msg.posts.slice(start, start + 4).map(async post => ({
-            ...post, visibility: post.visibility === 'private' ? 'private' as const :
-              await confirmPublicXPost(post) ? 'public' as const : 'unknown' as const,
-          })));
+          const group = await Promise.all(msg.posts.slice(start, start + 4).map(async post => {
+            if (post.visibility === 'private') return post;
+            if (post.hasQuoteCard) {
+              const original = await readPublicXOriginal(handle,post.id).catch(() => undefined);
+              if (original) return original;
+              // A quote card may omit its permalink in the rendered timeline. Do not
+              // sign a standalone caption when the source relationship is unresolved.
+              return {...post,visibility:'unknown' as const};
+            }
+            return {...post,visibility:await confirmPublicXPost(post) ? 'public' as const : 'unknown' as const};
+          }));
           verified.push(...group);
         }
       } else {
@@ -626,6 +741,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         else await saveSocialCaptures(db, msg.posts as SocialCapture[]);
         await signDrafts(db);
       });
+      kickQuotes();
       kickMedia();
       void kick();
       return;

@@ -147,6 +147,11 @@ function embedText(node: Node): string {
   if (node.nodeType !== 1) return '';
   const el = node as Element;
   if (el.matches('.CaptionUsername,.CaptionComments')) return '';
+  if (el.tagName === 'A') {
+    const href = el.getAttribute('href');
+    const url = href && siteURL(href, 'https://www.instagram.com/');
+    if (url && postPath.test(url.pathname)) return url.href;
+  }
   if (el.tagName === 'BR') return '\n';
   return Array.from(el.childNodes, embedText).join('');
 }
@@ -164,6 +169,17 @@ function richEmbed(doc: ParentNode, item: Item, handle: string) {
       if (node?.shortcode === item.id && node.owner?.username === handle) return record(node);
     } catch { /* Ignore unsupported embed formats. */ }
   }
+}
+
+export async function readInstagramQuote(doc: Document, item: Item, handle: string, signal: AbortSignal, request: typeof fetch) {
+  const embed = await anonymousPage(doc, item.url + 'embed/captioned/', signal, request);
+  if (!embed) return;
+  const card = embed.querySelector('.Embed[data-permalink][data-media-type]');
+  const byline = card?.querySelector('.Header a.Username[href]')?.getAttribute('href');
+  const owner = byline && instagramProfile(byline);
+  if (!owner || !card || detail(card.getAttribute('data-permalink') ?? '', owner)?.id !== item.id) return;
+  if (owner !== handle) return 'other-author' as const;
+  return readInstagramPost(doc,item,handle,signal,request,embed);
 }
 
 function publicMedia(doc: ParentNode, item: Item, handle: string) {
@@ -244,8 +260,8 @@ async function anonymousPage(doc: Document, url: string, signal: AbortSignal, re
   return template.content;
 }
 
-async function readPublicPost(doc: Document, item: Item, handle: string, signal: AbortSignal, request: typeof fetch) {
-  const embed = await anonymousPage(doc, item.url + 'embed/captioned/', signal, request);
+export async function readInstagramPost(doc: Document, item: Item, handle: string, signal: AbortSignal, request: typeof fetch, fetchedEmbed?: ParentNode) {
+  const embed = fetchedEmbed ?? await anonymousPage(doc, item.url + 'embed/captioned/', signal, request);
   const post = embed && publicMedia(embed, item, handle);
   if (!post) return;
   const page = await anonymousPage(doc, item.url, signal, request);
@@ -265,7 +281,7 @@ export function createInstagramCollector(onPosts: (posts: SocialCapture[]) => vo
       active.add(key);
       try {
         const signal = AbortSignal.any([session.signal, AbortSignal.timeout(15000)]);
-        const post = await readPublicPost(doc, item, handle, signal, request);
+        const post = await readInstagramPost(doc, item, handle, signal, request);
         if (session.signal.aborted) return;
         if (post) onPosts([post]);
         retryAt.set(key, post ? Infinity : Date.now() + 10 * 60_000);

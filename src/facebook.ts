@@ -113,9 +113,9 @@ function readAttachment(item: FBAttachment, media: string[], posters: string[], 
   return false;
 }
 
-function readStory(story: FBStory, owner: string, handle: string) {
+function readStory(story: FBStory, owner: string, handle: string, originals: SocialCapture[], nested = false): SocialCapture | undefined {
   if (story?.__typename !== 'Story' || !story.id || !story.post_id ||
-      story.sponsored_data || story.work_is_repost || story.attached_story || story.to ||
+      story.sponsored_data || story.to ||
       !Array.isArray(story.actors) || story.actors.length !== 1) return;
   const actor = story.actors[0];
   if (!actor || actor.id !== owner || typeof actor.url !== 'string') return;
@@ -125,7 +125,18 @@ function readStory(story: FBStory, owner: string, handle: string) {
     facebookPermalink(story.permalink_url, owner));
   const content = story.comet_sections?.content?.story;
   if (!id || !content || content.id !== story.id || content.post_id !== story.post_id ||
-      content.attached_story || content.target_group || !Array.isArray(story.attachments)) return;
+      content.target_group || !Array.isArray(story.attachments)) return;
+  const attached = (story.attached_story ?? content.attached_story) as FBStory | undefined;
+  if (story.work_is_repost && !attached) return;
+  let quoted: string | undefined;
+  if (attached) {
+    if (nested || !attached.permalink_url || !facebookPermalink(attached.permalink_url, handle) ||
+        facebookPermalink(attached.permalink_url,handle) === id) return;
+    quoted = attached.permalink_url;
+    // The child independently passes the same byline, timestamp and audience checks.
+    const child = readStory(attached, owner, handle, originals, true);
+    if (child) originals.push(child);
+  }
   const metadata = story.comet_sections?.context_layout?.story?.comet_sections?.metadata;
   const audiences = Array.isArray(metadata) ? metadata.filter(section =>
     section?.__typename === 'CometFeedStoryAudienceStrategy' && section.story?.id === story.id) : [];
@@ -133,6 +144,7 @@ function readStory(story: FBStory, owner: string, handle: string) {
   const visibility = scope === 'everyone' ? 'public' : scope ? 'private' : 'unknown';
   const media: string[] = [], posters: string[] = [], links: string[] = [];
   if (!story.attachments.every(item => readAttachment(item, media, posters, links))) return;
+  if (quoted) links.push(quoted);
   const message = content.message?.text;
   if (message != null && typeof message !== 'string') return;
   const body = [message?.trim(), ...links.filter(link => !message?.includes(link))].filter(Boolean).join('\n\n');
@@ -149,7 +161,7 @@ function timelinePosts(json: unknown, handle: string): SocialCapture[] {
     const edges = user.timeline_list_feed_units?.edges;
     if (Array.isArray(edges) && typeof user.id === 'string') {
       for (const edge of edges) {
-        const captured = readStory(edge?.node, user.id, handle);
+        const captured = readStory(edge?.node, user.id, handle, posts);
         if (captured) posts.push(captured);
       }
     } else {
@@ -207,7 +219,7 @@ function embedText(element: Element): string {
       if (url.origin === 'https://l.facebook.com' && url.pathname === '/l.php')
         url = new URL(url.searchParams.get('u') ?? '');
       const label = link.textContent?.trim() ?? '';
-      if (/^https?:$/.test(url.protocol) && !facebookURL(url.href) && !url.username && !url.password &&
+      if (/^https?:$/.test(url.protocol) && (!facebookURL(url.href) || postPath.test(url.pathname) || ['/permalink.php','/story.php'].includes(url.pathname)) && !url.username && !url.password &&
           label !== url.href) link.replaceWith(label ? label + ' (' + url.href + ')' : url.href);
     } catch { /* Preserve the visible label when a link is malformed. */ }
   }
@@ -229,7 +241,7 @@ async function anonymousPage(doc: Document, request: string, fetcher: typeof fet
 
 // Read only the public embed returned anonymously. Never combine its visibility with
 // signed-in caption or media bytes; an audience change cannot expose the older copy.
-async function publicEmbed(doc: Document, url: string, handle: string, fetcher: typeof fetch, signal: AbortSignal) {
+export async function publicFacebookPost(doc: Document, url: string, handle: string, fetcher: typeof fetch, signal: AbortSignal) {
   const id = facebookPermalink(url, handle);
   if (!id) return;
   const endpoint = new URL('/plugins/post.php', url);
@@ -240,7 +252,22 @@ async function publicEmbed(doc: Document, url: string, handle: string, fetcher: 
   const feeds = parsed.querySelectorAll('[data-testid="newsFeedStream"] [role="feed"]');
   if (feeds.length !== 1) return;
   const feed = feeds[0];
-  const times = feed.querySelectorAll('a[href] abbr[data-utime]');
+  const ownQuotes: string[] = [];
+  const articles = Array.from(feed.querySelectorAll('[role="article"],article'));
+  const outerArticles = articles.filter(article => !article.parentElement?.closest('[role="article"],article'));
+  if (outerArticles.length > 1) return;
+  const outer = outerArticles.length === 1 ? outerArticles[0] : feed;
+  // Remove separately attributed child cards before extracting the outer text,
+  // timestamp or attachments. Only carry their original permalinks forward.
+  for (const card of outer.querySelectorAll('[role="article"],article')) {
+    const byline = Array.from(card.querySelectorAll('a[href]')).find(a =>
+      a.querySelector('img[aria-label]') && facebookProfile(a.getAttribute('href') ?? '') === handle);
+    const href = card.querySelector('a[href] abbr[data-utime]')?.closest('a')?.getAttribute('href');
+    if (!byline || !href || !facebookPermalink(href,handle) || facebookPermalink(href,handle) === id) return;
+    ownQuotes.push(facebookURL(href)!.href);
+    card.remove();
+  }
+  const times = outer.querySelectorAll('a[href] abbr[data-utime]');
   if (times.length !== 1) return;
   const returned = facebookPermalink(times[0].closest('a')?.getAttribute('href') ?? '', handle);
   if (!returned) return;
@@ -255,20 +282,20 @@ async function publicEmbed(doc: Document, url: string, handle: string, fetcher: 
     const match = /^\/([a-z0-9.]+)\/posts\/(?:[^/]+\/)?(\d{1,25})\/?$/i.exec(canonicalURL.pathname);
     if (!match || match[1].toLowerCase() !== handle || match[2] !== returned) return;
   }
-  const profile = Array.from(feed.querySelectorAll('a[href]')).find(a =>
+  const profile = Array.from(outer.querySelectorAll('a[href]')).find(a =>
     facebookProfile(a.getAttribute('href') ?? '') === handle && a.querySelector('img[aria-label]'));
   if (!profile) return;
-  const messages = feed.querySelectorAll('[data-testid="post_message"]');
-  if (messages.length > 1 || feed.querySelector('.text_exposed_hide,.see_more_link')) return;
+  const messages = outer.querySelectorAll('[data-testid="post_message"]');
+  if (messages.length > 1 || outer.querySelector('.text_exposed_hide,.see_more_link')) return;
   const media: string[] = [], posters: string[] = [];
-  for (const video of feed.querySelectorAll('video')) {
+  for (const video of outer.querySelectorAll('video')) {
     const videoURL = cdn(video.getAttribute('src')) ?? cdn(video.querySelector('source[src]')?.getAttribute('src'));
     if (videoURL) { media.push(videoURL); continue; }
     const poster = cdn(video.getAttribute('poster'));
     if (!poster) return;
     media.push(poster); posters.push(poster);
   }
-  for (const link of feed.querySelectorAll('a[href]')) {
+  for (const link of outer.querySelectorAll('a[href]')) {
     const uri = facebookURL(link.getAttribute('href') ?? '');
     if (!uri || !/^\/photo(?:\.php|\/)?$/.test(uri.pathname)) continue;
     for (const image of link.querySelectorAll('img[src]')) {
@@ -278,7 +305,7 @@ async function publicEmbed(doc: Document, url: string, handle: string, fetcher: 
     }
   }
   return post(handle, id, Number(times[0].getAttribute('data-utime')),
-    messages[0] ? embedText(messages[0]) : '', media, 'public', posters);
+    [messages[0] ? embedText(messages[0]) : '', ...new Set(ownQuotes)].filter(Boolean).join('\n\n'), media, 'public', posters);
 }
 
 export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => void, fetcher: typeof fetch = fetch) {
@@ -308,7 +335,7 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
         remember(id, Date.now() + 60000);
         try {
           if (facebookProfile(doc.URL) !== handle) { queued.clear(); break; }
-          const captured = await publicEmbed(doc, url, handle, fetcher, AbortSignal.any([signal, AbortSignal.timeout(10000)]));
+          const captured = await publicFacebookPost(doc, url, handle, fetcher, AbortSignal.any([signal, AbortSignal.timeout(10000)]));
           if (!signal.aborted && !seen.has(id) && facebookProfile(doc.URL) === handle && captured) {
             remember(id, Infinity); onPosts([captured]);
           }

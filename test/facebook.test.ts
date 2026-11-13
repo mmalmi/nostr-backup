@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Window } from 'happy-dom';
-import { captureFacebookPosts, createFacebookCollector, facebookPermalink, facebookProfile } from '../src/facebook.ts';
+import { captureFacebookPosts, createFacebookCollector, publicFacebookPost, facebookPermalink, facebookProfile } from '../src/facebook.ts';
 import type { SocialCapture } from '../src/types.ts';
 
 const handle = 'example.page', owner = '123456789', id = 'pfbidExample123';
@@ -152,4 +152,53 @@ test('structured story wins over an embed and repeat scans do not redeliver it',
   const collector = createFacebookCollector(posts => captures.push(...posts), async () => {reads++; return response(embed());});
   collector.collect(doc, url, handle); collector.collect(doc, url, handle); await settled();
   assert.equal(reads, 0); assert.equal(captures.length, 1); collector.stop();
+});
+
+test('an own attached story preserves its own author and audience separately from the quoting post', () => {
+  const childId = '12345';
+  const child = {
+    ...story,
+    id: 'child',
+    post_id: childId,
+    permalink_url: url + 'posts/' + childId,
+    comet_sections: {
+      content: { story: { id: 'child', post_id: childId, message: { text: 'Quoted caption' } } },
+      context_layout: {
+        story: {
+          comet_sections: {
+            metadata: [
+              {
+                __typename: 'CometFeedStoryAudienceStrategy',
+                story: { id: 'child', privacy_scope: { icon_image: { name: 'friends' } } },
+              },
+            ],
+          },
+        },
+      },
+    },
+    attachments: [],
+  };
+  const parsed = captureFacebookPosts(
+    documentAt(script({ ...story, attached_story: child })),
+    url,
+    handle,
+  );
+  assert.deepEqual(
+    parsed.map((p) => [p.id, p.visibility]),
+    [
+      [childId, 'private'],
+      [id, 'public'],
+    ],
+  );
+  assert.ok(parsed[1].text.includes(child.permalink_url));
+  assert.ok(!parsed[1].text.includes('Quoted caption'));
+});
+
+test('public Facebook embed separates nested own quote text, media, and original permalink', async () => {
+  const nested = '<article><a href="/' + handle + '"><img aria-label="Page"></a><a href="/' + handle +
+    '/posts/100"><abbr data-utime="1500000000"></abbr></a><div data-testid="post_message">Quoted only</div></article>';
+  const body = embed().replace('<div role="feed">','<div role="feed"><article>').replace('</div></div></div>',
+    '</div>' + nested + '</article></div></div>');
+  const parsed = await publicFacebookPost(documentAt(''),permalink,handle,async()=>response(body),new AbortController().signal);
+  assert.equal(parsed?.text, 'Public text.\nSecond line.\n\nhttps://www.facebook.com/' + handle + '/posts/100');
 });

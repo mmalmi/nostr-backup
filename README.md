@@ -40,6 +40,8 @@ The build also writes a ZIP for each browser, with fixed entry timestamps so rep
 
 **Instagram & Facebook** lets you enable either profile separately. Enter your Instagram username or Facebook username/numeric profile ID, choose **Save**, then visit your profile and scroll. Opening an Instagram post also works. The extension records your own posts it can identify, including the original link, caption, available media, and date. Instagram grid dates can have day-only precision. Facebook uses the audience on each post. Instagram checks the post through its signed-out public embed. Login walls and unsupported layouts can limit capture. Media downloads obey your per-file limit and the source site's access rules.
 
+When a captured post quotes a public post from one of your configured profiles, Backup reuses the existing signed original or retrieves and archives it first. The new note includes a clickable `nostr:nevent` link and a NIP-18 `q` tag. If an own original is unavailable or restricted, the quote stays in local drafts. A confirmed link to another author keeps its original URL.
+
 **Publishing is public on public relays.** Only captures confirmed public are signed for sharing. X checks its signed-out embed for the individual post. Private and unconfirmed captures stay local and are included in the ZIP. Bulk broadcasts, public indexes and media uploads exclude local-only captures. Existing signed X copies from older versions stay local until verified by recapture. Public copies already delivered cannot be recalled by this change.
 
 ## Profile and local storage

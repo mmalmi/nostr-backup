@@ -177,3 +177,11 @@ test('scroll keeps recycled rows while a previous capture batch is saving', asyn
   await done.promise;
   assert.deepEqual(captured, ['1', '2', '3']);
 });
+
+test('a quote card points to its own permalink, separate from the outer commentary', () => {
+  const quote =
+    '<div data-testid="quoteTweet" role="link"><span data-testid="tweetText">Original text</span><a href="/alice/status/10"><time>Earlier</time></a></div>';
+  const [post] = capture(article('alice', '20', 'Commentary', quote));
+  assert.equal(post.text, 'Commentary\n\nhttps://x.com/alice/status/10');
+  assert.equal(post.hasQuoteCard, true);
+});
