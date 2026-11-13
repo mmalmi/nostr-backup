@@ -96,6 +96,20 @@
                   <button type="button" id="addRelay" class="secondary">Add relay</button>
                 </div>
               </details>
+              <details id="kindSelector">
+                <summary id="kindSummary">Download all event kinds</summary>
+                <label>Download from relays
+                  <select id="kindMode">
+                    <option value="all">All event kinds</option>
+                    <option value="include">Only these kinds</option>
+                    <option value="exclude">All except these kinds</option>
+                  </select>
+                </label>
+                <label id="kindListField" hidden>Kind numbers
+                  <input id="downloadKinds" placeholder="e.g. 0, 1, 7" spellcheck="false" autocomplete="off" form="backupSettings" />
+                </label>
+                <button class="secondary" form="backupSettings">Save filter</button>
+              </details>
               <label class="check"
                 ><input type="checkbox" id="relaySync" form="backupSettings" />
                 Sync daily</label

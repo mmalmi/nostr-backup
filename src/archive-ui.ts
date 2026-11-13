@@ -143,6 +143,16 @@ async function refresh(initial = false) {
     el('mediaMiB').value = String(conf.mediaMiB ?? DEFAULT_MEDIA_MIB);
     el('relays').value = conf.relays.join('\n');
     showRelays(conf.relays);
+    const filter = conf.relayKinds;
+    el('kindMode').value = filter?.mode ?? 'all';
+    el('downloadKinds').value = filter?.kinds.join(', ') ?? '';
+    el('kindListField').hidden = !filter;
+    let summary = 'Download all event kinds';
+    if (filter) {
+      const selection = (filter.kinds.length === 1 ? 'kind ' : 'kinds ') + filter.kinds.join(', ');
+      summary = (filter.mode === 'include' ? 'Download only ' : 'Download all except ') + selection;
+    }
+    el('kindSummary').textContent = summary;
     for (const k of ['capture', 'relaySync'] as const) el(k).checked = conf[k];
   }
   el('backupSettings').hidden = !pubkey;
@@ -223,6 +233,10 @@ async function refresh(initial = false) {
   el('activity').textContent = running ? 'Syncing…' : !conf.relays.length ? 'Select a relay to sync your posts.' : '';
   showRelayStatus(relays);
 }
+on('kindMode', 'change', () => {
+  el('kindListField').hidden = el('kindMode').value === 'all';
+  if (!el('kindListField').hidden) el('downloadKinds').focus();
+});
 on('backupSettings', 'submit', async () => {
   await send('settings', {
     pubkey,
@@ -237,6 +251,7 @@ on('backupSettings', 'submit', async () => {
     blossomServer: el('blossomServer').value,
     mediaMiB: el('mediaMiB').value,
     relaySync: el('relaySync').checked,
+    relayKinds: { mode: el('kindMode').value, list: el('downloadKinds').value },
   });
   await refresh(true);
   notice('Saved.');

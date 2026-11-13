@@ -3,6 +3,16 @@ import type { CID } from '@hashtree/core';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
 
+export interface RelayKindFilter {
+  mode: 'include' | 'exclude';
+  kinds: number[];
+}
+
+export interface RelayPoll {
+  scope: string;
+  at: number;
+}
+
 export interface Settings {
   pubkey: string;
   archiveName?: string;
@@ -11,6 +21,7 @@ export interface Settings {
   social?: Partial<Record<SocialNetwork, { handle: string; capture: boolean }>>;
   skipCrossposts?: boolean;
   relaySync: boolean;
+  relayKinds?: RelayKindFilter;
   relays: string[];
   relaysConfigured?: boolean;
   blossomServer?: string;
@@ -85,7 +96,7 @@ export interface BlossomDelivery {
 export interface ArchiveSchema extends DBSchema {
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
   blocks: { key: string; value: Uint8Array };
-  meta: { key: string | string[]; value: CID | IndexPointer | number };
+  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number };
   events: { key: string; value: Event; indexes: { created_at: number } };
   drafts: { key: string; value: Capture | SocialCapture };
   localCaptures: { key: string; value: Capture | SocialCapture };
@@ -102,7 +113,7 @@ export interface ArchiveSchema extends DBSchema {
   outbox: { key: [string, string]; value: CaptureDelivery };
   cursors: {
     key: string[];
-    value: { through?: number; started?: number; next?: { until?: number; limit?: number } };
+    value: { scope?: string; through?: number; started?: number; next?: { until?: number; limit?: number } };
   };
   mediaRefs: { key: [string, string]; value: MediaReference; indexes: { url: string; sha256: string } };
   mediaFiles: { key: string; value: MediaFile; indexes: { rootHash: string } };
@@ -172,7 +183,8 @@ export interface Approval {
   event?: EventTemplate;
   pubkey: string;
 }
-export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB'> & {
+export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' | 'relayKinds'> & {
+  relayKinds?: { mode: string; list: string };
   relays: string;
   mediaMiB?: string | number;
 };

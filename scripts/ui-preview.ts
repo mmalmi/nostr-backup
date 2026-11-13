@@ -108,7 +108,7 @@ relays.on('connection', (socket, request) => {
       for (const event of events)
         if (
           filter.authors?.includes(event.pubkey) &&
-          filter.kinds?.includes(event.kind) &&
+          (!filter.kinds || filter.kinds.includes(event.kind)) &&
           event.created_at <= (filter.until ?? Infinity) &&
           event.created_at >= (filter.since ?? 0)
         )

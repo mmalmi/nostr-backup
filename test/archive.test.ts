@@ -7,7 +7,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { NostrEventStore } from '@hashtree/nostr';
 import { append, dump, inventory, openArchive, stagePosts } from '../src/archive.ts';
 import { openDB } from 'idb';
-import { hex, unhex } from '../src/model.ts';
+import { hex, parseRelayKinds, unhex } from '../src/model.ts';
 import { syncHistory } from '../src/relays.ts';
 const key = generateSecretKey(),
   pubkey = getPublicKey(key);
@@ -55,19 +55,49 @@ test('locked capture survives reopen; signing indexes, dequeues and exports in o
   assert.equal(found?.content, 'hi');
   assert.equal(strFromU8(zip['manifest.json']).includes(hex(key)), false);
 });
-test('foreign authors, forged signatures, unsupported kinds and tampering rejected atomically', async () => {
+test('foreign authors, forged signatures, invalid kind numbers and tampering rejected atomically', async () => {
   const db = await openArchive(crypto.randomUUID()),
     good = sign('yes');
   for (const invalid of [
     JSON.parse(JSON.stringify({ ...good, content: 'altered' })),
     JSON.parse(JSON.stringify({ ...good, sig: '0'.repeat(128) })),
     finalizeEvent({ kind: 1, created_at: 3, tags: [], content: 'other' }, generateSecretKey()),
-    finalizeEvent({ kind: 4, created_at: 3, tags: [], content: 'private' }, key),
+    finalizeEvent({ kind: 65536, created_at: 3, tags: [], content: 'invalid kind' }, key),
   ]) {
     await assert.rejects(append(db, [{ event: good }, { event: invalid }], pubkey));
     assert.equal(await db.count('events'), 0);
     assert.equal(await db.count('blocks'), 0);
   }
+});
+test('relay kind lists normalize equivalent selections and reject invalid numbers', () => {
+  assert.deepEqual(parseRelayKinds('include', '65535, 7  0, 7'), { mode: 'include', kinds: [0, 7, 65535] });
+  assert.equal(parseRelayKinds('all', '7'), undefined);
+  for (const list of ['', ' ', '0x10', '1.5', '-1', '65536', '1, nope'])
+    assert.throws(() => parseRelayKinds('exclude', list), /kind numbers/);
+  assert.throws(() => parseRelayKinds('other', '1'));
+});
+
+test('excluded events advance paged history past a full page and old checkpoints reopen', async () => {
+  const db = await openArchive(crypto.randomUUID());
+  const url = 'wss://history.example/';
+  const events = Array.from({ length: 100 }, (_, i) => sign(String(i), 200 - i));
+  const reaction = finalizeEvent({ kind: 7, created_at: 1, tags: [], content: '+' }, key);
+  events.push(reaction);
+  await db.put('cursors', { through: 300000, started: 300001, next: { until: 0, limit: 100 } }, [pubkey, url]);
+  const opts: Parameters<typeof syncHistory>[0] = {
+    db, url, pubkey, now: 300002, pageBudget: 1, relayKinds: { mode: 'exclude', kinds: [1] },
+    save: (entries, owner) => append(db, entries, owner),
+    read: async (_, f) => {
+      assert.equal(f.kinds, undefined);
+      assert.equal(f.since, undefined);
+      return { events: events.filter(e => e.created_at <= f.until!).slice(0, f.limit), complete: true };
+    },
+  };
+  assert.equal(await syncHistory(opts), 'More history queued');
+  assert.equal(await db.count('events'), 0);
+  assert.equal(await syncHistory({ ...opts, pageBudget: 8 }), 'Up to date');
+  assert.deepEqual(await db.getAllKeys('events'), [reaction.id]);
+  db.close();
 });
 test('per-relay cursor resumes after interruption, deduplicates and rescans the boundary second', async () => {
   const db = await openArchive(crypto.randomUUID()),

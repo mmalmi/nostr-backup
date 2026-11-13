@@ -1,7 +1,7 @@
 import type { Archive, Delivery, Settings } from './types.ts';
 import type { ImportResult } from './relays.ts';
 import { normalizeURL } from 'nostr-tools/utils';
-import { POST_KINDS } from './model.ts';
+import { PUBLIC_POST_KINDS } from './model.ts';
 import { pool, publish } from './relays.ts';
 import { compareEvents } from './reconcile.ts';
 import { canDeliverCapture } from './social.ts';
@@ -16,7 +16,9 @@ export async function deliverPending(
   imported?: ImportResult,
   progress?: (state: RelayDeliveryProgress) => void,
 ) {
-  let mode = imported?.have ? 'Negentropy broadcast' : imported ? 'Direct broadcast' : undefined;
+  // A kind-limited import cannot establish presence of the entire broadcast queue.
+  const have = imported?.kinds ? undefined : imported?.have;
+  let mode = have ? 'Negentropy broadcast' : imported && !imported.have ? 'Direct broadcast' : undefined;
   const { sent, present, failed, error } = await drainRelayOutbox(url, rows, {
     async enabled(row) {
       const conf = await settings();
@@ -38,7 +40,7 @@ export async function deliverPending(
     connected: () => !!pool.listConnectionStatus().get(normalizeURL(url)),
     onProgress: progress,
     async missing(batch) {
-      if (imported?.have) {
+      if (have && imported) {
         return new Set(
           batch
             .filter(
@@ -46,7 +48,7 @@ export async function deliverPending(
                 row.created_at === undefined ||
                 row.created_at < (imported.since ?? 0) ||
                 row.created_at > (imported.until ?? Infinity) ||
-                imported.have!.has(row.id),
+                have.has(row.id),
             )
             .map((row) => row.id),
         );
@@ -59,7 +61,7 @@ export async function deliverPending(
         const inventory = batch.map((row) => ({ id: row.id, created_at: row.created_at! }));
         const result = await compareEvents(
           url,
-          { authors: [pubkey], kinds: POST_KINDS, since, until },
+          { authors: [pubkey], kinds: PUBLIC_POST_KINDS, since, until },
           inventory,
           false,
         );

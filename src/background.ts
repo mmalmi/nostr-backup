@@ -6,6 +6,7 @@ import type {
   Result,
   Action,
   RelayProgress,
+  RelayPoll,
   RelayStatus,
   LastRun,
   SocialCapture,
@@ -32,7 +33,7 @@ import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts
 import { readQuoteOriginal } from './quote-originals.ts';
 import { confirmPublicXPost, readPublicXOriginal } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
-import { identity, hex, unhex, handlePattern, relayList, xTemplate } from './model.ts';
+import { identity, hex, unhex, handlePattern, parseRelayKinds, relayKindScope, relayList, xTemplate } from './model.ts';
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
 import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
@@ -351,10 +352,14 @@ async function run() {
     const imports = new Set<string>();
     const now = Date.now();
     const day = 86400000;
+    const scope = relayKindScope(conf.relayKinds);
+    const schedulePoll = (url: string, at: number) => db.put('meta', { scope, at }, ['nextPoll', url]);
     for (const url of conf.relays) {
       const cursor = await db.get('cursors', [conf.pubkey, url]);
-      const nextPoll = (await db.get('meta', ['nextPoll', url])) as number | undefined;
-      const due = nextPoll ?? (cursor?.through ?? 0) * 1000 + day;
+      const poll = await db.get('meta', ['nextPoll', url]) as RelayPoll | number | undefined;
+      let due = 0;
+      if (typeof poll === 'object' && poll.scope === scope) due = poll.at;
+      else if (cursor?.scope === scope && cursor.through) due = cursor.through * 1000 + day;
       if (importNow || (conf.relaySync && now >= due)) imports.add(url);
     }
     const destinations = conf.relays.filter(
@@ -370,7 +375,7 @@ async function run() {
       {
         deadline: (url) => readCooldown(db, url),
         async defer(url, until) {
-          if (imports.has(url)) await db.put('meta', until, ['nextPoll', url]);
+          if (imports.has(url)) await schedulePoll(url, until);
           await db.put('meta', until, ['retryAfter', url]);
           await api.alarms.create('relay-retry:' + url, { when: until });
         },
@@ -395,8 +400,12 @@ async function run() {
         db,
         url,
         pubkey: conf.pubkey,
+        relayKinds: conf.relayKinds,
         save: async (entries) => {
-          const count = await write(() => archive.publishBatch(entries, relaySource(url)));
+          const count = await write(async () => {
+            if (!(await importOptions.enabled())) return 0;
+            return archive.publishBatch(entries, relaySource(url));
+          });
           progress.imported += count;
           return count;
         },
@@ -405,6 +414,7 @@ async function run() {
           return (
             !changing &&
             current.pubkey === conf.pubkey &&
+            relayKindScope(current.relayKinds) === scope &&
             (current.relaySync || importNow) &&
             current.relays.includes(url)
           );
@@ -412,7 +422,7 @@ async function run() {
       };
       const rows = pending.filter((row) => row.relay === url);
       const importing = imports.has(url) && (await importOptions.enabled());
-      if (importing) await db.put('meta', Date.now() + day, ['nextPoll', url]);
+      if (importing) await schedulePoll(url, Date.now() + day);
       const publishingIndex = pointer?.pending.includes(url);
       if (importing || rows.length || publishingIndex) {
         progress.phase = 'connecting';
@@ -437,7 +447,7 @@ async function run() {
         imported?.report === 'More history queued' ||
         imported?.report?.includes('Incomplete relay response')
       )
-        await db.put('meta', Date.now() + 300000, ['nextPoll', url]);
+        await schedulePoll(url, Date.now() + 300000);
       if (imported?.report) messages.push(imported.report);
       if (rows.length) progress.phase = 'broadcasting';
       const importFailed = progress.failed;
@@ -525,6 +535,8 @@ async function configure(msg: Message<'settings'>) {
   if ((handle || msg.capture) && !handlePattern.test(handle))
     throw Error('Enter your X handle.');
   const relays = relayList(msg.relays);
+  const relayKinds = msg.relayKinds === undefined ? prev.relayKinds
+    : parseRelayKinds(msg.relayKinds.mode, msg.relayKinds.list);
   const social = socialSettings(msg.social, prev.social);
   const activeSocial = Object.values(social).some(site => site.capture);
   if (activeSocial && Object.entries(social).some(([site, value]) =>
@@ -551,6 +563,7 @@ async function configure(msg: Message<'settings'>) {
     social,
     skipCrossposts: msg.skipCrossposts ?? prev.skipCrossposts ?? true,
     relaySync: !!msg.relaySync,
+    relayKinds,
     blossomServer,
     blossomServers,
     mediaMiB,

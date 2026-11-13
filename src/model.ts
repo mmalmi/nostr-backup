@@ -1,10 +1,11 @@
 import { fromHex } from '@hashtree/core';
 import type { Event, VerifiedEvent } from 'nostr-tools/pure';
-import type { Capture } from './types.ts';
+import type { Capture, RelayKindFilter } from './types.ts';
 import { getPublicKey, verifyEvent } from 'nostr-tools/pure';
 import { decode } from 'nostr-tools/nip19';
 
-export const POST_KINDS = [0, 1, 6, 16, 20, 21, 22, 1063, 1111, 30023];
+// Eligible for public sharing. Relay downloads have their own per-account filter.
+export const PUBLIC_POST_KINDS = [0, 1, 6, 16, 20, 21, 22, 1063, 1111, 30023];
 export const handlePattern = /^[a-z0-9_]{1,15}$/i;
 export { toHex as hex, fromHex as unhex } from '@hashtree/core';
 
@@ -63,11 +64,32 @@ export function relayList(input: string) {
   return [...new Set(urls)];
 }
 
-export function isOwnPost(event: Event, pubkey: string): event is VerifiedEvent {
+function validKind(kind: number) {
+  return Number.isInteger(kind) && kind >= 0 && kind <= 65535;
+}
+
+export function parseRelayKinds(mode: string, list: string): RelayKindFilter | undefined {
+  if (mode === 'all') return undefined;
+  if (mode !== 'include' && mode !== 'exclude') throw Error('Choose a download filter.');
+  const tokens = list.trim().split(/[\s,]+/).filter(Boolean);
+  if (!tokens.length || tokens.some(token => !/^\d+$/.test(token) || !validKind(Number(token))))
+    throw Error('Enter kind numbers from 0 to 65535, separated by commas or spaces.');
+  return { mode, kinds: [...new Set(tokens.map(Number))].sort((a, b) => a - b) };
+}
+
+export function relayKindScope(filter?: RelayKindFilter) {
+  return filter ? filter.mode + ':' + filter.kinds.join(',') : 'all';
+}
+
+export function matchesRelayKind(kind: number, filter?: RelayKindFilter) {
+  return !filter || filter.kinds.includes(kind) === (filter.mode === 'include');
+}
+
+export function isOwnEvent(event: Event, pubkey: string): event is VerifiedEvent {
   try {
     return (
       event.pubkey === pubkey &&
-      POST_KINDS.includes(event.kind) &&
+      validKind(event.kind) &&
       Number.isSafeInteger(event.created_at) &&
       event.created_at >= 0 &&
       verifyEvent(event)

@@ -191,6 +191,7 @@ label {
   margin: 12px 0;
 }
 input:not([type='checkbox']),
+select,
 textarea {
   display: block;
   width: 100%;
@@ -429,10 +430,12 @@ ul:empty {
 .existingProfile a:hover {
   text-decoration: underline;
 }
-#relaySelector {
+#relaySelector,
+#kindSelector {
   margin-bottom: 14px;
 }
-#relaySelector summary {
+#relaySelector summary,
+#kindSelector summary {
   cursor: pointer;
   width: fit-content;
 }

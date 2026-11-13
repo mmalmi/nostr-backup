@@ -79,7 +79,7 @@ class Wire extends EventTarget {
         if (dest?.negLimit) return receive(['NEG-ERR', id, ...dest.negLimit]);
         if (!dest?.supported) return receive(['NEG-ERR', id, 'unsupported']);
         const records = [...dest.stored.values()]
-          .filter((e) => filter.authors.includes(e.pubkey) && filter.kinds.includes(e.kind))
+          .filter((e) => filter.authors.includes(e.pubkey) && (!filter.kinds || filter.kinds.includes(e.kind)))
           .map((e) => ({
             id: Buffer.from(e.id, 'hex'),
             timestamp: BigInt(e.created_at),
@@ -104,14 +104,14 @@ class Wire extends EventTarget {
           e.created_at >= (filter.since ?? 0) &&
           (!filter.ids || filter.ids.includes(e.id)) &&
           filter.authors.includes(e.pubkey) &&
-          filter.kinds.includes(e.kind),
+          (!filter.kinds || filter.kinds.includes(e.kind)),
       );
       matches.sort((a, b) => b.created_at - a.created_at);
       for (const e of matches.slice(0, filter.limit)) receive(['EVENT', id, e]);
       receive(['EOSE', id]);
     }
     if (type === 'EVENT') {
-      transmissions.push(id);
+      if (!dest) transmissions.push(id);
       const ok = dest ? dest.reject !== id.id : accept;
       if (dest) {
         dest.sent.push(id);
@@ -405,7 +405,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   assert.equal((await success('status')).unlocked, true);
   await success('logout', { pubkey: owner });
 });
-test('manual sync imports posts and profile with automatic import off and reports its result', async () => {
+test('manual sync downloads all own signed kinds with automatic import off', async () => {
   const secret = generateSecretKey(),
     owner = getPublicKey(secret);
   await success('watch', { pubkey: owner });
@@ -425,7 +425,8 @@ test('manual sync imports posts and profile with automatic import off and report
   assert.deepEqual((await success('status')).lastRun, before);
   const url = 'wss://manual-sync.example/';
   const relay = fixtureRelay(url);
-  for (const kind of [0, 1]) {
+  const kinds = [0, 1, 3, 4, 7, 10002, 22242, 30078, 65535];
+  for (const kind of kinds) {
     const event = finalizeEvent(
       {
         kind,
@@ -438,6 +439,8 @@ test('manual sync imports posts and profile with automatic import off and report
     );
     relay.stored.set(event.id, event);
   }
+  const foreign = finalizeEvent({ kind: 7, created_at: 10, tags: [], content: '+' }, generateSecretKey());
+  relay.stored.set(foreign.id, foreign);
   await success('settings', {
     pubkey: owner,
     relays: url,
@@ -448,15 +451,90 @@ test('manual sync imports posts and profile with automatic import off and report
   await until(async () => !(await success('status')).running);
   await success('sync');
   await until(
-    async () => !(await success('status')).running && (await success('status')).events === 2,
+    async () => !(await success('status')).running && (await success('status')).events === kinds.length,
   );
   const status = await success('status');
   assert.equal(status.conf.relaySync, false);
   assert.equal(status.profile?.displayName, 'Manual sync');
-  assert.match(status.lastRun!.reports[url], /2 new|2 imported/);
+  assert.match(status.lastRun!.reports[url], /9 new|9 imported/);
+  assert.deepEqual(relay.filters.at(-1)?.authors, [owner]);
+  assert.equal(relay.filters.at(-1)?.kinds, undefined);
   assert.equal(relay.sent.length, 0);
+  const db = await openArchive(status.conf.archiveName);
+  const archived = await db.getAll('events');
+  assert.deepEqual(new Set(archived.map(e => e.kind)), new Set(kinds));
+  for (const event of archived) assert.deepEqual(event, JSON.parse(JSON.stringify(relay.stored.get(event.id))));
+  const { queueBroadcast } = await import('../src/archive.ts');
+  assert.equal(await queueBroadcast(db, status.conf), 2);
+  db.close();
   await success('logout', { pubkey: owner });
 });
+test('saved include and exclude selections rescan historical events through either relay protocol', async (t) => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const url = 'wss://kind-selection.example/';
+  const relay = fixtureRelay(url);
+  const store = (kind: number, time: number) => {
+    const event = finalizeEvent({ kind, created_at: time, tags: [], content: 'fixture' }, secret);
+    relay.stored.set(event.id, event);
+    return event.id;
+  };
+  const note = store(1, 8), reaction = store(7, 7), contacts = store(3, 6);
+  const conf = { pubkey: owner, handle: '', relays: url, capture: false, relaySync: true };
+  await success('watch', { pubkey: owner });
+  await idle();
+  const db = await openArchive((await success('status')).conf.archiveName);
+  try {
+    // Simulate an installation that completed a post-only scan and isn't due for another day.
+    await db.put('cursors', { through: Math.floor(Date.now() / 1000) }, [owner, url]);
+    await db.put('meta', Date.now() + 86400000, ['nextPoll', url]);
+    await success('settings', { ...conf, relayKinds: { mode: 'include', list: '7, 7' } });
+    await idle();
+    assert.deepEqual(await db.getAllKeys('events'), [reaction]);
+    assert.deepEqual(relay.filters.at(-1)?.kinds, [7]);
+    assert.equal(relay.filters.at(-1)?.since, 0);
+    assert.deepEqual(relay.reads.at(-1)?.kinds, [7]);
+
+    const page = await archivePage(t), el = pageElements(page);
+    await until(() => el('kindMode').value === 'include');
+    assert.equal(el('downloadKinds').value, '7');
+    el('kindMode').value = 'exclude';
+    el('downloadKinds').value = '1';
+    el('backupSettings').requestSubmit();
+    await until(async () => (await success('status')).conf.relayKinds?.mode === 'exclude');
+    await idle();
+    assert.deepEqual(new Set(await db.getAllKeys('events')), new Set([reaction, contacts]));
+    assert.equal(relay.filters.at(-1)?.kinds, undefined);
+    assert.equal(relay.filters.at(-1)?.since, 0);
+    assert.equal(await db.count('outbox'), 0);
+    const invalid = await call('settings', { ...conf, relayKinds: { mode: 'include', list: '1.5' } });
+    assert.equal(invalid.ok, false);
+    assert.deepEqual((await success('status')).conf.relayKinds, { mode: 'exclude', kinds: [1] });
+
+    relay.supported = false;
+    await success('settings', { ...conf, relayKinds: { mode: 'all', list: '' } });
+    await idle();
+    assert.deepEqual(new Set(await db.getAllKeys('events')), new Set([reaction, contacts, note]));
+    assert.equal(relay.reads.at(-1)?.kinds, undefined);
+    const other = store(65535, 4);
+    await success('settings', { ...conf, relayKinds: { mode: 'include', list: '65535' } });
+    await idle();
+    assert.ok(await db.getKey('events', other));
+    assert.deepEqual(relay.reads.at(-1)?.kinds, [65535]);
+    assert.equal(relay.sent.length, 0);
+
+    // A filtered import has no evidence about queued posts outside its selection.
+    relay.supported = true;
+    relay.stored.delete(note);
+    assert.equal(await success('broadcast'), 1);
+    await idle();
+    assert.deepEqual(relay.sent.map(e => e.id), [note]);
+    assert.equal(await db.count('outbox'), 0);
+  } finally {
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('read-only mode pauses capture and preserves existing drafts until the signer unlocks', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) => publicEmbed(url, 'Text to archive'));
   const subscriptionStart = subscriptions.length;

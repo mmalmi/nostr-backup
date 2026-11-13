@@ -18,7 +18,7 @@ import {
 import type { Archive, Entry } from './types.ts';
 import { readOnlyStore, readRoot } from './blocks.ts';
 import { mediaReferences } from './media-refs.ts';
-import { hex, isOwnPost } from './model.ts';
+import { hex, isOwnEvent, PUBLIC_POST_KINDS } from './model.ts';
 
 export const localArchive = localIndexSource('archive');
 
@@ -71,8 +71,8 @@ export class ArchiveEventBus implements EventBus {
   async publishBatch(entries: Entry[], source: EventSource = localArchive) {
     const batch = entries.map((entry) => {
       const event = verifyNostrEvent(entry.event);
-      if (!isOwnPost(event, this.owner))
-        throw Error('Could not verify this item for your backup.');
+      if (!isOwnEvent(event, this.owner))
+        throw Error('Invalid archive event or author.');
       return {
         event,
         source: entry.source,
@@ -128,8 +128,11 @@ async function commit(
   }
   for (const [key, bytes] of blocks) tx.objectStore('blocks').put(bytes, key);
   if (root) tx.objectStore('meta').put(root, 'root');
-  for (const [id, event] of fresh)
+  for (const [id, event] of fresh) {
     tx.objectStore('events').put(JSON.parse(JSON.stringify(event)), id);
+    if (!PUBLIC_POST_KINDS.includes(event.kind))
+      tx.objectStore('heldEvents').put('local-only kind', id);
+  }
   for (const { event, source, targets, posters } of entries) {
     if (fresh.has(event.id)) {
       for (const ref of mediaReferences(event, posters)) {
@@ -147,6 +150,7 @@ async function commit(
       tx.objectStore('sources').put(event.id, source);
       tx.objectStore('drafts').delete(source);
     }
+    if (!PUBLIC_POST_KINDS.includes(event.kind)) continue;
     const outbox = tx.objectStore('outbox');
     await enqueueRelayPublication(
       event,

@@ -138,13 +138,17 @@ export async function saveSocialCaptures(db: Archive, posts: SocialCapture[]) {
   await tx.done;
 }
 
-export async function inventory(db: Archive, since: number, until: number) {
+export async function inventory(db: Archive, since: number, until: number, kinds?: number[]) {
   const tx = db.transaction(['events', 'heldEvents']);
   const index = tx.objectStore('events').index('created_at');
   const range = IDBKeyRange.bound(since, until);
   const records = [];
   for (let cursor = await index.openKeyCursor(range); cursor; cursor = await cursor.continue()) {
     if (await tx.objectStore('heldEvents').getKey(cursor.primaryKey)) continue;
+    if (kinds) {
+      const event = await tx.objectStore('events').get(cursor.primaryKey);
+      if (!event || !kinds.includes(event.kind)) continue;
+    }
     records.push({ id: cursor.primaryKey, created_at: cursor.key });
     if (records.length > 100000) return; // Use the paged importer above the engine's record limit.
   }

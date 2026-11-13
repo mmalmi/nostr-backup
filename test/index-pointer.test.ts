@@ -112,7 +112,8 @@ test('published my-events can be queried from Blossom alone and retain independe
   assert.deepEqual(new Set((await readPointer(db))?.acknowledged), new Set(conf.relays));
   const next = event(1, 'next', 4);
   const held = event(1, 'Unverified legacy X post', 5);
-  await append(db, [{ event: next }, { event: held }], pubkey);
+  const dm = event(4, 'Encrypted message', 6);
+  await append(db, [{ event: next }, { event: held }, { event: dm }], pubkey);
   await db.put('heldEvents', 'x:42', held.id);
   await queueIndexPointer(db, conf, sign, async () => {});
   const updated = await readPointer(db);
@@ -123,6 +124,8 @@ test('published my-events can be queried from Blossom alone and retain independe
   assert.ok(nextRoot);
   assert.equal((await tree.getById(nextRoot, next.id))?.id, next.id);
   assert.equal(await tree.getById(nextRoot, held.id), null);
+  assert.equal(await tree.getById(nextRoot, dm.id), null);
+  assert.equal((await db.get('events', dm.id))?.sig, dm.sig);
   assert.notEqual(updated.localHash, updated.hash);
   db.close();
 });
