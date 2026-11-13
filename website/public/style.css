@@ -63,6 +63,7 @@ p, li { text-wrap: pretty; }
 .button.quiet:hover { background: var(--tint); color: var(--blue); }
 
 .backup-preview { margin: 0; min-width: 0; }
+.archive-preview { max-width: 47.5rem; margin: 2rem auto 0; }
 .backup-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: .7rem; }
 .backup-preview figcaption { margin-top: .55rem; color: var(--muted); font-size: .85rem; }
 
