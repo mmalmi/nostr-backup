@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SocialNetwork } from '../types.ts';
   import type { SourceSettings, SourcesView } from './views.ts';
+  import XStats from './XStats.svelte';
 
   // Switches save as they change. A username saves only when the user chooses Save or presses
   // Enter, because a partial username would back up someone else's profile.
@@ -89,7 +90,6 @@
   const fieldId = (source: Source) => (source === 'x' ? 'handle' : source + 'Handle');
   const count = (n: number) => n.toLocaleString();
   const locked = $derived(!view?.unlocked);
-  const x = $derived(view?.x);
 </script>
 
 <svelte:window
@@ -136,18 +136,7 @@
     ><input type="checkbox" id="skipCrossposts" bind:checked={skipCrossposts} onchange={toggle} disabled={locked} /> Skip
     posts already on Nostr</label
   >
-  <div class="stats" aria-label="X backup statistics">
-    <div><strong id="xCaptured">{count(x?.captured ?? 0)}</strong>Posts found</div>
-    <div><strong id="xSigned">{count(x?.signed ?? 0)}</strong>New copies</div>
-    <div><strong id="xMatched">{count(x?.matched ?? 0)}</strong>Already on Nostr</div>
-    <div><strong id="xDrafts">{count(x?.drafts ?? 0)}</strong>Preparing</div>
-  </div>
-  <p id="localXCount" class="hint" hidden={!view?.localX}>{count(view?.localX ?? 0)} local only</p>
-  <p id="xImageState" class="hint" hidden={!x?.media}>
-    {#if x?.media}
-      {count(x.media)} {x.media === 1 ? 'post' : 'posts'} waiting for images{x.mediaError ? ' · ' + x.mediaError : ''}
-    {/if}
-  </p>
+  <XStats x={view?.x} localX={view?.localX} />
 </section>
 
 {#each networks as network (network.id)}

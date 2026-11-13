@@ -8,6 +8,8 @@ import { compile } from 'svelte/compiler';
 export const svelte: Plugin = {
   name: 'svelte',
   setup(build) {
+    // Svelte packages such as @iris/svelte-ui export their components under the "svelte" condition.
+    build.initialOptions.conditions = [...(build.initialOptions.conditions ?? []), 'svelte'];
     build.onLoad({ filter: /\.svelte$/ }, async ({ path }) => {
       const { js, warnings } = compile(await readFile(path, 'utf8'), {
         filename: path,

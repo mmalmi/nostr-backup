@@ -343,15 +343,15 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   assert.equal(id('relaySummary').textContent, `Relays (${DEFAULT_RELAYS.length})`);
   assert.equal(page.document.querySelector('nav a[href="#settings"]'), null);
   const irisProfile = 'https://iris.to/' + npubEncode(owner);
-  assert.equal(page.document.querySelector('#profileAvatar')?.closest('a')?.getAttribute('href'), irisProfile);
+  assert.equal(id('signedInProfile').getAttribute('href'), irisProfile);
   assert.equal(id('signedInProfile').getAttribute('target'), '_blank');
   assert.equal(id('displayName').textContent, 'Alice Example');
   assert.equal(id('profileIdentity').textContent, '@alice');
-  assert.equal(id('profileAvatar').getAttribute('src'), 'https://images.example/alice.png');
-  dispatch('profileAvatar', 'error');
-  assert.equal(id('profileAvatar').hidden, true);
-  assert.equal(id('profileInitials').textContent, 'A');
-  assert.equal(id('profileInitials').hidden, false);
+  // The Iris avatar loads the picture directly and falls back to an identicon if it fails.
+  const avatar = () => page.document.querySelector('#signedInProfile img.iris-avatar-image');
+  await until(() => avatar()?.getAttribute('src') === 'https://images.example/alice.png');
+  avatar()!.dispatchEvent(new page.Event('error'));
+  await until(() => !avatar() && !!page.document.querySelector('#signedInProfile .iris-minidenticon'));
   assert.equal(id('profileMode').hidden, false);
   assert.equal(id('capture').disabled, true);
   assert.equal(id('sourcesReadOnly').hidden, false);

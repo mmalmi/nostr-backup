@@ -27,6 +27,9 @@ importers:
       '@hashtree/nostr-pubsub':
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz(nostr-tools@2.25.2(typescript@5.9.3))(typescript@5.9.3)
+      '@iris/svelte-ui':
+        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz
+        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz(svelte@5.57.3)
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -262,6 +265,12 @@ packages:
     resolution: {integrity: sha512-ah0pS1PDckTkz/QntsNn9D9aFPcJWb7BDjBvaVtY9gaWryiWMvXv0QaGbTU5aGIqRd32BLmnojNDXHPJ/IkIhQ==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz}
     version: 0.2.7
 
+  '@iris/svelte-ui@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz':
+    resolution: {integrity: sha512-noT2jG+eDoZ+m7GI0+hUvE4obpClkSWdRLomw8zkyaEvcTjnkzGlndw7W0xX49Qv4iMF0ewXkMJcz+NBpdt9yQ==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz}
+    version: 0.1.2
+    peerDependencies:
+      svelte: ^5.0.0
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -482,6 +491,10 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
+  minidenticons@4.2.1:
+    resolution: {integrity: sha512-oWfFivA0lOx/V/bO/YIJbthB26lV8JXYvhnv9zM2hNd3fzsHTXQ6c6bWZPcvhD3nnOB+lQk/D9lF43BXixrN8g==}
+    engines: {node: '>=15.14.0'}
+
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -696,6 +709,11 @@ snapshots:
       nostr-tools: 2.25.2(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
+
+  '@iris/svelte-ui@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz(svelte@5.57.3)':
+    dependencies:
+      minidenticons: 4.2.1
+      svelte: 5.57.3
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -919,6 +937,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  minidenticons@4.2.1: {}
 
   mri@1.2.0: {}
 

@@ -1,9 +1,8 @@
-import { errorMessage } from './types.ts';
+import { errorMessage, type Profile } from './types.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
 import { settings } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
 import { npubEncode } from 'nostr-tools/nip19';
-import { showProfile } from './profile-ui.ts';
 import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { relayList, secretKey } from './model.ts';
@@ -15,8 +14,12 @@ import { downloadBlob, mediaConfig, refreshMedia } from './media-ui.ts';
 import { DEFAULT_MEDIA_MIB } from './media-files.ts';
 import { mount } from 'svelte';
 import Sources from './components/Sources.svelte';
+import ProfileSlot from './components/ProfileSlot.svelte';
 import type { SourcesPanel } from './components/views.ts';
 
+const header = mount(ProfileSlot, { target: el('profileSlot') }) as {
+  show(pubkey: string, profile: Profile | undefined, readOnly: boolean): void;
+};
 const sources = mount(Sources, {
   target: el('sourcesPanel'),
   props: {
@@ -111,7 +114,7 @@ async function refresh(initial = false) {
   }
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
-  showProfile(pubkey, profile, !unlocked);
+  header.show(pubkey, profile, !unlocked);
   sources.show({ conf, unlocked, x, social, localX }, changed ? 'replace' : initial ? 'sync' : 'none');
   mediaConfig(conf, unlocked);
   if (pubkey && !el('onboarding').hidden && !location.hash) {

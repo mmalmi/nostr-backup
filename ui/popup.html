@@ -9,33 +9,7 @@
   </head>
   <body class="popup">
     <main>
-      <h1 class="brand"><img src="icon.svg" alt="" width="20" height="20" />Social Backup</h1>
-      <div id="backupActions" hidden>
-        <a id="signedInProfile" class="profile" target="_blank" rel="noopener noreferrer" title="View profile on Iris" hidden>
-          <span class="avatar" aria-hidden="true">
-            <span id="profileInitials"></span>
-            <img id="profileAvatar" alt="" referrerpolicy="no-referrer" hidden />
-          </span>
-          <span class="profileText"
-            ><strong id="displayName"></strong><small id="profileIdentity"></small
-            ><small id="profileMode" class="profileMode" hidden>Read-only</small></span
-          >
-        </a>
-        <p id="summary"></p>
-        <p id="socialPopup" hidden></p>
-        <section id="xPopupStats" hidden aria-label="X capture statistics">
-          <h2>X backup</h2>
-          <div class="stats">
-            <div><strong id="xCaptured">0</strong>Posts found</div>
-            <div><strong id="xSigned">0</strong>New copies</div>
-            <div><strong id="xMatched">0</strong>Already on Nostr</div>
-            <div><strong id="xDrafts">0</strong>Preparing</div>
-          </div>
-          <p id="xImageState" class="hint" hidden></p>
-          <p id="xCaptureState"></p>
-        </section>
-        <button id="open">Open backup</button>
-      </div>
+      <div id="app"></div>
       <p id="notice" role="status"></p>
     </main>
   </body>
