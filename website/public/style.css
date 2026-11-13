@@ -132,3 +132,7 @@ footer a { color: var(--blue); }
   .platform { padding: 1.15rem 1.15rem 1.35rem; }
   .fold { padding-inline: 1.15rem; }
 }
+@media (max-width: 22rem) {
+  .brand small { display: block; }
+  .platform-head { flex-wrap: wrap; }
+}
