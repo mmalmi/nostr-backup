@@ -74,8 +74,13 @@ export const IRIS_APPS_ADDRESS = 'htree://npub1xdhnr9mrv47kkrn95k6cwecearydeh8e8
 export function openSiteURL(input: string, local: boolean) {
   const value = input.trim().replace(/^htree:\/\//i, '');
   const address = 'htree://' + value;
-  if (local) return irisDriveURL(address);
   const { root, path, trailingSlash, search, fragment } = treeAddress(address);
+  if (local) {
+    const url = new URL(irisDriveURL(address));
+    if (url.hostname === 'iris.localhost')
+      throw Error('Choose Browser for a site with this tree name.');
+    return url.href;
+  }
   const params = new URLSearchParams(search);
   // An immutable decryption key goes in the nhash, inside the launcher's fragment.
   if ('cid' in root) params.delete('k');
@@ -83,5 +88,5 @@ export function openSiteURL(input: string, local: boolean) {
     throw Error('Open this address with Iris Drive to keep its query or page fragment.');
   if (!path.length || trailingSlash) path.push('index.html');
   const parts = 'cid' in root ? [nhashEncode(root.cid)] : [root.npub, root.name];
-  return 'https://apps.iris.to/#/' + [...parts, ...path].map(encodeURIComponent).join('/');
+  return 'https://apps.iris.to/#/' + [...parts, ...path].map(encodeURIComponent).join('/') + '?htree=1';
 }

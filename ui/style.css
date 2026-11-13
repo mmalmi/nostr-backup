@@ -272,6 +272,18 @@ button:disabled {
 .popup .hint {
   font-size: 0.8rem;
 }
+.popupApps {
+  display: block;
+  width: fit-content;
+  color: var(--brand);
+  margin: 10px auto 0;
+}
+.archive .siteOpener {
+  margin: -12px 0 16px;
+}
+.siteOpener form {
+  max-width: 32rem;
+}
 pre,
 li,
 p {

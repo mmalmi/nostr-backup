@@ -7,7 +7,7 @@ import { generateSecretKey, finalizeEvent, getPublicKey } from 'nostr-tools/pure
 import { Window } from 'happy-dom';
 import { installBrowserHelper } from '../src/browser-helper.ts';
 import { imageCache } from '../src/helper-cache.ts';
-import { treeAddress, irisDriveURL } from '../src/helper-links.ts';
+import { treeAddress, irisDriveURL, IRIS_APPS_ADDRESS, openSiteURL } from '../src/helper-links.ts';
 import { resolveImage, imageDataURL } from '../src/helper-images.ts';
 import { openArchive, append } from '../src/archive.ts';
 import { backupMedia } from '../src/media-files.ts';
@@ -97,6 +97,23 @@ test('Iris Drive URLs preserve path, query and fragment and give different site 
   assert.notEqual(new URL(irisDriveURL('htree://' + nhashEncode('ab'.repeat(32)))).origin, link.origin);
   for (const url of ['htree://self/drive', 'htree://invalid', 'htree://' + npub + '/a/%2e%2e/b',
     'htree://' + npub + '/a/b%2Fc', 'htree://' + nhash + '@example.com/x']) assert.throws(() => treeAddress(url));
+});
+
+test('the site opener accepts named paths and immutable roots without losing their identity', () => {
+  const owner = npubEncode('b'.repeat(64));
+  const named = owner + '/apps%2Fphotos/my%20album/';
+  assert.equal(openSiteURL(named, false), 'https://apps.iris.to/#/' + named + 'index.html?htree=1');
+  assert.match(openSiteURL(IRIS_APPS_ADDRESS, true), /^http:\/\/sites\.npub1[^.]+\.iris\.localhost:17321\/$/);
+  assert.throws(() => openSiteURL(named, true), /Choose Browser/);
+  assert.throws(() => openSiteURL(owner + '/site/a?b=c#d', false), /Iris Drive/);
+  assert.equal(openSiteURL(owner + '/site/a?b=c#d', true),
+    'http://site.' + owner + '.iris.localhost:17321/a?b=c#d');
+  const root = nhashEncode(fromHex('ab'.repeat(32)));
+  const keyed = nhashEncode({ hash: 'ab'.repeat(32), decryptKey: 'cd'.repeat(32) });
+  assert.equal(openSiteURL(root + '/img.png?k=' + 'cd'.repeat(32), false),
+    'https://apps.iris.to/#/' + keyed + '/img.png?htree=1');
+  for (const invalid of ['https://example.com', owner, owner + '/site/%2e%2e/index.html'])
+    assert.throws(() => openSiteURL(invalid, false));
 });
 
 test('dynamic image changes win over pending requests and links retain normal browser navigation', async () => {

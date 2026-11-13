@@ -1,6 +1,7 @@
 import { api, el, on, send, notice } from './ui.ts';
 import { captureNetwork } from './social.ts';
 import { showProfile } from './profile-ui.ts';
+import { setupSiteOpener } from './site-opener.ts';
 
 async function openBackup() {
   await api.runtime.openOptionsPage();
@@ -40,6 +41,7 @@ async function refreshPopup() {
   el('summary').textContent = `${events} backed-up ${events === 1 ? 'item' : 'items'}`;
   el('backupActions').hidden = false;
 }
+setupSiteOpener();
 refreshPopup().catch((e) => notice(e.message));
 setInterval(() => {
   if (!document.hidden) refreshPopup().catch((e) => notice(e.message));

@@ -4,6 +4,7 @@ import { defaults } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
 import { npubEncode } from 'nostr-tools/nip19';
 import { showProfile } from './profile-ui.ts';
+import { setupSiteOpener } from './site-opener.ts';
 import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { relayList, secretKey } from './model.ts';
@@ -304,6 +305,7 @@ on('lock', 'click', async () => {
   notice('Account locked.');
 });
 setupOnboarding(() => refresh(true));
+setupSiteOpener();
 on('logout', 'click', async () => {
   await send('logout', { pubkey });
   await refresh(true);
