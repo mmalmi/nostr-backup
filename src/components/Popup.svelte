@@ -47,9 +47,16 @@
   });
 </script>
 
-<h1 class="brand"><img src="icon.svg" alt="" width="20" height="20" />Social Backup</h1>
 <div id="backupActions" hidden={!status}>
-  <ProfileCard pubkey={status?.conf.pubkey} profile={status?.profile} readOnly={!status?.unlocked} />
+  <header class="popupHeader">
+    <ProfileCard
+      pubkey={status?.conf.pubkey}
+      profile={status?.profile}
+      readOnly={!status?.unlocked}
+      onopen={() => void openBackup()}
+    />
+    <img class="popupMark" src="icon.svg" alt="Social Backup" title="Social Backup" width="18" height="18" />
+  </header>
   <p id="summary">{status?.events ?? 0} backed-up {status?.events === 1 ? 'item' : 'items'}</p>
   <p id="socialPopup" hidden={!socialLine}>{socialLine}</p>
   <section id="xPopupStats" hidden={site !== 'x'} aria-label="X capture statistics">

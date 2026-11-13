@@ -2,6 +2,7 @@
   import { DEFAULT_RELAYS } from '../default-relays.ts';
   import { relayList } from '../model.ts';
   import { indexName } from '../index-pointer.ts';
+  import { npubEncode } from 'nostr-tools/nip19';
   import { mediaServers, publicMediaURL } from '../media-refs.ts';
   import { dump, openArchive } from '../archive.ts';
   import { downloadBlob, notice, send } from '../ui.ts';
@@ -126,7 +127,14 @@
     <div><strong id="drafts">{status?.drafts ?? 0}</strong>Preparing</div>
     <div><strong id="pending">{status?.pending ?? 0}</strong>Waiting to send</div>
   </div>
-  <button id="download" disabled={!pubkey} onclick={run(downloadZip)}>Download ZIP</button>
+  <div class="actions">
+    <button id="download" disabled={!pubkey} onclick={run(downloadZip)}>Download ZIP</button>
+    {#if pubkey}
+      <a class="button secondary" id="viewOnIris" href={'https://iris.to/' + npubEncode(pubkey)} target="_blank" rel="noopener noreferrer"
+        >See your posts on Iris</a
+      >
+    {/if}
+  </div>
 </section>
 <section>
   <h3>Online copies</h3>

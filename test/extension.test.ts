@@ -373,7 +373,8 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   await until(() => !pageElements(popup)('backupActions').hidden);
   assert.equal(pageElements(popup)('open').textContent, 'Open backup');
   assert.equal(popup.document.getElementById('signer'), null);
-  assert.equal(popup.document.querySelector('#displayName')?.closest('a')?.getAttribute('href'), irisProfile);
+  // In the popup, the profile header opens the backup page.
+  assert.equal(popup.document.querySelector('#displayName')?.closest('a')?.getAttribute('href'), 'archive.html');
   assert.equal(pageElements(popup)('displayName').textContent, 'Alice Example');
   assert.equal(pageElements(popup)('profileMode').hidden, false);
   assert.equal(pageElements(popup)('xPopupStats').hidden, true);
@@ -387,6 +388,9 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   id('profileName').value = nsecEncode(secret);
   dispatch('profileName', 'input');
   assert.equal(id('profileName').value, '');
+  // Signing in with a secret key asks which accounts to back up. This one skips it.
+  await until(() => !!page.document.getElementById('skipSetup'));
+  id('skipSetup').click();
   await until(() => !id('workspace').hidden);
   assert.equal((await success('status')).unlocked, true);
   assert.equal(id('profileMode').hidden, true);
@@ -404,6 +408,8 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   id('existingProfile').click();
   id('loginKey').value = Buffer.from(secret).toString('hex').toUpperCase();
   dispatch('loginKey', 'input');
+  await until(() => !!page.document.getElementById('skipSetup'));
+  id('skipSetup').click();
   await until(() => !id('workspace').hidden);
   assert.equal((await success('status')).conf.pubkey, owner);
   assert.equal((await success('status')).unlocked, true);
@@ -1196,7 +1202,19 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   t.after(() => receipt.resolve());
   id('profileName').value = 'Example';
   id('nameForm').requestSubmit();
+  // The setup step saves the X username through the Sources settings and links to the profile.
+  await until(() => !!page.document.getElementById('setup-x'));
+  assert.equal(id('workspace').hidden, true);
+  const setupX = page.document.getElementById('setup-x') as unknown as HTMLInputElement;
+  setupX.value = '@Example';
+  setupX.dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
+  id('saveSetup').click();
+  await until(() => !!page.document.getElementById('finishSetup'));
+  assert.equal((await success('status')).conf.handle, 'example');
+  assert.equal(page.document.querySelector('.setupLinks a')?.getAttribute('href'), 'https://x.com/example');
+  id('finishSetup').click();
   await until(() => !id('workspace').hidden);
+  assert.equal(id('handle').value, 'example');
   assert.equal(page.document.getElementById('recoveryKey'), null);
   const owner = (await success('status')).conf.pubkey;
   let nsec = '';

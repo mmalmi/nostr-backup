@@ -11,6 +11,7 @@
   import Media from './Media.svelte';
   import Storage from './Storage.svelte';
   import Account from './Account.svelte';
+  import SourceSetup from './SourceSetup.svelte';
 
   const sections = [
     ['archive', 'Backup'],
@@ -44,6 +45,7 @@
     lastRefresh = Date.now();
     const changed = pubkey !== next.conf.pubkey;
     pubkey = next.conf.pubkey;
+    if (!pubkey) page.setup = false;
     page.status = next;
     const { conf, unlocked, x, social, localX } = next;
     sources.show({ conf, unlocked, x, social, localX }, changed ? 'replace' : initial ? 'sync' : 'none');
@@ -76,6 +78,17 @@
     }
     await refresh(true);
     notice('Saved.');
+  }
+
+  // The setup step saves usernames through the Sources settings, so validation is shared.
+  async function saveUsernames(usernames: { x: string; instagram: string; facebook: string }) {
+    sources.useUsernames(usernames);
+    try {
+      await save();
+    } catch (error) {
+      await refresh(true);
+      throw error;
+    }
   }
 
   onMount(() => {
@@ -111,7 +124,8 @@
 <section id="onboarding" aria-label="Profile setup" hidden={!status || signedIn}>
   <Onboarding bind:this={onboarding} />
 </section>
-<div class="workspace" id="workspace" hidden={!signedIn}>
+{#if signedIn && page.setup}<SourceSetup save={saveUsernames} />{/if}
+<div class="workspace" id="workspace" hidden={!signedIn || page.setup}>
   <nav aria-label="Backup sections">
     {#each sections as [id, label] (id)}
       <a href={'#' + id} aria-current={page.section === id ? 'page' : undefined}>{label}</a>

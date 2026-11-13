@@ -52,6 +52,16 @@
     skipCrossposts = conf.skipCrossposts !== false;
   }
 
+  /** Stages usernames from the setup step as saved; the caller then saves settings. */
+  export function useUsernames(next: Partial<Record<Source, string>>) {
+    for (const source of sources) {
+      const value = next[source];
+      if (value === undefined) continue;
+      saved[source] = normal(value);
+      typed[source] = value.trim();
+    }
+  }
+
   /** The settings to store: switches as shown, usernames only as saved. */
   export function values(): SourceSettings {
     return {

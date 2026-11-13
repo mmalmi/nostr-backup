@@ -63,7 +63,10 @@
     notice('Signing in…');
     try {
       if (parsed.type === 'watch') await send('watch', { pubkey: parsed.key, account: '' });
-      else await send('login', { key: parsed.key, account: '' });
+      else {
+        await send('login', { key: parsed.key, account: '' });
+        page.setup = true;
+      }
       await app.refresh(true);
       notice('');
     } finally {
@@ -93,6 +96,7 @@
     signingIn = true;
     try {
       await send('createProfile', { name, account: '' });
+      page.setup = true;
       await app.refresh(true);
     } finally {
       signingIn = false;
