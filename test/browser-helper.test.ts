@@ -7,7 +7,7 @@ import { generateSecretKey, finalizeEvent, getPublicKey } from 'nostr-tools/pure
 import { Window } from 'happy-dom';
 import { installBrowserHelper } from '../src/browser-helper.ts';
 import { imageCache } from '../src/helper-cache.ts';
-import { treeAddress, irisDriveURL, IRIS_APPS_ADDRESS, openSiteURL } from '../src/helper-links.ts';
+import { treeAddress } from '../src/helper-links.ts';
 import { resolveImage, imageDataURL } from '../src/helper-images.ts';
 import { openArchive, append } from '../src/archive.ts';
 import { backupMedia } from '../src/media-files.ts';
@@ -83,40 +83,14 @@ test('the browsing cache serializes concurrent inserts, deduplicates and evicts 
   assert.ok(await cache.get('c'));
 });
 
-test('Iris Drive URLs preserve path, query and fragment and give different site roots separate origins', () => {
+test('the image reader rejects malformed tree paths', () => {
   const npub = npubEncode('b'.repeat(64));
-  assert.equal(irisDriveURL('htree://' + npub + '/site/assets/?theme=dark#start'),
-    'http://site.' + npub + '.iris.localhost:17321/assets/?theme=dark#start');
-  assert.equal(irisDriveURL('htree://' + npub + '/release%2Fapp/test.txt'),
-    'http://iris.localhost:17321/' + npub + '/release%2Fapp/test.txt');
-  const nhash = nhashEncode({ hash: '00'.repeat(32), decryptKey: 'aa'.repeat(32) });
-  const link = new URL(irisDriveURL('htree://' + nhash + '/index.html?test=1#intro'));
-  assert.equal(link.hostname, 'a'.repeat(52) + '.sites.iris.localhost');
-  assert.equal(link.searchParams.get('k'), 'aa'.repeat(32));
-  assert.equal(link.hash, '#intro');
-  assert.notEqual(new URL(irisDriveURL('htree://' + nhashEncode('ab'.repeat(32)))).origin, link.origin);
+  const nhash = nhashEncode(fromHex('ab'.repeat(32)));
   for (const url of ['htree://self/drive', 'htree://invalid', 'htree://' + npub + '/a/%2e%2e/b',
     'htree://' + npub + '/a/b%2Fc', 'htree://' + nhash + '@example.com/x']) assert.throws(() => treeAddress(url));
 });
 
-test('the site opener accepts named paths and immutable roots without losing their identity', () => {
-  const owner = npubEncode('b'.repeat(64));
-  const named = owner + '/apps%2Fphotos/my%20album/';
-  assert.equal(openSiteURL(named, false), 'https://apps.iris.to/#/' + named + 'index.html?htree=1');
-  assert.match(openSiteURL(IRIS_APPS_ADDRESS, true), /^http:\/\/sites\.npub1[^.]+\.iris\.localhost:17321\/$/);
-  assert.throws(() => openSiteURL(named, true), /Choose Browser/);
-  assert.throws(() => openSiteURL(owner + '/site/a?b=c#d', false), /Iris Drive/);
-  assert.equal(openSiteURL(owner + '/site/a?b=c#d', true),
-    'http://site.' + owner + '.iris.localhost:17321/a?b=c#d');
-  const root = nhashEncode(fromHex('ab'.repeat(32)));
-  const keyed = nhashEncode({ hash: 'ab'.repeat(32), decryptKey: 'cd'.repeat(32) });
-  assert.equal(openSiteURL(root + '/img.png?k=' + 'cd'.repeat(32), false),
-    'https://apps.iris.to/#/' + keyed + '/img.png?htree=1');
-  for (const invalid of ['https://example.com', owner, owner + '/site/%2e%2e/index.html'])
-    assert.throws(() => openSiteURL(invalid, false));
-});
-
-test('dynamic image changes win over pending requests and links retain normal browser navigation', async () => {
+test('dynamic image changes win over pending requests and site links keep their original addresses', async () => {
   const win = new Window({ url: 'https://reader.example/' });
   const doc = win.document as unknown as Document;
   const old = globalThis.MutationObserver;
@@ -137,13 +111,18 @@ test('dynamic image changes win over pending requests and links retain normal br
     await win.happyDOM.waitUntilComplete();
     assert.equal(img.getAttribute('src'), 'https://ordinary.example/image.png');
     const a = doc.createElement('a');
-    a.href = 'htree://' + npubEncode('b'.repeat(64)) + '/site/';
+    const site = 'htree://' + npubEncode('b'.repeat(64)) + '/site/';
+    a.href = site;
     a.target = '_blank'; doc.body.append(a);
     img.src = 'blossom://' + digest;
     await win.happyDOM.waitUntilComplete();
     assert.equal(img.src, imageDataURL(png));
     assert.deepEqual(reads, [first, 'blossom://' + digest]);
-    assert.equal(new URL(a.href).hostname, 'site.' + npubEncode('b'.repeat(64)) + '.iris.localhost');
+    assert.equal(a.getAttribute('href'), site);
+    const pinned = 'htree://' + nhashEncode(fromHex(digest)) + '/index.html';
+    a.href = pinned;
+    await win.happyDOM.waitUntilComplete();
+    assert.equal(a.getAttribute('href'), pinned);
     assert.equal(a.target, '_blank');
   } finally { globalThis.MutationObserver = old; await win.happyDOM.abort(); }
 });

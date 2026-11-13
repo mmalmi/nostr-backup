@@ -82,15 +82,13 @@ node --experimental-strip-types scripts/extract-media.ts social-backup-2026-11-1
 
 **Media → Sync media** checks locally saved public files against every configured Blossom server and restores missing copies from local Hashtree storage. Enter one server origin per line. HTTPS servers and HTTP loopback servers are supported. X photo posts can use the first confirmed public copy while the other servers finish independently. Localhost addresses are excluded from published image links. Each file and server has a persistent delivery record. Failed attempts back off from five minutes to six hours and resume after a restart. The Media page shows each server’s saved and queued counts, errors and next retry. Sync again to check for copies a server has lost. Restricted captures stay local.
 
-## Browsing Blossom images and Hashtree sites
+## Browsing Blossom and Hashtree images
 
 On HTTPS pages where the extension has site access, an image can use `blossom:<sha256>.png`, `htree://<nhash>/photo.png`, or `htree://<npub>/<tree>/photo.png` as its `src`. Images added after page load work too. If an ordinary HTTPS image ending in a Blossom hash fails to load, the helper tries to recover it.
 
 The helper reads public media from the active archive and keeps a separate 64 MiB browsing cache. On a miss it requests the hash from the servers listed under **Media → Blossom servers**, in order, and checks the SHA-256 before using the bytes. A local Hashtree daemon in that list can retrieve missing blocks from its peers. Use the daemon's HTTP address (commonly `http://127.0.0.1:8080` for standalone Hashtree). This is the same server list used for media backups. Page-provided server hints cannot select additional destinations. The image limit is 8 MiB, or the Media download limit if lower. The page's image policy must allow data URLs.
 
-Named trees use signed public pointers from the configured relays. An immutable link carries the root and can be read offline once its blocks are cached. Clicking an `htree://` site link on a supported page opens the local Iris Drive gateway on port 17321. Run Iris Drive with its browser gateway enabled to serve the HTML, scripts and relative assets. Immutable sites have an origin per root, and DNS-compatible named sites have an origin per publisher and tree. Tree names such as `releases%2Fapp` use the gateway's shared file route, which serves non-HTML files.
-
-Open **Iris Apps** in the toolbar popup for the app catalog. In the backup window, **Hashtree sites** also opens a pasted `npub/tree/path`, `nhash/path`, or `htree://` address. **Browser** uses the Iris Sites web runtime and works without Iris Drive. Its HTTPS origin is derived from the full publisher and tree name or the immutable root hash. **Local Iris Drive** uses the gateway on your device and supports page queries and fragments. Both open the site in a separate tab.
+Named images use signed public tree pointers from the configured relays. An immutable image link carries its root and can be read offline once its blocks are cached.
 
 ## Relay and index behavior
 
