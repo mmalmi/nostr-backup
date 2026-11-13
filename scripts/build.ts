@@ -8,13 +8,14 @@ const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 const icons = { 16: 'icon-16.png', 32: 'icon-32.png', 48: 'icon-48.png', 128: 'icon-128.png' };
 const common = {
   manifest_version: 3,
-  name: 'Nostr Backup',
+  name: 'Social Backup',
   version: pkg.version,
+  homepage_url: pkg.homepage,
   description: 'Back up posts from X, Instagram, Facebook and Nostr. Share public posts with your relays and export your archive.',
   permissions: ['storage', 'alarms', 'scripting', 'activeTab', 'unlimitedStorage'],
   host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
   icons,
-  action: { default_title: 'Nostr Backup', default_icon: icons },
+  action: { default_title: 'Social Backup', default_icon: icons },
   options_ui: { page: 'archive.html', open_in_tab: true },
   content_scripts: [
     { matches: ['https://*/*'], js: ['browser-helper.js'], run_at: 'document_start', all_frames: true },
@@ -74,7 +75,7 @@ for (const target of ['chrome', 'firefox', 'safari']) {
   for (const name of (await readdir(dir)).sort())
     files[name] = new Uint8Array(await readFile(dir + '/' + name));
   await writeFile(
-    'dist/nostr-backup-' + target + '.zip',
+    'dist/social-backup-' + target + '.zip',
     zipSync(files, { level: 6, mtime: new Date(1980, 0, 1) }),
   );
   console.log('Built ' + dir);

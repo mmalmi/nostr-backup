@@ -1,6 +1,7 @@
 {
-  "name": "nostr-backup",
-  "version": "0.1.6",
+  "name": "social-backup",
+  "version": "0.1.7",
+  "homepage": "https://backup.iris.to/",
   "private": true,
   "type": "module",
   "engines": {

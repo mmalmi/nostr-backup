@@ -39,7 +39,7 @@ test('text, emoji, timestamp, case and canonical permalink', () => {
     ['r', 'https://x.com/alice/status/123'],
     ['i', 'https://x.com/alice/status/123'],
     ['k', 'web'],
-    ['client', 'nostr-backup'],
+    ['client', 'Social Backup'],
   ]);
 });
 test('skip truncated text, foreign reposts and nested quotations', () => {

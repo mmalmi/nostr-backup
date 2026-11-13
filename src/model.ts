@@ -122,7 +122,7 @@ export function xTemplate(post: Capture, handle: string) {
     ['r', url],
     ['i', url],
     ['k', 'web'],
-    ['client', 'nostr-backup'],
+    ['client', 'Social Backup'],
   ];
   // Modern X IDs encode milliseconds above their low 22 worker/sequence bits.
   // Cross-check with the independent DOM date before using that precision.

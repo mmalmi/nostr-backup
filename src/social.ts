@@ -59,7 +59,7 @@ export function socialTemplate(post: SocialCapture) {
   const content = [post.text, ...media.filter(url => !post.text.includes(url))].join('\n\n');
   return {
     kind: 1, created_at: post.time, content,
-    tags: [['r', post.url], ['i', post.url], ['k', 'web'], ['client', 'nostr-backup'],
+    tags: [['r', post.url], ['i', post.url], ['k', 'web'], ['client', 'Social Backup'],
       ...(post.timePrecision === 'day' ? [['time-precision', 'day']] : []),
       ...media.map(url => ['imeta', 'url ' + url])],
   };

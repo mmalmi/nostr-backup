@@ -377,7 +377,7 @@ on('download', 'click', async () => {
     if (pubkey !== owner) return;
     downloadBlob(
       new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
-      'nostr-backup-' + new Date().toISOString().slice(0, 10) + '.zip',
+      'social-backup-' + new Date().toISOString().slice(0, 10) + '.zip',
     );
     notice('ZIP download started.');
   } finally {

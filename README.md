@@ -1,10 +1,10 @@
-# Nostr Backup
+# Social Backup
 
 A Chrome and Firefox extension that archives your own posts as you browse your X, Instagram, or Facebook profile. It signs confirmed public posts as Nostr kind 1 notes, imports your signed Nostr events from the relays you choose, and keeps both in a local, exportable hashtree.
 
 ## Install
 
-Browser packages and installation instructions are on [nostrbackup.iris.to](https://nostrbackup.iris.to/). The source is on [git.iris.to](https://git.iris.to/#/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/nostr-backup) and [GitHub](https://github.com/mmalmi/nostr-backup).
+Browser packages and installation instructions are on [backup.iris.to](https://backup.iris.to/). The source is on [git.iris.to](https://git.iris.to/#/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/nostr-backup) and [GitHub](https://github.com/mmalmi/nostr-backup).
 
 Use Node 22.12 or newer and pnpm 10.28.2.
 
@@ -20,14 +20,14 @@ pnpm build
 | Safari | On a Mac with Xcode, run the command below on `dist/safari`, open the generated Xcode project, and build the containing app. The Safari build is experimental. |
 
 ```sh
-xcrun safari-web-extension-packager dist/safari --app-name "Nostr Backup" --macos-only
+xcrun safari-web-extension-packager dist/safari --app-name "Social Backup" --macos-only
 ```
 
 The build also writes a ZIP for each browser, with fixed entry timestamps so repeated builds from the same inputs produce identical packages. Unzip the Chrome package before loading it. Firefox release distribution requires a Mozilla-signed package. Export your archive before removing or replacing a temporary installation.
 
 ## First backup
 
-1. Click the Nostr Backup toolbar icon. Enter your name and choose **Create profile** to start a new Nostr profile. If you already have a profile, choose **Sign in** and paste your secret key (nsec) or user ID (npub). The archive opens automatically; npub stays read-only. As in Iris, a 64-character hex key is treated as a private key. The default relays match Iris. Open **Backup → Relays** to change the selection or add your own.
+1. Click the Social Backup toolbar icon. Enter your name and choose **Create profile** to start a new Nostr profile. If you already have a profile, choose **Sign in** and paste your secret key (nsec) or user ID (npub). The archive opens automatically; npub stays read-only. As in Iris, a 64-character hex key is treated as a private key. The default relays match Iris. Open **Backup → Relays** to change the selection or add your own.
 2. **Sync daily** backs up every event kind your relays serve for your public key. To filter downloads, open **Backup → Download all event kinds**, choose **Only these kinds** or **All except these kinds**, enter kind numbers (for example, `1, 7`), then choose **Save filter**. The next sync checks older history after an upgrade or filter change. Previously saved events stay in your ZIP. The importer verifies each event’s author, ID and signature.
 3. To mirror X, open **X**, enter your handle, enable capture, and choose **Save**. If you opened the archive with a public key, log in with its private key to sign captures.
 4. Visit the configured X profile and scroll. You can view it from another X account. The profile URL and the post author’s timestamp permalink must both match the configured handle. It handles Posts, Replies and Media profile tabs. Read-only mode pauses capture; existing unsigned captures remain on disk.
@@ -36,7 +36,7 @@ The build also writes a ZIP for each browser, with fixed entry timestamps so rep
 
 **Sync now** imports from your saved relays even when automatic import is off, and retries queued deliveries. Each relay has a live connection indicator, activity, imported and acknowledged-send counts, queue size and broadcast progress. Errors and retry times stay with the affected relay. Each connection closes when its work finishes. Backup shows the last completed history sync for each relay. Your latest archived Nostr profile supplies the avatar and name shown in the header and toolbar popup; the public key stays in **Account**.
 
-**X** shows captured, signed, already-on-Nostr and awaiting-signature totals. By default, capture compares your X post with your own locally archived Nostr notes from the same UTC date. An exact match or a close match to a full note or substantial paragraph links the original X capture to the signed note. Turn off **Skip posts already on Nostr** to sign future captures separately. For new X posts, Backup copies images to the Blossom server selected in **Media** (default `https://blossom.band`) and signs the post with the returned image URLs and the `nostr-backup` client tag. The original image bytes are also saved locally. If an upload fails, the capture stays queued and text-only posts continue signing. The toolbar popup shows capture and upload status on x.com. Public-key login and a locked signer show **Read-only** beside the profile. Capture pauses in this mode; imports, ZIP downloads and broadcasting already-signed events remain available.
+**X** shows captured, signed, already-on-Nostr and awaiting-signature totals. By default, capture compares your X post with your own locally archived Nostr notes from the same UTC date. An exact match or a close match to a full note or substantial paragraph links the original X capture to the signed note. Turn off **Skip posts already on Nostr** to sign future captures separately. For new X posts, Backup copies images to the Blossom server selected in **Media** (default `https://blossom.band`) and signs the post with the returned image URLs and the `Social Backup` client tag. The original image bytes are also saved locally. If an upload fails, the capture stays queued and text-only posts continue signing. The toolbar popup shows capture and upload status on x.com. Public-key login and a locked signer show **Read-only** beside the profile. Capture pauses in this mode; imports, ZIP downloads and broadcasting already-signed events remain available.
 
 **Instagram & Facebook** lets you enable either profile separately. Enter your Instagram username or Facebook username/numeric profile ID, choose **Save**, then visit your profile and scroll. Opening an Instagram post also works. The extension records your own posts it can identify, including the original link, caption, available media, and date. Instagram grid dates can have day-only precision. Facebook uses the audience on each post. Instagram checks the post through its signed-out public embed. Login walls and unsupported layouts can limit capture. Media downloads obey your per-file limit and the source site's access rules.
 
@@ -77,7 +77,7 @@ The Media page distinguishes saved files, poster-only captures, and unavailable 
 **Download file** reads a saved file locally. **Backup → Download ZIP** includes the media index and all referenced blocks. To extract ordinary media files from a ZIP offline, run the command below in this project with dependencies installed. It checks each restored file’s length and SHA-256 and names the output by its hash.
 
 ```sh
-node --experimental-strip-types scripts/extract-media.ts nostr-backup-2026-11-11.zip restored-media
+node --experimental-strip-types scripts/extract-media.ts social-backup-2026-11-11.zip restored-media
 ```
 
 **Media → Sync media** checks locally saved public files against every configured Blossom server and restores missing copies from local Hashtree storage. Enter one server origin per line. HTTPS servers and HTTP loopback servers are supported. X photo posts can use the first confirmed public copy while the other servers finish independently. Localhost addresses are excluded from published image links. Each file and server has a persistent delivery record. Failed attempts back off from five minutes to six hours and resume after a restart. The Media page shows each server’s saved and queued counts, errors and next retry. Sync again to check for copies a server has lost. Restricted captures stay local.

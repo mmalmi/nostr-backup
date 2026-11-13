@@ -1677,7 +1677,7 @@ test('X images are archived locally, retried on the selected Blossom server and 
     assert.ok(signed && verifyEvent(signed));
     assert.equal(signed.content, 'Photo\n\n' + cdnURL);
     assert.equal(signed.tags.filter((t) => t[0] === 'client').length, 1);
-    assert.ok(signed.tags.some((t) => t[0] === 'client' && t[1] === 'nostr-backup'));
+    assert.ok(signed.tags.some((t) => t[0] === 'client' && t[1] === 'Social Backup'));
     assert.ok(signed.tags.some((t) => t[0] === 'imeta' && t.includes('x ' + digest)));
     assert.equal(JSON.stringify(signed).includes('twimg.com'), false);
     assert.equal((await db.get('mediaRefs', [id!, cdnURL]))?.status, 'saved');

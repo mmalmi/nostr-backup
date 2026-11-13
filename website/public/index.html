@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Back up your posts | Nostr Backup</title>
+    <title>Back up your posts | Social Backup</title>
     <meta name="description" content="Keep a copy of your X, Instagram and Facebook posts. Scroll your profile and the extension saves them as you go.">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
-    <link rel="canonical" href="https://nostrbackup.iris.to/">
+    <link rel="canonical" href="https://backup.iris.to/">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./style.css">
   </head>
   <body>
     <header class="bar wrap">
-      <a class="brand" href="./"><img src="./icon.svg" width="30" height="30" alt="">Nostr Backup</a>
+      <a class="brand" href="./"><img src="./icon.svg" width="30" height="30" alt="">Social Backup</a>
       <nav aria-label="Main navigation"><a class="wide-only" href="#how">How it works</a><a href="#install">Install</a><a href="#questions">Questions</a></nav>
     </header>
     <main class="wrap">
@@ -35,10 +35,10 @@
         </div>
         <figure class="backup-preview">
           <picture>
-            <source media="(max-width: 35rem) and (prefers-color-scheme: dark)" srcset="./screenshots/toolbar-compact-dark.webp" width="366" height="525">
-            <source media="(max-width: 35rem)" srcset="./screenshots/toolbar-compact-light.webp" width="366" height="525">
-            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/toolbar-desktop-dark.webp" width="730" height="557">
-            <img src="./screenshots/toolbar-desktop-light.webp" width="730" height="557" alt="The backup popup beneath its pinned Chrome toolbar icon, showing Chad’s avatar and eight captured X posts.">
+            <source media="(max-width: 35rem) and (prefers-color-scheme: dark)" srcset="./screenshots/toolbar-compact-dark.webp" width="366" height="545">
+            <source media="(max-width: 35rem)" srcset="./screenshots/toolbar-compact-light.webp" width="366" height="545">
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/toolbar-desktop-dark.webp" width="730" height="577">
+            <img src="./screenshots/toolbar-desktop-light.webp" width="730" height="577" alt="The backup popup beneath its pinned Chrome toolbar icon, showing Chad’s avatar and eight captured X posts.">
           </picture>
           <figcaption>The extension on a sample X profile.</figcaption>
         </figure>
@@ -49,7 +49,7 @@
         <ol class="steps">
           <li>
             <h3>Make a profile</h3>
-            <p>Click the Nostr Backup icon and choose <strong>Create profile</strong>. Then choose <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, turn on backup and choose <strong>Save</strong>.</p>
+            <p>Click the Social Backup icon and choose <strong>Create profile</strong>. Then choose <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, turn on backup and choose <strong>Save</strong>.</p>
           </li>
           <li>
             <h3>Scroll your profile</h3>
@@ -62,8 +62,8 @@
         </ol>
         <figure class="backup-preview archive-preview">
           <picture>
-            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/archive-dark.webp" width="760" height="396">
-            <img src="./screenshots/archive-light.webp" width="760" height="396" loading="lazy" alt="Chad’s sample backup has 134 saved items and a Download ZIP button.">
+            <source media="(prefers-color-scheme: dark)" srcset="./screenshots/archive-dark.webp" width="760" height="438">
+            <img src="./screenshots/archive-light.webp" width="760" height="438" loading="lazy" alt="Chad’s sample backup has 134 saved items and a Download ZIP button.">
           </picture>
           <figcaption>Choose Open backup in the popup to see everything you’ve saved.</figcaption>
         </figure>
@@ -85,12 +85,12 @@
 
       <section id="install" class="section" aria-labelledby="install-title">
         <h2 id="install-title">Install</h2>
-        <p class="lead">Nostr Backup isn’t in the browser stores yet, so adding it takes a few extra clicks.</p>
+        <p class="lead">Social Backup isn’t in the browser stores yet, so adding it takes a few extra clicks.</p>
         <div class="platforms">
           <div class="platform">
             <div class="platform-head">
               <h3>Chrome <small>Easiest</small></h3>
-              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download>Download for Chrome <span aria-hidden="true">↓</span></a>
+              <a class="button small" href="./downloads/social-backup-chrome.zip" download>Download for Chrome <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
               <li>Unzip the download.</li>
@@ -101,7 +101,7 @@
           <div class="platform">
             <div class="platform-head">
               <h3>Firefox <small>140 or newer</small></h3>
-              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download>Download for Firefox <span aria-hidden="true">↓</span></a>
+              <a class="button small" href="./downloads/social-backup-firefox.zip" download>Download for Firefox <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
               <li>Type <code>about:debugging#/runtime/this-firefox</code> in the address bar.</li>
@@ -110,12 +110,12 @@
             <p class="note"><strong>Heads up:</strong> Firefox removes the extension when it restarts. Download your copy before closing Firefox.</p>
           </div>
         </div>
-        <p class="tip">Don’t see the icon? Open your browser’s extensions menu (the puzzle piece) and pin Nostr Backup.</p>
+        <p class="tip">Don’t see the icon? Open your browser’s extensions menu (the puzzle piece) and pin Social Backup.</p>
         <details class="fold">
           <summary>Safari <span>Experimental, needs Xcode</span></summary>
-          <p>On a Mac with Xcode, unzip the package into a folder named <code>nostr-backup-safari</code>, then run this command from its parent folder. Open the generated Xcode project and build the app.</p>
-          <pre><code>xcrun safari-web-extension-packager nostr-backup-safari --app-name "Nostr Backup" --macos-only</code></pre>
-          <a class="button small quiet" href="./downloads/nostr-backup-safari.zip" download>Download for Safari <span aria-hidden="true">↓</span></a>
+          <p>On a Mac with Xcode, unzip the package into a folder named <code>social-backup-safari</code>, then run this command from its parent folder. Open the generated Xcode project and build the app.</p>
+          <pre><code>xcrun safari-web-extension-packager social-backup-safari --app-name "Social Backup" --macos-only</code></pre>
+          <a class="button small quiet" href="./downloads/social-backup-safari.zip" download>Download for Safari <span aria-hidden="true">↓</span></a>
         </details>
       </section>
 
