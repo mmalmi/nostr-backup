@@ -107,7 +107,6 @@
                 <label id="kindListField" hidden>Kind numbers
                   <input id="downloadKinds" placeholder="e.g. 0, 1, 7" spellcheck="false" autocomplete="off" form="backupSettings" />
                 </label>
-                <button class="secondary" form="backupSettings">Save filter</button>
               </details>
               <label class="check"
                 ><input type="checkbox" id="relaySync" form="backupSettings" />
@@ -140,47 +139,7 @@
               </details>
             </section>
           </div>
-          <div data-panel="sources" hidden>
-            <h2>Sources</h2>
-            <p class="hint">When you save a username with backup enabled, you allow Social Backup to sign public posts from that profile with your Nostr key and send them to your relays. Private and unverified posts stay on this device.</p>
-            <p id="sourcesReadOnly" class="hint" hidden>Read-only mode. Sign in with your secret key to turn on backup.</p>
-            <section class="source" aria-labelledby="xTitle">
-              <h3 id="xTitle">X</h3>
-              <label
-                >Username<input
-                  id="handle"
-                  form="backupSettings"
-                  placeholder="@yourname"
-                  autocomplete="off"
-                  spellcheck="false"
-              /></label>
-              <label class="check"
-                ><input type="checkbox" id="capture" form="backupSettings" /> Back up my X posts as I browse</label
-              >
-              <label class="check"><input type="checkbox" id="skipCrossposts" form="backupSettings" /> Skip posts already on Nostr</label>
-              <div class="stats" aria-label="X backup statistics">
-                <div><strong id="xCaptured">0</strong>Posts found</div>
-                <div><strong id="xSigned">0</strong>New copies</div>
-                <div><strong id="xMatched">0</strong>Already on Nostr</div>
-                <div><strong id="xDrafts">0</strong>Preparing</div>
-              </div>
-              <p id="localXCount" class="hint" hidden></p>
-              <p id="xImageState" class="hint" hidden></p>
-            </section>
-            <section class="source" aria-labelledby="instagramTitle">
-              <h3 id="instagramTitle">Instagram</h3>
-              <label>Username<input id="instagramHandle" form="backupSettings" placeholder="@yourname" autocomplete="off" spellcheck="false" /></label>
-              <label class="check"><input type="checkbox" id="instagramCapture" form="backupSettings" /> Back up my Instagram posts as I browse</label>
-              <p id="instagramCount" class="sourceCount"></p>
-            </section>
-            <section class="source" aria-labelledby="facebookTitle">
-              <h3 id="facebookTitle">Facebook</h3>
-              <label>Username or numeric profile ID<input id="facebookHandle" form="backupSettings" placeholder="yourname" autocomplete="off" spellcheck="false" /></label>
-              <label class="check"><input type="checkbox" id="facebookCapture" form="backupSettings" /> Back up my Facebook posts as I browse</label>
-              <p id="facebookCount" class="sourceCount"></p>
-            </section>
-            <button form="backupSettings">Save</button>
-          </div>
+          <div data-panel="sources" id="sourcesPanel" hidden></div>
           <div data-panel="media" hidden>
             <h2>Media</h2>
             <section>
@@ -202,7 +161,6 @@
               <p class="hint">
                 Files are saved on this device. These servers store extra copies of public files.
               </p>
-              <button form="backupSettings">Save</button>
             </section>
 
             <section>

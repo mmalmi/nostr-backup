@@ -193,7 +193,8 @@ try {
   );
   await waitFor(() => js("return !document.querySelector('#lock').hidden"), 'signer unlock');
   await js(
-    "const u=arguments[0];document.querySelector('#handle').value='alice';document.querySelector('#relays').value=u;document.querySelector('#capture').checked=true;document.querySelector('#relaySync').checked=true;document.querySelector('#backupSettings').requestSubmit()",
+    // Usernames save only through their Save button. Backup is on by default.
+    "const u=arguments[0];const h=document.querySelector('#handle');h.value='alice';h.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#relays').value=u;document.querySelector('#relaySync').checked=true;setTimeout(()=>document.querySelector('#handleSave').click())",
     url,
   );
   await waitFor(

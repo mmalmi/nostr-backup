@@ -15,7 +15,7 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "test:browser": "node --experimental-strip-types scripts/browser-smoke.ts",
     "test:page": "node --experimental-strip-types scripts/browser-check.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings --output machine"
   },
   "dependencies": {
     "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz",
@@ -27,7 +27,8 @@
     "linkedom": "0.18.15",
     "nostr-pubsub": "https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.30/nostr-pubsub-0.5.30.tgz",
     "nostr-pubsub-reconcile": "https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz",
-    "nostr-tools": "2.25.2"
+    "nostr-tools": "2.25.2",
+    "svelte": "5.57.3"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
@@ -35,6 +36,7 @@
     "esbuild": "0.28.1",
     "fake-indexeddb": "6.2.5",
     "happy-dom": "20.14.6",
+    "svelte-check": "4.7.7",
     "typescript": "5.9.3",
     "ws": "8.21.1"
   },

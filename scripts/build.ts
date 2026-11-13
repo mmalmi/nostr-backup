@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { svelte } from './svelte.ts';
 import { captureSites } from '../src/social.ts';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
@@ -45,6 +46,7 @@ const bundles = await build({
   write: false,
   minify: true,
   legalComments: 'eof',
+  plugins: [svelte],
 });
 for (const target of ['chrome', 'firefox', 'safari']) {
   const dir = 'dist/' + target;

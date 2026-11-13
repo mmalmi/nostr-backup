@@ -1,4 +1,4 @@
-import { socialNetworks } from './social.ts';
+import { errorMessage } from './types.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
 import { settings } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
@@ -13,6 +13,20 @@ import { api, el, send, notice, on } from './ui.ts';
 import { dump, openArchive } from './archive.ts';
 import { downloadBlob, mediaConfig, refreshMedia } from './media-ui.ts';
 import { DEFAULT_MEDIA_MIB } from './media-files.ts';
+import { mount } from 'svelte';
+import Sources from './components/Sources.svelte';
+import type { SourcesPanel } from './components/views.ts';
+
+const sources = mount(Sources, {
+  target: el('sourcesPanel'),
+  props: {
+    save: () =>
+      saveSettings().catch((error) => {
+        notice(errorMessage(error));
+        throw error;
+      }),
+  },
+}) as SourcesPanel;
 
 let permissionState = '';
 let archiveName: string | undefined,
@@ -98,30 +112,7 @@ async function refresh(initial = false) {
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
   showProfile(pubkey, profile, !unlocked);
-  el('sourcesReadOnly').hidden = unlocked;
-  for (const site of socialNetworks) {
-    el(`${site}Capture`).disabled = !unlocked;
-    const counts = social?.[site];
-    el(`${site}Count`).textContent = counts?.saved
-      ? counts.saved.toLocaleString() + ' backed up · ' + counts.signed.toLocaleString() + ' prepared for sharing'
-      : 'No posts backed up yet';
-    if (initial || changed) {
-      el(`${site}Handle`).value = conf.social?.[site]?.handle ?? '';
-      el(`${site}Capture`).checked = conf.social?.[site]?.capture ?? false;
-    }
-  }
-  el('localXCount').hidden = !localX;
-  el('localXCount').textContent = (localX ?? 0).toLocaleString() + ' local only';
-  el('capture').disabled = !unlocked;
-  el('skipCrossposts').disabled = !unlocked;
-  el('xCaptured').textContent = x.captured.toLocaleString();
-  el('xMatched').textContent = x.matched.toLocaleString();
-  el('xSigned').textContent = x.signed.toLocaleString();
-  el('xImageState').hidden = !x.media;
-  el('xImageState').textContent = x.media
-    ? x.media.toLocaleString() + (x.media === 1 ? ' post waiting for images' : ' posts waiting for images') +
-      (x.mediaError ? ' · ' + x.mediaError : '') : '';
-  el('xDrafts').textContent = x.drafts.toLocaleString();
+  sources.show({ conf, unlocked, x, social, localX }, changed ? 'replace' : initial ? 'sync' : 'none');
   mediaConfig(conf, unlocked);
   if (pubkey && !el('onboarding').hidden && !location.hash) {
     history.replaceState(null, '', '#archive');
@@ -137,8 +128,6 @@ async function refresh(initial = false) {
   }
   showStorage(conf, location.hash === '#storage');
   if (initial || changed) {
-    el('handle').value = conf.handle;
-    el('skipCrossposts').checked = conf.skipCrossposts !== false;
     el('blossomServer').value = mediaServers(conf).join('\n');
     el('mediaMiB').value = String(conf.mediaMiB ?? DEFAULT_MEDIA_MIB);
     el('relays').value = conf.relays.join('\n');
@@ -153,7 +142,7 @@ async function refresh(initial = false) {
       summary = (filter.mode === 'include' ? 'Download only ' : 'Download all except ') + selection;
     }
     el('kindSummary').textContent = summary;
-    for (const k of ['capture', 'relaySync'] as const) el(k).checked = conf[k];
+    el('relaySync').checked = conf.relaySync;
   }
   el('backupSettings').hidden = !pubkey;
   el('manageArchive').hidden = !pubkey;
@@ -235,19 +224,19 @@ async function refresh(initial = false) {
 }
 on('kindMode', 'change', () => {
   el('kindListField').hidden = el('kindMode').value === 'all';
-  if (!el('kindListField').hidden) el('downloadKinds').focus();
+  // A kind list saves once it is entered. Switching back to all kinds saves right away.
+  if (el('kindListField').hidden || el('downloadKinds').value.trim()) el('backupSettings').requestSubmit();
+  else el('downloadKinds').focus();
 });
-on('backupSettings', 'submit', async () => {
+// Settings save as they change. Text fields save when they are finished, not on every keystroke.
+for (const id of ['downloadKinds', 'mediaMiB', 'blossomServer'])
+  on(id, 'change', () => el('backupSettings').requestSubmit());
+async function saveSettings() {
   await send('settings', {
     pubkey,
     account: pubkey,
-    handle: el('handle').value,
-    social: Object.fromEntries(socialNetworks.map(site => [site, {
-      handle: el(`${site}Handle`).value, capture: el(`${site}Capture`).checked,
-    }])),
+    ...sources.values(),
     relays: el('relays').value,
-    capture: el('capture').checked,
-    skipCrossposts: el('skipCrossposts').checked,
     blossomServer: el('blossomServer').value,
     mediaMiB: el('mediaMiB').value,
     relaySync: el('relaySync').checked,
@@ -255,7 +244,8 @@ on('backupSettings', 'submit', async () => {
   });
   await refresh(true);
   notice('Saved.');
-});
+}
+on('backupSettings', 'submit', saveSettings);
 on('relayChoices', 'change', () => {
   el('relays').value = [
     ...document.querySelectorAll<HTMLInputElement>('#relayChoices input:checked'),

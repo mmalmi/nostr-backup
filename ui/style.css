@@ -18,6 +18,7 @@
   --danger: #b4372f;
   --ok: #2f9e6a;
   --wait: #d29b2c;
+  --warn-text: #8a5a00;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -35,6 +36,7 @@
     --danger: #c9483f;
     --ok: #5cc48f;
     --wait: #e2b04a;
+    --warn-text: #e8bb5c;
   }
 }
 * {
@@ -496,6 +498,24 @@ ul:empty {
 .source .hint:last-child,
 .sourceCount {
   margin-bottom: 0;
+}
+.source label[for] {
+  margin-bottom: 0;
+}
+.usernameRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+.usernameRow input:not([type='checkbox']) {
+  flex: 1;
+  margin-top: 0;
+}
+.unsaved {
+  margin: 6px 0 0;
+  color: var(--warn-text);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 .sourceCount {
   padding-top: 12px;

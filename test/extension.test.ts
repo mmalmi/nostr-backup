@@ -23,6 +23,7 @@ import { append, openArchive, readRoot, stagePosts } from '../src/archive.ts';
 import { Reconciliation } from 'nostr-pubsub-reconcile';
 import { relayRetryDeadline as retryDeadline } from 'nostr-pubsub';
 import { build } from 'esbuild';
+import { svelte } from '../scripts/svelte.ts';
 import { Window } from 'happy-dom';
 import { publicTweetHTML } from './fixtures.ts';
 import { DEFAULT_RELAYS } from '../src/default-relays.ts';
@@ -825,6 +826,7 @@ async function extensionPage(
     bundle: true,
     write: false,
     format: 'iife',
+    plugins: [svelte],
   });
   setup?.(page);
   page.eval(bundle.outputFiles[0].text);
@@ -1413,6 +1415,54 @@ test('a truncated X post is backed up with its full public text', async (t) => {
   }
 });
 
+test('sources save switches at once but keep a typed username unsaved until Save', async (t) => {
+  const url = 'wss://sources-page.example/';
+  fixtureRelay(url);
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url });
+    const page = await archivePage(t), id = pageElements(page);
+    const conf = async () => (await success('status')).conf;
+    const leaveBlocked = () => {
+      const event = new page.Event('beforeunload', { cancelable: true });
+      page.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const type = (value: string) => {
+      id('handle').value = value;
+      page.document.getElementById('handle')!.dispatchEvent(new page.Event('input', { bubbles: true }));
+    };
+    await until(() => id('instagramCapture').checked && !id('capture').disabled);
+    assert.equal(leaveBlocked(), false);
+    type('@Alice');
+    await until(() => page.document.querySelector('.unsaved')?.textContent === 'Unsaved changes');
+    assert.equal(leaveBlocked(), true);
+    // A switch saves right away but never sends the unsaved username.
+    id('instagramCapture').click();
+    await until(async () => (await conf()).social?.instagram?.capture === false);
+    assert.equal((await conf()).handle, '');
+    assert.equal(id('handle').value, '@Alice');
+    assert.ok(page.document.querySelector('.unsaved'));
+    id('handleSave').click();
+    await until(async () => (await conf()).handle === 'alice');
+    await until(() => !page.document.querySelector('.unsaved'));
+    assert.equal(page.document.getElementById('handleSave'), null);
+    assert.equal(leaveBlocked(), false);
+    // A rejected username stays in the field, marked unsaved, and the stored one is kept.
+    type('not valid!');
+    await until(() => !!page.document.getElementById('handleSave'));
+    id('handleSave').click();
+    await until(() => id('notice').textContent === 'Enter your X handle.');
+    assert.equal((await conf()).handle, 'alice');
+    assert.equal(id('handle').value, 'not valid!');
+    assert.ok(page.document.querySelector('.unsaved'));
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
     publicTweet(url, 'Post ' + String(url).split('/').pop()));
@@ -1613,10 +1663,9 @@ test('X capture links same-day matches locally, preserves original text and hono
     }
     const page = await archivePage(t);
     const field = pageElements(page)('skipCrossposts');
-    await until(() => field.checked);
-    assert.equal(pageElements(page)('xMatched').textContent, '2');
-    field.checked = false;
-    pageElements(page)('backupSettings').requestSubmit();
+    await until(() => field.checked && pageElements(page)('xMatched').textContent === '2');
+    // The switch saves as soon as it changes.
+    field.click();
     await until(async () => (await success('status')).conf.skipCrossposts === false);
     await success('capture', { posts: [exact, near, post('5', first)] }, x);
     await idle();
