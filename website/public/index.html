@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Nostr Backup — Back up your posts to Nostr</title>
     <meta name="description" content="Back up your X posts to Nostr and copy existing Nostr posts between relays. You can also export a local ZIP with your posts and saved media.">
-    <meta name="theme-color" content="#faf9f5">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
     <link rel="canonical" href="https://nostrbackup.iris.to/">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./style.css">
@@ -20,7 +22,7 @@
         <div class="intro">
           <h1 id="title">Back up your posts<br>to Nostr.</h1>
           <p>This browser extension publishes your X posts to the Nostr relays you choose as you scroll your profile. It can also copy your existing Nostr posts between relays.</p>
-          <a class="primary" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
+          <a class="button" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
         </div>
         <div class="illustration" role="img" aria-label="An X post backed up as a signed note on Nostr relays">
           <div class="folder" aria-hidden="true">
@@ -35,29 +37,52 @@
       </section>
       <section id="downloads" class="section" aria-labelledby="downloads-title">
         <h2 id="downloads-title">Downloads</h2>
-        <div class="platform">
-          <h3>Chrome</h3>
-          <p>Unzip the download. Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, then choose <strong>Load unpacked</strong> and select the folder.</p>
-          <a class="download" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download Nostr Backup for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
-        </div>
-        <div class="platform">
-          <h3>Firefox <small>140+</small></h3>
-          <p>Open <code>about:debugging#/runtime/this-firefox</code>, choose <strong>Load Temporary Add-on</strong> and select the ZIP. Firefox removes temporary add-ons on restart, so export your archive first.</p>
-          <a class="download" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download Nostr Backup for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+        <div class="platforms">
+          <div class="platform">
+            <div class="platform-head">
+              <h3>Chrome</h3>
+              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download Nostr Backup for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+            </div>
+            <ol>
+              <li>Unzip the download.</li>
+              <li>Open <code>chrome://extensions</code> and enable <strong>Developer mode</strong>.</li>
+              <li>Choose <strong>Load unpacked</strong> and select the folder.</li>
+            </ol>
+          </div>
+          <div class="platform">
+            <div class="platform-head">
+              <h3>Firefox <small>140+</small></h3>
+              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download Nostr Backup for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+            </div>
+            <ol>
+              <li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>
+              <li>Choose <strong>Load Temporary Add-on</strong> and select the ZIP.</li>
+            </ol>
+            <p class="note">Firefox removes temporary add-ons on restart, so export your archive first.</p>
+          </div>
         </div>
         <details class="safari">
           <summary>Safari <span>Experimental</span></summary>
           <p>On a Mac with Xcode, unzip the package into a folder named <code>nostr-backup-safari</code>, then run this command from its parent folder. Open the generated Xcode project and build the app.</p>
           <pre><code>xcrun safari-web-extension-packager nostr-backup-safari --app-name "Nostr Backup" --macos-only</code></pre>
-          <a class="download" href="./downloads/nostr-backup-safari.zip" download aria-label="Download the experimental Safari package as a ZIP">Download Safari ZIP <span aria-hidden="true">↓</span></a>
+          <a class="button small quiet" href="./downloads/nostr-backup-safari.zip" download aria-label="Download the experimental Safari package as a ZIP">Download Safari ZIP <span aria-hidden="true">↓</span></a>
         </details>
       </section>
-      <section class="section start" aria-labelledby="start-title">
+      <section class="section" aria-labelledby="start-title">
         <h2 id="start-title">Your first backup</h2>
-        <div>
-          <p><strong>From X.</strong> Click the extension icon to sign in with your private key or create a profile. In <strong>Settings</strong>, add your relay URLs and enable capture for your X handle. Scroll your X profile to publish each post as a signed Nostr note. Posts sent to public relays are public.</p>
-          <p><strong>From Nostr.</strong> Enter your public key, add the relays you want to read from and write to, and enable <strong>Import my Nostr posts</strong>. Choose <strong>Backup → Broadcast and import</strong> to copy missing posts between those relays.</p>
-          <p><strong>For a local copy,</strong> choose <strong>Backup → Download ZIP</strong>. To include attachments, run <strong>Media → Back up media</strong> first.</p>
+        <div class="ways">
+          <div>
+            <h3>From X</h3>
+            <p>Click the extension icon to sign in with your private key or create a profile. In <strong>Settings</strong>, add your relay URLs and enable capture for your X handle. Scroll your X profile to publish each post as a signed Nostr note. Posts sent to public relays are public.</p>
+          </div>
+          <div>
+            <h3>From Nostr</h3>
+            <p>Enter your public key, add the relays you want to read from and write to, and enable <strong>Import my Nostr posts</strong>. Choose <strong>Backup → Broadcast and import</strong> to copy missing posts between those relays.</p>
+          </div>
+          <div>
+            <h3>Local copy</h3>
+            <p>Choose <strong>Backup → Download ZIP</strong>. To include attachments, run <strong>Media → Back up media</strong> first.</p>
+          </div>
         </div>
       </section>
     </main>
