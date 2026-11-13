@@ -18,11 +18,11 @@ function capture(html: string, url = 'https://x.com/alice', handle = 'alice') {
   win.happyDOM.abort();
   return posts;
 }
-test('signed-in profile, current route and outer permalink must agree', () => {
+test('configured profile and outer permalink must agree regardless of the viewing account', () => {
   assert.equal(capture(profileHTML).length, 1);
   for (const path of ['/bob', '/home', '/alice/status/123', '/alice/likes', '/search?q=alice'])
     assert.deepEqual(capture(profileHTML, 'https://x.com' + path), []);
-  assert.deepEqual(capture(profileHTML.replace('href="/alice"', 'href="/bob"')), []);
+  assert.deepEqual(capture(profileHTML).map(post => post.author), ['alice']);
   assert.deepEqual(
     capture(profileHTML.replace('href="/alice/status/', 'href="https://evil.test/alice/status/')),
     [],
@@ -39,6 +39,7 @@ test('text, emoji, timestamp, case and canonical permalink', () => {
     ['r', 'https://x.com/alice/status/123'],
     ['i', 'https://x.com/alice/status/123'],
     ['k', 'web'],
+    ['client', 'nostr-backup'],
   ]);
 });
 test('skip truncated text, foreign reposts and nested quotations', () => {
@@ -67,6 +68,15 @@ test('media-only post retains its image URL', () => {
       '<div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/abc.jpg"></div>',
     );
   assert.equal(capture(html).at(-1)?.text, 'https://pbs.twimg.com/media/abc.jpg');
+});
+test('all mounted X photos need a source before signing the post', () => {
+  const photo = '<div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/a.jpg"></div>';
+  const waiting = '<div data-testid="tweetPhoto"><img></div>';
+  assert.deepEqual(capture(article('alice', '456', 'Two photos', photo + waiting)), []);
+  assert.equal(
+    capture(article('alice', '456', 'Two photos', photo + photo.replace('a.jpg', 'b.jpg')))[0].text,
+    'Two photos\n\nhttps://pbs.twimg.com/media/a.jpg\n\nhttps://pbs.twimg.com/media/b.jpg',
+  );
 });
 test('relay validation and deduplication', () => {
   assert.deepEqual(relayList('wss://example.org\nwss://example.org/'), ['wss://example.org/']);
@@ -119,4 +129,51 @@ test('video capture prefers a direct MP4 and identifies a poster-only capture', 
   assert.ok(poster);
   assert.deepEqual(poster.posters, [image]);
   assert.equal(poster.text, image);
+});
+
+test('scroll keeps recycled rows while a previous capture batch is saving', async (t) => {
+  const win = new Window({ url: 'https://x.com/alice' });
+  t.after(() => win.happyDOM.abort());
+  const holding = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const done = Promise.withResolvers<void>();
+  const captured: string[] = [];
+  Object.assign(win, {
+    chrome: {
+      storage: { onChanged: { addListener() {} } },
+      runtime: {
+        id: 'fixture',
+        async sendMessage(msg: { type: string; posts?: { id: string }[] }) {
+          if (msg.type === 'captureConfig')
+            return { ok: true, value: { capture: true, handle: 'alice', pubkey: 'owner' } };
+          const ids = msg.posts!.map((post) => post.id);
+          if (!captured.length) {
+            started.resolve();
+            await holding.promise;
+          }
+          captured.push(...ids);
+          if (captured.includes('3')) done.resolve();
+          return { ok: true };
+        },
+      },
+    },
+  });
+  const { build } = await import('esbuild');
+  const bundle = await build({
+    entryPoints: ['src/content.ts'],
+    bundle: true,
+    format: 'iife',
+    write: false,
+  });
+  win.document.body.innerHTML = article('alice', '1');
+  win.eval(bundle.outputFiles[0].text);
+  await started.promise;
+  for (const id of ['2', '3']) {
+    win.document.body.innerHTML = article('alice', id);
+    win.dispatchEvent(new win.Event('scroll'));
+    await new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
+  }
+  holding.resolve();
+  await done.promise;
+  assert.deepEqual(captured, ['1', '2', '3']);
 });

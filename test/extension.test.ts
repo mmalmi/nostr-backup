@@ -9,13 +9,22 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInThisContext } from 'node:vm';
 import { setTimeout as delay } from 'node:timers/promises';
-import { generateSecretKey, finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure';
+import {
+  generateSecretKey,
+  finalizeEvent,
+  getPublicKey,
+  verifyEvent,
+} from 'nostr-tools/pure';
 import { nsecEncode, npubEncode, decode } from 'nostr-tools/nip19';
-import { append, openArchive, stagePosts } from '../src/archive.ts';
+import { NostrEventStore } from '@hashtree/nostr';
+import { hex } from '../src/model.ts';
+import { readOnlyStore } from '../src/blocks.ts';
+import { append, openArchive, readRoot, stagePosts } from '../src/archive.ts';
 import { Reconciliation } from 'nostr-pubsub-reconcile';
-import { retryDeadline } from '../src/rate-limit.ts';
+import { relayRetryDeadline as retryDeadline } from 'nostr-pubsub';
 import { build } from 'esbuild';
 import { Window } from 'happy-dom';
+import { DEFAULT_RELAYS } from '../src/default-relays.ts';
 
 const key = generateSecretKey(),
   pubkey = getPublicKey(key);
@@ -37,8 +46,10 @@ interface FixtureRelay {
   negLimit?: string[];
   readLimit?: string[];
   publishLimit?: string[];
+  holdPublish?: Promise<void>;
 }
 const broadcastRelays = new Map<string, FixtureRelay>();
+const wireOpens: string[] = [];
 class Wire extends EventTarget {
   static OPEN = 1;
   destination?: FixtureRelay;
@@ -49,6 +60,7 @@ class Wire extends EventTarget {
   onclose?: (event: { code: number; reason: string }) => void;
   constructor(url: string) {
     super();
+    wireOpens.push(new URL(url).href);
     this.destination = broadcastRelays.get(new URL(url).href);
     queueMicrotask(() => this.onopen?.());
   }
@@ -103,6 +115,7 @@ class Wire extends EventTarget {
       const ok = dest ? dest.reject !== id.id : accept;
       if (dest) {
         dest.sent.push(id);
+        await dest.holdPublish;
         if (dest.publishLimit) return receive(['OK', id.id, false, ...dest.publishLimit]);
         if (ok) dest.stored.set(id.id, id);
       }
@@ -143,7 +156,12 @@ function approvalScreen() {
   assert.ok(winURL);
   return { ...ui, url: winURL };
 }
-type Injection = { world?: 'MAIN'; target: { tabId: number }; func: Function; args?: unknown[] };
+type Injection = {
+  world?: 'MAIN';
+  target: { tabId: number };
+  func: Function;
+  args?: unknown[];
+};
 const storageChanged = listener<(changes: object, area: string) => void>();
 let popupPath: string | undefined;
 const api = {
@@ -173,7 +191,11 @@ const api = {
     getURL: (p: string) => ext + p,
     onMessage:
       listener<
-        (message: object, sender: Sender, reply: (response: Reply<unknown>) => void) => boolean
+        (
+          message: object,
+          sender: Sender,
+          reply: (response: Reply<unknown>) => void,
+        ) => boolean
       >(),
     onInstalled: listener(),
     onStartup: listener(),
@@ -220,6 +242,16 @@ const x = {
   tab: { id: 1, url: 'https://x.com/alice' },
   frameId: 0,
 };
+function publicEmbed(input: RequestInfo | URL, caption: string) {
+  const request = new URL(String(input));
+  assert.equal(request.origin + request.pathname, 'https://publish.x.com/oembed');
+  const url = new URL(request.searchParams.get('url')!);
+  const handle = url.pathname.split('/')[1];
+  return Response.json({
+    type: 'rich', url: url.href, author_url: url.origin + '/' + handle,
+    html: '<blockquote class="twitter-tweet"><p>' + caption + '</p></blockquote>',
+  });
+}
 function call<K extends Action>(
   type: K,
   data: object = {},
@@ -253,56 +285,195 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   await until(() => popupPath === '');
   api.action.onClicked.list[0]();
   assert.equal(options.mock.callCount(), 1);
-  const page = await extensionPage(t, 'archive', installPageStorage, ext + 'archive.html#media');
+  const page = await extensionPage(
+    t,
+    'archive',
+    installPageStorage,
+    ext + 'archive.html#media',
+  );
   const id = pageElements(page);
+  const dispatch = (name: string, event: string) =>
+    page.document.getElementById(name)!.dispatchEvent(new page.Event(event));
   await until(() => !id('onboarding').hidden);
   assert.equal(id('workspace').hidden, true);
   assert.equal(page.document.activeElement?.id, 'profileName');
-  assert.equal(id('newProfile').hidden, true);
-  id('profileName').value = 'Example';
-  id('nameForm').requestSubmit();
-  assert.match(id('recoveryKey').value, /^nsec1/);
-  id('cancelProfile').click();
-  assert.equal(id('recoveryKey').value, '');
-  assert.equal(id('profileName').value, 'Example');
-  id('existingProfile').click();
+  id('existingProfileLink').click();
+  assert.equal(page.document.querySelector('#keyChoice'), null);
+  assert.equal(page.document.querySelector('#loginForm button'), null);
   id('loginKey').value = 'invalid';
+  dispatch('loginKey', 'input');
+  assert.equal(id('notice').textContent, '');
   id('loginForm').requestSubmit();
-  await until(() => id('notice').textContent.includes('private key'));
-  assert.equal(id('loginKey').value, '');
-  id('usePublic').click();
-  assert.equal(id('loginForm').hidden, true);
-  assert.equal(id('watch').hidden, false);
+  await until(() => id('notice').textContent === 'Invalid key.');
   const secret = generateSecretKey(),
     owner = getPublicKey(secret);
-  id('watchKey').value = npubEncode(owner);
-  id('watch').requestSubmit();
+  const profile = finalizeEvent(
+    {
+      kind: 0,
+      created_at: 1,
+      tags: [],
+      content: JSON.stringify({
+        name: 'alice',
+        display_name: 'Alice Example',
+        picture: 'https://images.example/alice.png',
+      }),
+    },
+    secret,
+  );
+  const archive = await openArchive('nostr-backup-' + owner);
+  await append(archive, [{ event: profile }], owner);
+  archive.close();
+  id('loginKey').value = npubEncode(owner).slice(0, -1) + '!';
+  dispatch('loginKey', 'input');
+  await until(() => id('notice').textContent === 'Invalid key.');
+  assert.equal((await success('status')).conf.pubkey, '');
+  id('loginKey').value = '  ' + npubEncode(owner) + '\n';
+  dispatch('loginKey', 'input');
+  dispatch('loginKey', 'change');
+  id('loginForm').requestSubmit();
   await until(() => !id('workspace').hidden);
   assert.equal(id('onboarding').hidden, true);
   assert.equal(popupPath, 'popup.html');
   assert.equal((await success('status')).unlocked, false);
+  assert.deepEqual((await success('status')).conf.relays, DEFAULT_RELAYS);
+  assert.equal((await success('status')).conf.relaySync, true);
+  assert.equal(id('relaySummary').textContent, `Relays (${DEFAULT_RELAYS.length})`);
+  assert.equal(page.document.querySelector('nav a[href="#settings"]'), null);
+  const irisProfile = 'https://iris.to/' + npubEncode(owner);
+  assert.equal(page.document.querySelector('#profileAvatar')?.closest('a')?.getAttribute('href'), irisProfile);
+  assert.equal(id('signedInProfile').getAttribute('target'), '_blank');
+  assert.equal(id('displayName').textContent, 'Alice Example');
+  assert.equal(id('profileIdentity').textContent, '@alice');
+  assert.equal(id('profileAvatar').getAttribute('src'), 'https://images.example/alice.png');
+  dispatch('profileAvatar', 'error');
+  assert.equal(id('profileAvatar').hidden, true);
+  assert.equal(id('profileInitials').textContent, 'A');
+  assert.equal(id('profileInitials').hidden, false);
+  assert.equal(id('profileMode').hidden, false);
+  assert.equal(id('capture').disabled, true);
+  assert.equal(id('captureReadOnly').hidden, false);
+  assert.equal(id('signedInProfile').textContent.includes('npub'), false);
+  await until(async () => !(await success('status')).running);
+  page.document.querySelector('#relayChoices')!.querySelector('input')!.click();
+  await until(
+    async () => (await success('status')).conf.relays.length === DEFAULT_RELAYS.length - 1,
+  );
+  await until(() => id('notice').textContent === 'Saved.');
+  assert.equal(id('relaySummary').textContent, `Relays (${DEFAULT_RELAYS.length - 1})`);
+  id('customRelay').value = 'custom.example';
+  id('addRelay').click();
+  await until(async () =>
+    (await success('status')).conf.relays.includes('wss://custom.example/'),
+  );
   const popup = await extensionPage(t, 'popup');
   await until(() => !pageElements(popup)('backupActions').hidden);
-  assert.equal(pageElements(popup)('open').textContent, 'View backup');
-  assert.equal(pageElements(popup)('signer').hidden, true);
+  assert.equal(pageElements(popup)('open').textContent, 'Open');
+  assert.equal(popup.document.getElementById('signer'), null);
+  assert.equal(popup.document.querySelector('#displayName')?.closest('a')?.getAttribute('href'), irisProfile);
+  assert.equal(pageElements(popup)('displayName').textContent, 'Alice Example');
+  assert.equal(pageElements(popup)('profileMode').hidden, false);
+  assert.equal(pageElements(popup)('xPopupStats').hidden, true);
   id('logout').click();
   await until(() => !id('onboarding').hidden);
   assert.equal(popupPath, '');
   assert.equal(id('nameForm').hidden, false);
   assert.equal(id('profileName').value, '');
+  assert.equal(id('signedInProfile').hidden, true);
+  assert.equal(id('signedInProfile').hasAttribute('href'), false);
   id('profileName').value = nsecEncode(secret);
-  id('nameForm').requestSubmit();
+  dispatch('profileName', 'input');
   assert.equal(id('profileName').value, '');
-  assert.equal(id('loginForm').hidden, false);
-  assert.equal(id('loginKey').value, nsecEncode(secret));
-  id('loginForm').requestSubmit();
   await until(() => !id('workspace').hidden);
   assert.equal((await success('status')).unlocked, true);
+  assert.equal(id('profileMode').hidden, true);
+  assert.equal(id('capture').disabled, false);
   assert.equal(id('loginKey').value, '');
+  id('lock').click();
+  await until(() => !id('unlock').hidden);
+  id('secret').value = nsecEncode(secret);
+  dispatch('secret', 'input');
+  await until(() => id('unlock').hidden);
+  assert.equal(id('secret').value, '');
+  assert.equal((await success('status')).unlocked, true);
+  id('logout').click();
+  await until(() => !id('onboarding').hidden);
+  id('existingProfile').click();
+  id('loginKey').value = Buffer.from(secret).toString('hex').toUpperCase();
+  dispatch('loginKey', 'input');
+  await until(() => !id('workspace').hidden);
+  assert.equal((await success('status')).conf.pubkey, owner);
+  assert.equal((await success('status')).unlocked, true);
   await success('logout', { pubkey: owner });
 });
-test('background entry point handles locked capture, signed import, rejection and acknowledged retry', async () => {
+test('manual sync imports posts and profile with automatic import off and reports its result', async () => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  await success('watch', { pubkey: owner });
+  await until(async () => !(await success('status')).running);
+  await success('settings', {
+    pubkey: owner,
+    relays: '',
+    handle: '',
+    capture: false,
+    relaySync: false,
+  });
+  assert.deepEqual((await success('status')).conf.relays, []);
+  const before = (await success('status')).lastRun;
+  const empty = await call('sync');
+  assert.equal(empty.ok, false);
+  assert.ok(!empty.ok && empty.error === 'Select a relay first.');
+  assert.deepEqual((await success('status')).lastRun, before);
+  const url = 'wss://manual-sync.example/';
+  const relay = fixtureRelay(url);
+  for (const kind of [0, 1]) {
+    const event = finalizeEvent(
+      {
+        kind,
+        created_at: 10,
+        tags: [],
+        content:
+          kind === 0 ? '{"name":"manual","display_name":"Manual sync"}' : 'Imported manually',
+      },
+      secret,
+    );
+    relay.stored.set(event.id, event);
+  }
+  await success('settings', {
+    pubkey: owner,
+    relays: url,
+    handle: '',
+    capture: false,
+    relaySync: false,
+  });
+  await until(async () => !(await success('status')).running);
+  await success('sync');
+  await until(
+    async () => !(await success('status')).running && (await success('status')).events === 2,
+  );
+  const status = await success('status');
+  assert.equal(status.conf.relaySync, false);
+  assert.equal(status.profile?.displayName, 'Manual sync');
+  assert.match(status.lastRun!.reports[url], /2 new|2 imported/);
+  assert.equal(relay.sent.length, 0);
+  await success('logout', { pubkey: owner });
+});
+test('read-only mode pauses capture and preserves existing drafts until the signer unlocks', async (t) => {
+  t.mock.method(globalThis, 'fetch', (url: URL) => publicEmbed(url, 'Text to archive'));
+  const subscriptionStart = subscriptions.length;
   assert.equal((await call('settings', { pubkey }, x)).ok, false);
+  assert.equal(
+    (
+      await call('settings', {
+        pubkey,
+        handle: 'alice',
+        relays: 'wss://fixture.example',
+        relaySync: true,
+        capture: true,
+      })
+    ).ok,
+    false,
+  );
+  await success('login', { key: nsecEncode(key) });
   await success('settings', {
     pubkey,
     handle: 'alice',
@@ -311,17 +482,20 @@ test('background entry point handles locked capture, signed import, rejection an
     capture: true,
   });
   await until(async () => !(await success('status')).running);
-  const post = { author: 'alice', id: '987', text: 'Text to archive', time: 1700000000 };
+  await success('lock');
+  const post = { author: 'alice', id: '987', text: 'Text to archive', time: 1700000000, visibility: 'public' as const };
   assert.equal((await call('capture', { posts: [post] }, { ...x, frameId: 1 })).ok, false);
-  await Promise.all([
-    success('capture', { posts: [post] }, x),
-    success('capture', { posts: [post] }, x),
-  ]);
+  assert.equal((await success('captureConfig', {}, x)).capture, false);
+  assert.equal((await call('capture', { posts: [post] }, x)).ok, false);
+  const drafts = await openArchive('nostr-backup-' + pubkey);
+  await stagePosts(drafts, [post, post]);
+  drafts.close();
   await until(async () => !(await success('status')).running);
   let status = await success('status');
   assert.equal(status.drafts, 1);
   assert.equal(status.events, 1);
   assert.equal(transmissions.length, 0);
+  assert.deepEqual(status.x, { captured: 1, signed: 0, matched: 0, drafts: 1 });
   assert.equal((await call('unlock', { key: nsecEncode(generateSecretKey()) })).ok, false);
   await success('unlock', { key: nsecEncode(key) });
   await until(async () => !(await success('status')).running);
@@ -329,9 +503,14 @@ test('background entry point handles locked capture, signed import, rejection an
   assert.equal(status.drafts, 0);
   assert.equal(status.events, 2);
   assert.equal(status.pending, 1);
+  assert.deepEqual(status.x, { captured: 1, signed: 1, matched: 0, drafts: 0 });
   assert.equal(transmissions.length, 1);
   assert.ok(verifyEvent(structuredClone(transmissions[0])));
-  assert.ok(subscriptions.every((f) => f.authors?.length === 1 && f.authors[0] === pubkey));
+  assert.ok(
+    subscriptions
+      .slice(subscriptionStart)
+      .every((f) => f.authors?.length === 1 && f.authors[0] === pubkey),
+  );
   accept = true;
   await success('sync');
   await until(async () => !(await success('status')).running);
@@ -340,6 +519,20 @@ test('background entry point handles locked capture, signed import, rejection an
   await success('capture', { posts: [post] }, x);
   await until(async () => !(await success('status')).running);
   assert.equal(transmissions.length, 2);
+  t.mock.method(api.tabs, 'query', async () => [{ id: 1, url: 'https://x.com/alice' }]);
+  const popup = await extensionPage(t, 'popup');
+  const id = pageElements(popup);
+  await until(() => !id('xPopupStats').hidden);
+  assert.equal(id('xCaptured').textContent, '1');
+  assert.equal(id('xSigned').textContent, '1');
+  assert.equal(id('xDrafts').textContent, '0');
+  assert.equal(id('profileMode').hidden, true);
+  await success('lock');
+  const lockedPopup = await extensionPage(t, 'popup');
+  const locked = pageElements(lockedPopup);
+  await until(() => !locked('backupActions').hidden);
+  assert.equal(locked('profileMode').hidden, false);
+  assert.equal(locked('xCaptureState').textContent, 'Capture paused · Read-only mode');
 });
 test('signer binds requests to a granted tab, exposes the key and signs only an approved template', async () => {
   const token = crypto.randomUUID(),
@@ -349,7 +542,12 @@ test('signer binds requests to a granted tab, exposes the key and signs only an 
   await success('unlock', { key: nsecEncode(key) });
   const req = (method: string, event?: object, extra: object = {}) =>
     call('nip07', { token, method, event, ...extra }, sender);
-  assert.deepEqual(await req('getPublicKey'), { ok: true, value: pubkey });
+  winURL = undefined;
+  const loginRequest = req('getPublicKey');
+  await until(() => !!winURL);
+  const loginScreen = approvalScreen();
+  await success('approval', { id: loginScreen.url.split('#')[1], decision: true }, loginScreen);
+  assert.deepEqual(await loginRequest, { ok: true, value: pubkey });
   assert.equal((await req('signEvent', {}, { token: 'forged' })).ok, false);
   assert.equal(
     (
@@ -390,10 +588,33 @@ test('signer binds requests to a granted tab, exposes the key and signs only an 
     }
     assert.equal((await call('approval', { id, decision: true }, screen)).ok, false);
   }
+  winURL = undefined;
+  const post = { ...event, kind: 1 };
+  const first = req('signEvent', post);
+  await until(() => !!winURL);
+  const screen = approvalScreen();
+  await success('approval', { id: screen.url.split('#')[1], decision: true, remember: true }, screen);
+  assert.equal((await first).ok, true);
+  await api.storage.session.clear(); // A new browser session loses tab grants, but keeps the signer and website choices.
+  assert.equal((await success('status')).unlocked, true);
+  assert.equal((await req('getPublicKey')).ok, false);
+  await api.storage.session.set({ 'grant-8': { token, origin } });
+  winURL = undefined;
+  const second = await req('signEvent', { ...post, content: 'Next post' });
+  assert.ok(second.ok && typeof second.value === 'object' && verifyEvent(second.value));
+  assert.equal(winURL, undefined);
+  assert.deepEqual(await success('listPermissions', { account: pubkey }), [{ origin, kind: 1 }]);
+  const sensitive = req('signEvent', event);
+  await until(() => !!winURL);
+  const sensitiveScreen = approvalScreen();
+  await success('approval', { id: sensitiveScreen.url.split('#')[1], decision: false }, sensitiveScreen);
+  assert.equal((await sensitive).ok, false);
+  await success('forgetPermissions', { account: pubkey, origin });
+  assert.deepEqual(await success('listPermissions', { account: pubkey }), []);
   await success('lock');
   assert.equal((await req('getPublicKey')).ok, false);
 });
-test('the popup injects window.nostr and the page signs a login event through the approval screen', async (t) => {
+test('the extension injects window.nostr and the page signs a login event through the approval screen', async (t) => {
   const origin = 'https://client.example';
   const tab = { id: 8, url: origin + '/' };
   const site = new Window({ url: tab.url });
@@ -412,36 +633,23 @@ test('the popup injects window.nostr and the page signs a login event through th
   await success('login', { key: nsecEncode(key) });
   const sender = { id: extensionId, tab, url: tab.url, frameId: 0 };
   const bridge = {
-    chrome: { runtime: { sendMessage: ({ type, ...body }: Message) => call(type, body, sender) } },
-  };
-  const worlds: string[] = [];
-  t.mock.method(api.tabs, 'query', async () => [tab]);
-  t.mock.method(
-    api.scripting,
-    'executeScript',
-    async ({ world, target, func, args = [] }: Injection) => {
-      assert.equal(target.tabId, tab.id);
-      worlds.push(world ?? 'ISOLATED');
-      // Chrome serializes the injected function. The isolated world shares the DOM
-      // with the page and has its own global object and runtime API.
-      const run =
-        world === 'MAIN'
-          ? site.eval('(' + func.toString() + ')')
-          : site.Function(
-              'globalThis',
-              'chrome',
-              'return (' + func.toString() + ')',
-            )(bridge, bridge.chrome);
-      return [{ result: run(...args) }];
+    chrome: {
+      runtime: { sendMessage: ({ type, ...body }: Message) => call(type, body, sender) },
     },
-  );
-  const popup = await extensionPage(t, 'popup');
-  await until(() => !pageElements(popup)('backupActions').hidden);
-  assert.equal(pageElements(popup)('signer').hidden, false);
-  pageElements(popup)('signer').click();
-  await until(() => pageElements(popup)('notice').textContent.includes('Signer enabled'));
-  assert.deepEqual(worlds, ['ISOLATED', 'MAIN']);
-  assert.equal(await site.eval('window.nostr.getPublicKey()'), pubkey);
+  };
+  Object.defineProperty(site, 'chrome', { value: bridge.chrome });
+  for (const entry of ['bridge', 'provider']) {
+    const bundle = await build({ entryPoints: ['src/' + entry + '.ts'], bundle: true, write: false, format: 'iife' });
+    site.eval(bundle.outputFiles[0].text);
+  }
+  winURL = undefined;
+  const loginRequest = site.eval('window.nostr.getPublicKey()');
+  await until(() => !!winURL);
+  const loginReview = await extensionPage(t, 'approve', undefined, approvalScreen().url);
+  await until(() => !pageElements(loginReview)('allow').disabled);
+  assert.equal(pageElements(loginReview)('allow').textContent, 'Share public key');
+  pageElements(loginReview)('allow').click();
+  assert.equal(await loginRequest, pubkey);
   const login = {
     kind: 27235,
     created_at: Math.floor(Date.now() / 1000),
@@ -516,6 +724,7 @@ async function extensionPage(
   Object.defineProperty(page, 'chrome', {
     value: {
       storage: { local: api.storage.local, session: api.storage.session },
+      tabs: { query: () => api.tabs.query() },
       runtime: {
         openOptionsPage: () => api.runtime.openOptionsPage(),
         sendMessage: ({ type, ...body }: Message) => call(type, body, { ...ui, url }),
@@ -563,9 +772,12 @@ test('archive button reconciles each relay, falls back and retries with capture 
   assert.equal((await call('broadcast')).ok, false);
   await configure(relays);
   await idle();
-  const copy = finalizeEvent({ kind: 1, created_at: 99, tags: [], content: 'Signed X copy' }, key);
+  const copy = finalizeEvent(
+    { kind: 1, created_at: 99, tags: [], content: 'Signed X copy' },
+    key,
+  );
   await append(db, [{ event: native }, { event: copy, source: 'x:99', targets: [] }], pubkey);
-  await stagePosts(db, [{ author: 'alice', id: '876', time: 90, text: 'Unsigned' }]);
+  await stagePosts(db, [{ author: 'alice', id: '876', time: 90, text: 'Unsigned', visibility: 'public' }]);
   const archive = await db.getAll('events');
   const ids = archive.map((event) => event.id).sort();
   neg.stored.set(native.id, native);
@@ -575,9 +787,7 @@ test('archive button reconciles each relay, falls back and retries with capture 
   const button = pageElements(page)('broadcast');
   await until(() => !button.disabled);
   button.click();
-  await until(() =>
-    pageElements(page)('notice').textContent.includes(`Queued ${ids.length} signed`),
-  );
+  await until(() => pageElements(page)('notice').textContent === 'Broadcast queued.');
   await idle();
   assert.deepEqual(
     neg.sent.map((e) => e.id).sort(),
@@ -635,7 +845,13 @@ async function configureRelays(urls: string[], relaySync: boolean) {
   await idle();
 }
 function fixtureRelay(url: string, supported = true) {
-  const dest: FixtureRelay = { supported, sent: [], stored: new Map(), filters: [], reads: [] };
+  const dest: FixtureRelay = {
+    supported,
+    sent: [],
+    stored: new Map(),
+    filters: [],
+    reads: [],
+  };
   broadcastRelays.set(url, dest);
   return dest;
 }
@@ -657,7 +873,9 @@ test('two-way sync restores an empty archive, reconciles both sides and retries 
   await until(() => !button.disabled);
   assert.equal(button.textContent, 'Broadcast and import');
   button.click();
-  await until(() => pageElements(page)('notice').textContent.includes('Checking saved relays'));
+  await until(() =>
+    pageElements(page)('notice').textContent.includes('Checking saved relays'),
+  );
   await idle();
   assert.equal((await db.get('events', older.id))?.sig, older.sig);
   assert.equal(relay.filters.at(-1)?.since, 0);
@@ -734,6 +952,10 @@ test('relay cooldown survives immediate syncs and lets other relays finish', asy
   assert.equal(limited.sent.length, 1);
   assert.equal(healthy.sent.length, count);
   assert.equal(await db.count('outbox'), count);
+  const limitedStatus = (await success('status')).relays.find((relay) => relay.url === slow)!;
+  assert.equal(limitedStatus.phase, 'retry');
+  assert.equal(limitedStatus.retryAt, epoch + 125000);
+  assert.equal(limitedStatus.pending, count);
   limited.publishLimit = undefined;
   now += 124999;
   await success('sync');
@@ -774,7 +996,13 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
     mediaURL = 'https://files.example/test.png';
   const db = await openArchive('nostr-backup-' + pubkey);
   t.after(() => db.close());
-  await success('settings', { pubkey, relays: '', handle: '', blossomServer: server, mediaMiB: 8 });
+  await success('settings', {
+    pubkey,
+    relays: '',
+    handle: '',
+    blossomServer: server,
+    mediaMiB: 8,
+  });
   const note = finalizeEvent({ kind: 1, content: mediaURL, tags: [], created_at: 17 }, key);
   await append(db, [{ event: note }], pubkey);
   await success('lock');
@@ -783,9 +1011,13 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
     const fetcher: typeof fetch = async (url, init) => {
       if (url === mediaURL)
         return new Response('media bytes', { headers: { 'Content-Type': 'image/png' } });
+      if (init?.method === 'HEAD') return new Response(null, {status:404});
       assert.equal(url, server + '/upload');
       const auth = JSON.parse(
-        Buffer.from(new Headers(init?.headers).get('Authorization')!.slice(6), 'base64').toString(),
+        Buffer.from(
+          new Headers(init?.headers).get('Authorization')!.slice(6),
+          'base64',
+        ).toString(),
       );
       assert.ok(verifyEvent(auth));
       assert.equal(auth.kind, 24242);
@@ -800,18 +1032,22 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
       });
     };
     Object.defineProperty(page, 'fetch', { value: fetcher });
+    t.mock.method(globalThis, 'fetch', fetcher);
   });
   const id = pageElements(page);
   const tab = (hash: string) => {
     page.location.hash = hash;
     page.dispatchEvent(new page.Event('hashchange'));
   };
-  tab('#settings');
+  tab('#account');
   await until(() => id('blossomServer').value === server);
-  assert.equal(page.document.querySelector('[data-panel="archive"]')?.hasAttribute('hidden'), true);
+  assert.equal(
+    page.document.querySelector('[data-panel="archive"]')?.hasAttribute('hidden'),
+    true,
+  );
   assert.equal(
     page.document.querySelector('a[aria-current="page"]')?.getAttribute('href'),
-    '#settings',
+    '#account',
   );
   tab('#media');
   await until(() => !id('backupMedia').disabled);
@@ -824,16 +1060,24 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
   assert.equal((await call('authorizeMediaUpload', { server, hash: file.sha256 })).ok, false);
   await success('unlock', { key: nsecEncode(key) });
   assert.equal(
-    (await call('authorizeMediaUpload', { server: 'https://elsewhere.example', hash: file.sha256 }))
-      .ok,
+    (
+      await call('authorizeMediaUpload', {
+        server: 'https://elsewhere.example',
+        hash: file.sha256,
+      })
+    ).ok,
     false,
   );
-  assert.equal((await call('authorizeMediaUpload', { server, hash: file.sha256 }, x)).ok, false);
+  assert.equal(
+    (await call('authorizeMediaUpload', { server, hash: file.sha256 }, x)).ok,
+    false,
+  );
   assert.equal((await call('status', {}, { ...ui, url: ui.url + '#settings' })).ok, true);
   tab('#media');
   await until(() => !id('uploadMedia').disabled);
   id('uploadMedia').click();
-  await until(() => id('notice').textContent.startsWith('Uploaded '));
+  await until(() => id('notice').textContent === 'Media sync queued.');
+  await until(async () => (await db.get('mediaFiles', file.sha256))?.copies.includes(server));
   assert.deepEqual((await db.get('mediaFiles', file.sha256))?.copies, [server]);
 });
 test('Welcome creates a recoverable profile, logs out, isolates accounts and deletes only the confirmed archive', async (t) => {
@@ -842,16 +1086,24 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const page = await archivePage(t, installPageStorage);
   const id = pageElements(page);
   await until(() => !id('onboarding').hidden);
+  const destinations = DEFAULT_RELAYS.map(url => fixtureRelay(url));
+  const receipt = Promise.withResolvers<void>();
+  destinations[0].holdPublish = receipt.promise;
+  t.after(() => receipt.resolve());
   id('profileName').value = 'Example';
   id('nameForm').requestSubmit();
-  const nsec = id('recoveryKey').value;
+  await until(() => !id('workspace').hidden);
+  assert.equal(page.document.getElementById('recoveryKey'), null);
+  const owner = (await success('status')).conf.pubkey;
+  let nsec = '';
+  Object.defineProperty(page.navigator, 'clipboard', { value: { writeText: async (text: string) => { nsec = text; } } });
+  id('copyPrivateKey').click();
+  await until(() => !!nsec);
   const decoded = decode(nsec);
   assert.equal(decoded.type, 'nsec');
-  const owner = getPublicKey(decoded.data);
-  id('keySaved').checked = true;
-  id('newProfile').requestSubmit();
-  await until(() => id('notice').textContent.includes('created locally'));
-  assert.equal(id('recoveryKey').value, '');
+  assert.equal(getPublicKey(decoded.data), owner);
+  assert.equal(page.document.body.textContent.includes(nsec), false);
+  assert.equal((await call('exportPrivateKey', { account: owner }, x)).ok, false);
   assert.equal(id('accountNpub').value, npubEncode(owner));
   assert.equal(id('indexAddress').value, 'htree://' + npubEncode(owner) + '/my-events');
   const first = await success('status');
@@ -864,31 +1116,39 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.equal(profile.kind, 0);
   assert.equal(JSON.parse(profile.content).name, 'Example');
   assert.ok(verifyEvent(profile));
+  await until(() => destinations.every(relay => relay.sent.some(event => event.id === profile.id)));
+  assert.ok((await success('status')).pending >= 1);
+  receipt.resolve();
+  await until(async () => (await success('status')).pending === 0);
   const relayUrl = 'wss://index.example/';
   const relay = fixtureRelay(relayUrl);
   const server = 'https://blocks.example';
   let pausedUpload: PromiseWithResolvers<void> | undefined;
   let suspendUploads = false;
-  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init: RequestInit = {}) => {
-    assert.equal(new URL(String(url)).origin, server);
-    if (suspendUploads && init.method === 'PUT') {
-      pausedUpload ??= Promise.withResolvers<void>();
-      await pausedUpload.promise;
-    }
-    if (init.method === 'HEAD') return new Response(null, { status: 404 });
-    assert.equal(init.method, 'PUT');
-    const hash = new Headers(init?.headers).get('X-SHA-256');
-    assert.ok(init.body instanceof Blob);
-    return Response.json({
-      sha256: hash,
-      size: init.body.size,
-      url: server + '/' + hash,
-    });
-  });
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async (url: RequestInfo | URL, init: RequestInit = {}) => {
+      assert.equal(new URL(String(url)).origin, server);
+      if (suspendUploads && init.method === 'PUT') {
+        pausedUpload ??= Promise.withResolvers<void>();
+        await pausedUpload.promise;
+      }
+      if (init.method === 'HEAD') return new Response(null, { status: 404 });
+      assert.equal(init.method, 'PUT');
+      const hash = new Headers(init?.headers).get('X-SHA-256');
+      assert.ok(init.body instanceof Blob);
+      return Response.json({
+        sha256: hash,
+        size: init.body.size,
+        url: server + '/' + hash,
+      });
+    },
+  );
   id('relays').value = relayUrl;
   id('blossomServer').value = server;
   id('backupSettings').requestSubmit();
-  await until(() => id('notice').textContent === 'Settings saved.');
+  await until(() => id('notice').textContent === 'Saved.');
   page.location.hash = '#archive';
   page.dispatchEvent(new page.Event('hashchange'));
   await until(() => !id('publishIndex').disabled);
@@ -934,6 +1194,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await success('watch', { pubkey: npubEncode(owner) });
   assert.equal((await success('status')).events, 1);
   assert.equal((await success('status')).unlocked, false);
+  assert.equal((await call('exportPrivateKey', { account: owner })).ok, false);
   await success('login', { key: nsec });
   const local = await openArchive(first.conf.archiveName);
   const { openMediaBlocks } = await import('../src/media-files.ts');
@@ -961,10 +1222,131 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await success('logout', { pubkey: owner });
 });
 
+test('X captures sign locally even while the previous delivery has no reply', async (t) => {
+  t.mock.method(globalThis, 'fetch', (url: URL) =>
+    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const url = 'wss://offline-capture.example/';
+  const relay = fixtureRelay(url);
+  const held = Promise.withResolvers<void>();
+  relay.holdPublish = held.promise;
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
+    const post = (id: string) => ({ author: 'alice', id, time: 1700000000, text: 'Post ' + id });
+    await success('capture', { posts: [post('1')] }, x);
+    await until(() => relay.sent.length === 1);
+    await success('capture', { posts: [post('2'), post('3'), post('2')] }, x);
+    const status = await success('status');
+    assert.deepEqual(status.x, { captured: 3, signed: 3, matched: 0, drafts: 0 });
+    assert.equal(status.pending, 3);
+    const db = await openArchive(status.conf.archiveName);
+    try {
+      const root = await readRoot(db);
+      assert.ok(root);
+      const index = new NostrEventStore(readOnlyStore(async hash => (await db.get('blocks', hex(hash))) ?? null));
+      for (const id of ['1', '2', '3']) {
+        const eventId = await db.get('sources', 'x:' + id);
+        assert.ok(eventId);
+        const event = await index.getById(root, eventId);
+        assert.ok(event && verifyEvent(event));
+        assert.equal(event.content, 'Post ' + id);
+      }
+    } finally { db.close(); }
+  } finally {
+    held.resolve();
+    await until(async () => !(await success('status')).running);
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('relay rows show live connections and acknowledgements while another relay is still broadcasting', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  await success('watch', { pubkey: owner });
+  const slow = 'wss://progress-slow.example/',
+    fast = 'wss://progress-fast.example/';
+  const waiting = fixtureRelay(slow),
+    healthy = fixtureRelay(fast);
+  const gate = Promise.withResolvers<void>();
+  waiting.holdPublish = gate.promise;
+  t.after(() => gate.resolve());
+  await success('settings', {
+    pubkey: owner,
+    handle: '',
+    capture: false,
+    relaySync: false,
+    relays: slow + '\n' + fast,
+  });
+  await until(async () => !(await success('status')).running);
+  const db = await openArchive('nostr-backup-' + owner);
+  for (const created_at of [20, 21])
+    await append(
+      db,
+      [
+        {
+          event: finalizeEvent(
+            {
+              kind: 1,
+              created_at,
+              tags: [],
+              content: 'Progress fixture ' + created_at,
+            },
+            secret,
+          ),
+        },
+      ],
+      owner,
+    );
+  db.close();
+  await success('broadcast');
+  await until(
+    async () =>
+      waiting.sent.length === 1 &&
+      (await success('status')).relays.find((relay) => relay.url === fast)?.phase ===
+        'finished',
+  );
+  const active = await success('status');
+  const held = active.relays.find((relay) => relay.url === slow)!;
+  const complete = active.relays.find((relay) => relay.url === fast)!;
+  assert.equal(active.running, true);
+  assert.equal(held.connection, 'connected');
+  assert.equal(held.phase, 'broadcasting');
+  assert.equal(held.pending, 2);
+  assert.equal(held.sent, 0);
+  assert.equal(complete.connection, 'disconnected');
+  assert.equal(complete.sent, 2);
+  assert.equal(complete.pending, 0);
+  assert.equal(healthy.sent.length, 2);
+  const page = await archivePage(t);
+  await until(() => pageElements(page)('reports').textContent.includes('Broadcasting'));
+  assert.equal(page.document.querySelectorAll('.relayRow').length, 2);
+  assert.match(pageElements(page)('reports').textContent, /Connected/);
+  assert.match(pageElements(page)('reports').textContent, /0 sent · 2 queued/);
+  gate.resolve();
+  await until(async () => !(await success('status')).running);
+  const finished = await success('status');
+  assert.ok(
+    finished.relays.every(
+      (relay) => relay.phase === 'finished' && relay.sent === 2 && relay.pending === 0,
+    ),
+  );
+  assert.ok(finished.relays.every((relay) => relay.connection === 'disconnected'));
+  assert.equal(finished.lastRun!.relays![slow].sent, 2);
+  await success('logout', { pubkey: owner });
+  assert.deepEqual((await success('status')).relays, []);
+});
+
 test('legacy single-account data reopens under its original identity after logout', async () => {
   const legacyKey = generateSecretKey(),
     legacyPub = getPublicKey(legacyKey);
-  const conf = { pubkey: legacyPub, handle: '', capture: false, relaySync: false, relays: [] };
+  const conf = {
+    pubkey: legacyPub,
+    handle: '',
+    capture: false,
+    relaySync: false,
+    relays: [],
+  };
   const db = await openArchive('nostr-backup-v1');
   await append(
     db,
@@ -983,10 +1365,304 @@ test('legacy single-account data reopens under its original identity after logou
   await success('logout', { pubkey: legacyPub });
   await success('login', { key: nsecEncode(legacyKey) });
   assert.equal((await success('status')).conf.archiveName, 'nostr-backup-v1');
+  assert.deepEqual((await success('status')).conf.relays, DEFAULT_RELAYS);
+  assert.equal((await success('status')).conf.relaySync, true);
   assert.equal((await success('status')).events, 1);
   await success('logout', { pubkey: legacyPub });
 });
 after(async () => {
   const db = await openArchive('nostr-backup-' + pubkey);
   db.close();
+});
+
+test('X capture links same-day matches locally, preserves original text and honors opt-out', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  const url = 'wss://duplicate-check.example/';
+  const relay = fixtureRelay(url);
+  await success('login', { key: nsecEncode(secret) });
+  const conf = { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url };
+  await success('settings', conf);
+  const db = await openArchive('nostr-backup-' + owner);
+  const time = 1700000000;
+  const first =
+    'Today we released a small update so everyone can download their photos and keep a local copy.';
+  const second =
+    'The desktop version also supports saving all of your files together with their original names.';
+  const event = finalizeEvent(
+    { kind: 1, created_at: time, tags: [], content: first + '\n\n' + second },
+    secret,
+  );
+  await append(db, [{ event }], owner);
+  const post = (id: string, text: string, date = time) => ({
+    author: 'alice',
+    id,
+    time: date,
+    text,
+  });
+  const exact = post('1', first);
+  const near = post(
+    '2',
+    second.replace('desktop version', 'desktop app').replace('also supports', 'now supports'),
+  );
+  const distinct = post('3', first.replace('everyone can', 'everyone cannot'));
+  const anotherDay = post('4', first, time + 86400);
+  const captions = new Map([exact, near, distinct, anotherDay, post('5', first)].map(p => [p.id, p.text]));
+  t.mock.method(globalThis, 'fetch', (url: URL) =>
+    publicEmbed(url, captions.get(new URL(String(url)).searchParams.get('url')!.split('/').pop()!)!));
+  try {
+    await success('capture', { posts: [exact, near, distinct, anotherDay] }, x);
+    await idle();
+    assert.deepEqual((await success('status')).x, {
+      captured: 4,
+      matched: 2,
+      signed: 2,
+      drafts: 0,
+    });
+    assert.deepEqual(
+      relay.sent.map((e) => e.content).sort(),
+      [distinct.text, anotherDay.text].sort(),
+    );
+    for (const source of [exact, near]) {
+      assert.equal(await db.get('sources', 'x:' + source.id), event.id);
+      assert.deepEqual(await db.get('xMatches', 'x:' + source.id), { ...source, visibility: 'public' });
+    }
+    const page = await archivePage(t);
+    const field = pageElements(page)('skipCrossposts');
+    await until(() => field.checked);
+    assert.equal(pageElements(page)('xMatched').textContent, '2');
+    field.checked = false;
+    pageElements(page)('backupSettings').requestSubmit();
+    await until(async () => (await success('status')).conf.skipCrossposts === false);
+    await success('capture', { posts: [exact, near, post('5', first)] }, x);
+    await idle();
+    assert.deepEqual((await success('status')).x, {
+      captured: 5,
+      matched: 2,
+      signed: 3,
+      drafts: 0,
+    });
+    assert.equal(relay.sent.length, 3);
+  } finally {
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('daily polling stays disconnected between checks and reports only successful syncs', async (t) => {
+  t.mock.method(globalThis, 'fetch', (url: URL) => publicEmbed(url, 'A new capture'));
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  const url = 'wss://daily.example/',
+    relay = fixtureRelay(url);
+  const epoch = Date.now();
+  let now = epoch;
+  t.mock.method(Date, 'now', () => now);
+  const conf = { pubkey: owner, handle: 'alice', capture: true, relaySync: true, relays: url };
+  await success('login', { key: nsecEncode(secret) });
+  await success('settings', conf);
+  await idle();
+  const wake = async () => {
+    api.alarms.onAlarm.list[0]({ name: 'backup' });
+    await idle();
+  };
+  const status = async () => (await success('status')).relays.find((r) => r.url === url)!;
+  try {
+    const count = relay.filters.length;
+    assert.equal(count, 1);
+    assert.equal((await status()).lastSyncedAt, epoch);
+    now += 3600000;
+    await success(
+      'capture',
+      { posts: [{ author: 'alice', id: '9', time: 1700000000, text: 'A new capture' }] },
+      x,
+    );
+    await idle();
+    assert.equal(relay.sent.length, 1);
+    assert.equal((await status()).lastSyncedAt, epoch);
+    const opened = wireOpens.filter((address) => address === url).length;
+    await wake();
+    assert.equal(wireOpens.filter((address) => address === url).length, opened);
+    assert.equal(relay.filters.length, count);
+    now = epoch + 86400000;
+    await wake();
+    assert.equal(relay.filters.length, count + 1);
+    assert.equal((await status()).lastSyncedAt, now);
+    const page = await archivePage(t);
+    await until(() =>
+      pageElements(page)('lastSynced').textContent.includes(new Date(now).toLocaleString()),
+    );
+    await success('settings', { ...conf, relaySync: false });
+    await idle();
+    now += 86400000;
+    await wake();
+    assert.equal(relay.filters.length, count + 1);
+    relay.negLimit = ['rate-limited: wait', '5000'];
+    await success('sync');
+    await idle();
+    assert.equal((await status()).lastSyncedAt, epoch + 86400000);
+    assert.equal((await status()).phase, 'retry');
+    now += 5000;
+    relay.negLimit = undefined;
+    await success('sync');
+    await idle();
+    assert.equal((await status()).lastSyncedAt, now);
+  } finally {
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('X images are archived locally, retried on the selected Blossom server and signed with its CDN URL', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret);
+  const relayURL = 'wss://x-image.example/',
+    relay = fixtureRelay(relayURL);
+  const source = 'https://pbs.twimg.com/media/photo?format=png&name=large';
+  const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+  const digest = Buffer.from(await crypto.subtle.digest('SHA-256', image)).toString('hex');
+  const custom = 'https://media.example',
+    cdnURL = 'https://cdn.example/' + digest + '.png';
+  const gate = Promise.withResolvers<void>(), localGate = Promise.withResolvers<void>();
+  const local = 'http://127.0.0.1:8081';
+  let downloads = 0,
+    uploads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init: RequestInit = {}) => {
+    if (String(url).startsWith('https://publish.x.com/oembed?')) return publicEmbed(url, 'Plain text');
+    if (/^https:\/\/x\.com\/alice\/status\/(191|193)$/.test(String(url))) {
+      const postId = String(url).split('/').pop()!;
+      const data = { data: { tweet_result_by_rest_id: { result: {
+        __typename: 'Tweet', rest_id: postId, core: { user_results: { result: { core: { screen_name: 'alice' } } } },
+        media_entities2: [{ expanded_url: url + '/photo/1', media_url_https: source }],
+      } } } };
+      const html = '<meta property="og:url" content="' + url + '"><meta property="og:description" content="' +
+        (postId === '191' ? 'Photo' : '') + '">' +
+        '<script>const data=' + JSON.stringify(JSON.stringify(data)) + '</script>';
+      const page = new Response(html, { headers: { 'Content-Type': 'text/html' } });
+      Object.defineProperty(page, 'url', { value: String(url) });
+      return page;
+    }
+    if (String(url) === source) {
+      downloads++;
+      return new Response(image, { headers: { 'Content-Type': 'image/png' } });
+    }
+    uploads++;
+    if (String(url) === 'https://blossom.band/upload') {
+      await gate.promise;
+      return new Response('', { status: 503 });
+    }
+    if (String(url) === local + '/upload') {
+      await localGate.promise;
+      return Response.json({url:local + '/' + digest + '.png',sha256:digest,size:image.length});
+    }
+    assert.equal(String(url), custom + '/upload');
+    assert.equal(init.method, 'PUT');
+    assert.equal(init.credentials, 'omit');
+    const headers = new Headers(init.headers);
+    const auth = JSON.parse(
+      Buffer.from(headers.get('Authorization')!.slice(6), 'base64').toString(),
+    );
+    assert.ok(verifyEvent(auth));
+    assert.equal(auth.pubkey, owner);
+    assert.ok(auth.tags.some((t) => t[0] === 'x' && t[1] === digest));
+    assert.ok(auth.tags.some((t) => t[0] === 'server' && t[1] === 'media.example'));
+    return Response.json({ url: cdnURL, sha256: digest, size: image.length, type: 'image/png' });
+  });
+  await success('login', { key: nsecEncode(secret) });
+  const db = await openArchive('nostr-backup-' + owner);
+  try {
+    const conf = {
+      pubkey: owner,
+      handle: 'alice',
+      capture: true,
+      relaySync: false,
+      relays: relayURL,
+    };
+    await success('settings', conf);
+    const page = await archivePage(t);
+    const fields = pageElements(page);
+    await until(() => fields('blossomServer').value === 'https://blossom.band');
+    const post = { id: '191', author: 'alice', time: 1700000000, text: 'Photo\n\n' + source };
+    await success('capture', { posts: [post] }, x);
+    await until(() => uploads === 1);
+    await success('capture', { posts: [{ ...post, id: '192', text: 'Plain text' }] }, x);
+    await until(() => relay.sent.some((e) => e.content === 'Plain text'));
+    assert.equal((await success('status')).x.media, 1);
+    assert.equal(await db.get('sources', 'x:191'), undefined);
+    assert.equal(await db.count('mediaFiles'), 1);
+    gate.resolve();
+    await until(async () => (await success('status')).x.mediaError?.includes('503'));
+    fields('blossomServer').value = local + '\n' + custom;
+    fields('backupSettings').requestSubmit();
+    await until(() => relay.sent.some((e) => e.content.includes(cdnURL)));
+    const id = await db.get('sources', 'x:191');
+    const signed = await db.get('events', id!);
+    assert.ok(signed && verifyEvent(signed));
+    assert.equal(signed.content, 'Photo\n\n' + cdnURL);
+    assert.equal(signed.tags.filter((t) => t[0] === 'client').length, 1);
+    assert.ok(signed.tags.some((t) => t[0] === 'client' && t[1] === 'nostr-backup'));
+    assert.ok(signed.tags.some((t) => t[0] === 'imeta' && t.includes('x ' + digest)));
+    assert.equal(JSON.stringify(signed).includes('twimg.com'), false);
+    assert.equal((await db.get('mediaRefs', [id!, cdnURL]))?.status, 'saved');
+    assert.deepEqual((await db.get('mediaFiles', digest))?.copies, [custom]);
+    assert.ok(!JSON.stringify(signed).includes('127.0.0.1'));
+    localGate.resolve();
+    await until(async () => (await db.get('mediaFiles',digest))?.copies.includes(local));
+    await success('capture', { posts: [post, { ...post, id: '193', text: source }] }, x);
+    await until(() => relay.sent.length === 3);
+    assert.equal(downloads, 1);
+    assert.equal(uploads, 3);
+    assert.equal((await success('status')).x.media, undefined);
+  } finally {
+    gate.resolve();
+    localGate.resolve();
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('social profile backup keeps restricted posts local across duplicate capture, export and broadcast', async () => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const target = 'wss://profile-backup.example/';
+  const relay = fixtureRelay(target);
+  const origin = 'https://www.instagram.com';
+  const ig = { ...x, url: origin + '/alice/', tab: { id: 17, url: origin + '/alice/' } };
+  const fb = { ...x, url: 'https://www.facebook.com/alice', tab: { id: 18, url: 'https://www.facebook.com/alice' } };
+  const base = { source: 'instagram', author: 'alice', time: 1700000000, text: 'Caption', visibility: 'public' };
+  const instagram = (id: string, visibility: string) =>
+    ({ ...base, id, url: origin + '/p/' + id + '/', visibility });
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: '', capture: false, relays: target, relaySync: false,
+      social: { instagram: { handle: '@Alice', capture: true }, facebook: { handle: 'Alice', capture: true } } });
+    assert.equal((await success('captureConfig', {}, ig)).handle, 'alice');
+    const posts = [instagram('Public123', 'public'), instagram('Private123', 'private'), instagram('Unknown123', 'unknown')];
+    await success('capture', { posts }, ig);
+    await success('capture', { posts }, ig);
+    const other = { ...base, source: 'facebook', id: '123456', url: fb.url + '/posts/123456', text: 'Facebook post' };
+    assert.equal((await call('capture', { posts: [other] }, ig)).ok, false);
+    assert.equal((await call('capture', { posts }, { ...ig, url: origin + '/other/' })).ok, false);
+    await success('capture', { posts: [other] }, fb);
+    await until(() => relay.sent.length === 2);
+    const { conf, social } = await success('status');
+    assert.deepEqual(social, { instagram: { saved: 3, signed: 1 }, facebook: { saved: 1, signed: 1 } });
+    const db = await openArchive(conf.archiveName);
+    try {
+      const { dump, queueBroadcast } = await import('../src/archive.ts');
+      const { unzipSync, strFromU8 } = await import('fflate');
+      const files = unzipSync(await dump(db, owner));
+      assert.equal(JSON.parse(strFromU8(files['profile-captures.json'])).length, 4);
+      assert.equal(Object.keys(JSON.parse(strFromU8(files['social-sources.json']))).length, 2);
+      assert.equal(await queueBroadcast(db, conf), 2);
+      const events = await db.getAll('events');
+      assert.equal(events.length, 2);
+      assert.ok(events.every(event => verifyEvent(event)));
+      assert.deepEqual(new Set(events.map(event => event.tags.find(tag => tag[0] === 'r')?.[1])),
+        new Set([posts[0].url, other.url]));
+      assert.equal(await db.count('drafts'), 0);
+      await success('capture', { posts: [instagram('Public123', 'private')] }, ig);
+      assert.equal((await db.get('localCaptures', 'instagram:Public123'))?.visibility, 'private');
+      assert.equal(await queueBroadcast(db, conf), 1);
+      assert.equal(await db.count('heldEvents'), 1);
+    } finally { db.close(); }
+  } finally { await success('logout', { pubkey: owner }); }
 });

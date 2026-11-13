@@ -6,8 +6,10 @@ import { sha256 } from '@hashtree/core';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { unzipSync, strFromU8 } from 'fflate';
 import { append, dump, openArchive } from '../src/archive.ts';
-import { backupMedia, readMediaFile, uploadMedia } from '../src/media-files.ts';
+import { backupMedia, readMediaFile, putBlossom } from '../src/media-files.ts';
 import { mediaReferences } from '../src/media-refs.ts';
+import { deliverBlossom, queueBlossom } from '../src/blossom-sync.ts';
+import { shareableMediaHashes } from '../src/legacy-x.ts';
 import { hex } from '../src/model.ts';
 
 const key = generateSecretKey(),
@@ -87,18 +89,17 @@ test('a failed original falls back to Blossom, survives reopen and restores a mu
     return auth;
   };
   await assert.rejects(
-    uploadMedia(db, server, authorize, undefined, async () => Response.json({ sha256: 'wrong' })),
+    putBlossom(server, digest, body, 'image/png', await authorize(digest,server), async () => Response.json({ sha256: 'wrong' })),
     /descriptor/,
   );
   assert.deepEqual((await db.get('mediaFiles', digest))?.copies, []);
-  const count = await uploadMedia(db, server, authorize, undefined, async (url, init) => {
+  const uploaded = await putBlossom(server, digest, body, 'image/png', await authorize(digest,server), async (url, init) => {
     assert.equal(url, server + '/upload');
     assert.deepEqual(init?.body, body);
     assert.match(new Headers(init?.headers).get('Authorization') ?? '', /^Nostr /);
     return Response.json({ sha256: digest, size: body.length, url: server + '/' + digest });
   });
-  assert.equal(count, 1);
-  assert.equal(await uploadMedia(db, server, authorize), 0);
+  assert.equal(uploaded, server + '/' + digest);
   db.close();
 });
 test('missing media retries, hash mismatch and streamed size limit leave no saved file', async () => {
@@ -145,4 +146,80 @@ test('discovers file metadata, rejects contradictory hashes, and labels X poster
     mediaReferences(event('https://user:pw@example.com/img.png https://example.com/article')),
     [],
   );
+});
+
+test('Blossom sync recovers missing public and loopback copies from local Hashtree across restart', async () => {
+  const name = crypto.randomUUID(),
+    remote = 'https://mirror.example',
+    local = 'http://127.0.0.1:8081';
+  const servers = [remote, local];
+  let db = await openArchive(name);
+  const note = event(photo, [imeta]);
+  await append(db, [{ event: note }], pubkey);
+  await backupMedia(db, {
+    fetcher: async () => new Response(body, { headers: { 'content-type': 'image/jpeg' } }),
+  });
+  const allowed = await shareableMediaHashes(db);
+  assert.deepEqual([...allowed], [digest]);
+  assert.equal(await queueBlossom(db, allowed, servers, true), 2);
+  const missing = new Set(servers),
+    writes: string[] = [],
+    checks: string[] = [];
+  let offline = true;
+  const fetcher: typeof fetch = async (url, init) => {
+    const server = new URL(String(url)).origin;
+    if (init?.method === 'HEAD') {
+      checks.push(server);
+      if (server === remote && offline) return new Response(null, { status: 503 });
+      return new Response(null, { status: missing.has(server) ? 404 : 200 });
+    }
+    assert.equal(init?.method, 'PUT');
+    assert.deepEqual(init.body, body);
+    writes.push(server);
+    missing.delete(server);
+    return Response.json({
+      sha256: digest,
+      size: body.length,
+      url: server + '/' + digest + '.jpg',
+    });
+  };
+  const opts = {
+    signal: new AbortController().signal,
+    fetcher,
+    authorize: async () => event('upload'),
+  };
+  try {
+    await deliverBlossom(db, servers, opts);
+    assert.deepEqual(writes, [local]);
+    const failed = await db.get('blossomOutbox', [digest, remote]);
+    assert.ok(failed?.retryAt && failed.retryAt > Date.now());
+    assert.match(failed.error!, /503/);
+    db.close();
+    db = await openArchive(name);
+    await deliverBlossom(db, servers, opts);
+    assert.equal(checks.length, 2);
+    offline = false;
+    // Simulate the next scheduled pass after the stored deadline.
+    await db.put('blossomOutbox', { ...failed, retryAt: Date.now() - 1 });
+    await db.put('meta', Date.now() - 1, ['blossomRetry', remote]);
+    await deliverBlossom(db, servers, opts);
+    assert.deepEqual(writes, [local, remote]);
+    missing.add(remote);
+    await queueBlossom(db, allowed, servers, true);
+    await deliverBlossom(db, servers, opts);
+    assert.deepEqual(writes, [local, remote, remote]);
+    assert.equal(await db.count('blossomOutbox'), 0);
+    const file = await db.get('mediaFiles', digest);
+    assert.equal(file?.copyUrls?.[local], local + '/' + digest + '.jpg');
+    assert.equal(file?.copyUrls?.[remote], remote + '/' + digest + '.jpg');
+    assert.equal((await db.get('events', note.id))?.sig, note.sig);
+    await db.put('heldEvents', 'x:1', note.id);
+    assert.equal((await shareableMediaHashes(db)).size, 0);
+    await queueBlossom(db, [digest], servers, true);
+    const before = checks.length;
+    await deliverBlossom(db, servers, opts);
+    assert.equal(checks.length, before);
+  } finally {
+    db.close();
+  }
 });

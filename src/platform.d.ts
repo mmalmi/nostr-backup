@@ -20,7 +20,7 @@ interface LocalData {
 }
 interface SessionData {
   signingKey?: string;
-  [key: `grant-${number}`]: { token: string; origin: string } | undefined;
+  [key: `grant-${number}`]: { token: string; origin: string; loginPubkey?: string } | undefined;
 }
 interface Area<T> {
   get<K extends keyof T>(key: K): Promise<Pick<T, K>>;
@@ -57,7 +57,7 @@ interface ExtensionAPI {
     onAlarm: Listener<(a: { name: string }) => void>;
   };
   tabs: {
-    query(options: { active: true; currentWindow: true }): Promise<Tab[]>;
+    query(options: { active: true; currentWindow: true } | {url: string | string[]}): Promise<Tab[]>;
     get(id: number): Promise<Tab>;
     onRemoved: Listener<(id: number) => void>;
   };
@@ -71,6 +71,7 @@ interface ExtensionAPI {
     onRemoved: Listener<(id: number) => void>;
   };
   scripting: {
+    executeScript(options: {target: {tabId: number}; files: string[]}): Promise<unknown[]>;
     executeScript<A extends unknown[], R>(options: {
       target: { tabId: number };
       world?: 'MAIN';
@@ -87,6 +88,7 @@ interface Provider {
 declare global {
   var chrome: ExtensionAPI;
   var browser: ExtensionAPI | undefined;
+  var nostrBackupCapture: boolean | undefined;
   var nostrBackupBridge: AbortController | undefined;
   interface Window {
     nostr?: Provider;

@@ -1,23 +1,25 @@
-import type { Archive, ArchiveSchema, Settings, Entry, Capture, IndexPointer } from './types.ts';
+import type { Archive, ArchiveSchema, Settings, Entry, Capture, SocialCapture, IndexPointer } from './types.ts';
+import { markLegacyX } from './legacy-x.ts';
 import type { Event } from 'nostr-tools/pure';
-import type { CID, Store } from '@hashtree/core';
+import type { CID } from '@hashtree/core';
 import type { Zippable } from 'fflate';
-import { openDB } from 'idb';
-import { NostrEventStore } from '@hashtree/nostr';
+import { enqueueRelayPublication } from 'nostr-pubsub';
+import { openDB, type IDBPTransaction, type StoreNames } from 'idb';
+import { ArchiveEventBus } from './archive-event-bus.ts';
 import { zipSync, strToU8 } from 'fflate';
 import { mediaReferences } from './media-refs.ts';
 import { openMediaBlocks } from './media-files.ts';
-import { hex, unhex, isOwnPost } from './model.ts';
+import { hex, unhex } from './model.ts';
 
 // The meta store contains three key-specific value types.
-export const readRoot = (db: Archive) => db.get('meta', 'root') as Promise<CID | undefined>;
+export { readRoot } from './blocks.ts';
 export const readPointer = (db: Archive) =>
   db.get('meta', 'indexPointer') as Promise<IndexPointer | undefined>;
 export const readCooldown = (db: Archive, url: string) =>
   db.get('meta', ['retryAfter', url]) as Promise<number | undefined>;
 
 export function openArchive(name = 'nostr-backup-v1') {
-  const opened = openDB<ArchiveSchema>(name, 3, {
+  const opened = openDB<ArchiveSchema>(name, 8, {
     blocking() {
       void opened.then((db) => db.close());
     },
@@ -35,9 +37,34 @@ export function openArchive(name = 'nostr-backup-v1') {
           db.createObjectStore(store);
       }
       if (oldVersion < 2) tx.objectStore('events').createIndex('created_at', 'created_at');
+      if (oldVersion < 7) {
+        const queue = db.createObjectStore('blossomOutbox', { keyPath: ['hash', 'server'] });
+        queue.createIndex('server', 'server');
+      }
+      if (oldVersion < 5) db.createObjectStore('xMedia');
+      if (oldVersion < 4) db.createObjectStore('xMatches');
+      if (oldVersion < 6) {
+        db.createObjectStore('localCaptures');
+        db.createObjectStore('heldEvents');
+        if (oldVersion > 0) {
+          markLegacyX(tx).catch(() => tx.abort());
+          (async () => {
+            for (let c = await tx.objectStore('drafts').openCursor(); c; c = await c.continue()) {
+              await tx.objectStore('localCaptures').put({ ...c.value, visibility: 'unknown' }, c.primaryKey);
+              await c.delete();
+            }
+          })().catch(() => tx.abort());
+        }
+      }
+      if (oldVersion >= 3 && oldVersion < 8) {
+        tx.objectStore('mediaRefs').createIndex('sha256', 'sha256');
+        tx.objectStore('mediaFiles').createIndex('rootHash', 'cid.hash');
+      }
+      if (oldVersion >= 3) return;
       const refs = db.createObjectStore('mediaRefs', { keyPath: ['eventId', 'url'] });
       refs.createIndex('url', 'url');
-      db.createObjectStore('mediaFiles', { keyPath: 'sha256' });
+      refs.createIndex('sha256', 'sha256');
+      db.createObjectStore('mediaFiles', { keyPath: 'sha256' }).createIndex('rootHash', 'cid.hash');
       if (oldVersion) {
         const backfill = async () => {
           for (let c = await tx.objectStore('events').openCursor(); c; c = await c.continue())
@@ -50,75 +77,74 @@ export function openArchive(name = 'nostr-backup-v1') {
   return opened;
 }
 
-// Only the background writes tree roots. Stage immutable blocks, then commit the
-// root, records, and delivery state together. A stopped worker leaves the old root valid.
-export async function append(db: Archive, entries: Entry[], pubkey: string) {
-  const fresh = new Map<string, Event>(),
-    blocks = new Map<string, Uint8Array>();
-  for (const { event } of entries) {
-    if (!isOwnPost(event, pubkey)) throw Error('Invalid event signature, author or post kind.');
-    if (!fresh.has(event.id) && !(await db.getKey('events', event.id))) fresh.set(event.id, event);
-  }
-  const store: Store = {
-    async delete() {
-      throw Error('Index blocks are immutable.');
-    },
-    async put(hash, bytes) {
-      blocks.set(hex(hash), bytes);
-      return true;
-    },
-    async get(hash) {
-      return blocks.get(hex(hash)) ?? (await db.get('blocks', hex(hash))) ?? null;
-    },
-    async has(hash) {
-      return !!(await this.get(hash));
-    },
-  };
-  const oldRoot = await readRoot(db);
-  const root = fresh.size
-    ? await new NostrEventStore(store).build(oldRoot ?? null, [...fresh.values()])
-    : oldRoot;
-  const tx = db.transaction(
-    ['blocks', 'meta', 'events', 'sources', 'drafts', 'outbox', 'mediaRefs'],
-    'readwrite',
-  );
-
-  for (const [key, bytes] of blocks) tx.objectStore('blocks').put(bytes, key);
-  if (root) tx.objectStore('meta').put(root, 'root');
-  for (const [id, event] of fresh)
-    tx.objectStore('events').put(JSON.parse(JSON.stringify(event)), id);
-  for (const { event, source, targets, posters } of entries) {
-    if (fresh.has(event.id)) {
-      for (const ref of mediaReferences(event, posters)) tx.objectStore('mediaRefs').put(ref);
-    }
-    if (!source) continue;
-    tx.objectStore('sources').put(event.id, source);
-    tx.objectStore('drafts').delete(source);
-    for (const relay of targets ?? []) {
-      const key: [string, string] = [event.id, relay];
-      if (!(await tx.objectStore('outbox').getKey(key)))
-        tx.objectStore('outbox').put({ id: event.id, relay }, key);
-    }
-  }
-  await tx.done;
-  return fresh.size;
+// Compatibility entry point for existing archive callers with explicit delivery metadata.
+export function append(db: Archive, entries: Entry[], pubkey: string) {
+  return new ArchiveEventBus(db, pubkey).publishBatch(entries);
 }
 
 export async function stagePosts(db: Archive, posts: Capture[]) {
-  const tx = db.transaction(['sources', 'drafts'], 'readwrite');
+  const tx = db.transaction(['sources', 'drafts', 'localCaptures', 'heldEvents', 'outbox', 'meta', 'xMatches'], 'readwrite');
   for (const post of posts) {
     const key = 'x:' + post.id;
-    if (!(await tx.objectStore('sources').getKey(key)))
+    const id = await tx.objectStore('sources').get(key);
+    if (id && post.visibility === 'private' && !await tx.objectStore('xMatches').getKey(key)) {
+      await holdCapture(tx, id, key);
+    } else if (id && !(await tx.objectStore('heldEvents').getKey(id))) continue;
+    if (post.visibility === 'public') {
+      await tx.objectStore('localCaptures').delete(key);
       await tx.objectStore('drafts').put(post, key);
+    } else {
+      await tx.objectStore('drafts').delete(key);
+      await tx.objectStore('localCaptures').put(post, key);
+    }
+  }
+  await tx.done;
+}
+
+// Preserve the original signed event locally and stop queued deliveries,
+// including an index pointer whose snapshot could contain the restricted post.
+async function holdCapture(
+  tx: IDBPTransaction<ArchiveSchema, ArrayLike<StoreNames<ArchiveSchema>>, 'readwrite'>,
+  id: string, source: string,
+) {
+  await tx.objectStore('heldEvents').put(source, id);
+  await tx.objectStore('outbox').delete(IDBKeyRange.bound([id], [id, []]));
+  const meta = tx.objectStore('meta');
+  const pointer = await meta.get('indexPointer') as IndexPointer | undefined;
+  if (pointer?.pending.length) await meta.put({ ...pointer, pending: [] }, 'indexPointer');
+}
+
+export async function saveSocialCaptures(db: Archive, posts: SocialCapture[]) {
+  const tx = db.transaction(['localCaptures', 'mediaRefs', 'sources', 'drafts', 'heldEvents', 'outbox', 'meta'], 'readwrite');
+  for (const post of posts) {
+    const key = post.source + ':' + post.id;
+    const previous = await tx.objectStore('localCaptures').get(key);
+    const eventId = await tx.objectStore('sources').get(key);
+    if (eventId && post.visibility === 'private') {
+      await holdCapture(tx, eventId, key);
+    } else if ((previous?.visibility === 'public' && post.visibility === 'unknown') ||
+        (eventId && !await tx.objectStore('heldEvents').getKey(eventId))) continue;
+    await tx.objectStore('localCaptures').put(post, key);
+    if (post.visibility === 'public') await tx.objectStore('drafts').put(post, key);
+    else await tx.objectStore('drafts').delete(key);
+    for (const url of new Set([...(post.media ?? []), ...(post.posters ?? [])])) {
+      const refs = tx.objectStore('mediaRefs');
+      if (!await refs.getKey([key, url])) await refs.put({
+        eventId: key, url, servers: [], fallbacks: [], invalidHash: false,
+        poster: !!post.posters?.includes(url), status: 'pending',
+      });
+    }
   }
   await tx.done;
 }
 
 export async function inventory(db: Archive, since: number, until: number) {
-  const index = db.transaction('events').store.index('created_at');
+  const tx = db.transaction(['events', 'heldEvents']);
+  const index = tx.objectStore('events').index('created_at');
   const range = IDBKeyRange.bound(since, until);
   const records = [];
   for (let cursor = await index.openKeyCursor(range); cursor; cursor = await cursor.continue()) {
+    if (await tx.objectStore('heldEvents').getKey(cursor.primaryKey)) continue;
     records.push({ id: cursor.primaryKey, created_at: cursor.key });
     if (records.length > 100000) return; // Use the paged importer above the engine's record limit.
   }
@@ -130,7 +156,7 @@ export async function queueBroadcast(
   { relays, relaySync, pubkey }: Pick<Settings, 'relays' | 'relaySync' | 'pubkey'>,
 ) {
   if (!relays.length) throw Error('Save at least one relay before broadcasting.');
-  const tx = db.transaction(['events', 'outbox', 'cursors'], 'readwrite');
+  const tx = db.transaction(['events', 'outbox', 'cursors', 'heldEvents'], 'readwrite');
   // A manual two-way sync covers all history, including a relay with no local matches.
   if (relaySync) {
     for (const url of relays) tx.objectStore('cursors').delete([pubkey, url]);
@@ -142,8 +168,13 @@ export async function queueBroadcast(
     cursor;
     cursor = await cursor.continue()
   ) {
-    const { id, created_at } = cursor.value;
-    for (const relay of relays) outbox.put({ id, relay, broadcast: true, created_at }, [id, relay]);
+    if (await tx.objectStore('heldEvents').getKey(cursor.value.id)) continue;
+    await enqueueRelayPublication(
+      cursor.value,
+      relays,
+      (row) => outbox.put(row, [row.id, row.relay]),
+      { broadcast: true },
+    );
     count++;
   }
   await tx.done;
@@ -160,9 +191,11 @@ export async function dump(db: Archive, pubkey: string) {
     'sources',
     'mediaFiles',
     'mediaRefs',
+    'xMatches',
+    'localCaptures',
   ]);
 
-  const [events, root, keys, data, drafts, pending, sources, ids, mediaFiles, references] =
+  const [events, root, keys, data, drafts, pending, sources, ids, mediaFiles, references, matches, captures] =
     await Promise.all([
       tx.objectStore('events').getAll(),
       tx.objectStore('meta').get('root') as Promise<CID | undefined>,
@@ -174,6 +207,8 @@ export async function dump(db: Archive, pubkey: string) {
       tx.objectStore('sources').getAll(),
       tx.objectStore('mediaFiles').getAll(),
       tx.objectStore('mediaRefs').getAll(),
+      tx.objectStore('xMatches').getAll(),
+      tx.objectStore('localCaptures').getAll(),
     ]);
   const cid = root && { hash: hex(root.hash), ...(root.key ? { key: hex(root.key) } : {}) };
   const json = (v: unknown) => strToU8(JSON.stringify(v, null, 2));
@@ -188,8 +223,11 @@ export async function dump(db: Archive, pubkey: string) {
     }),
     'media.json': json({ files: mediaFiles, references }),
     'events.jsonl': strToU8(events.map((e) => JSON.stringify(e) + '\n').join('')),
-    'x-sources.json': json(Object.fromEntries(sources.map((k, i) => [k, ids[i]]))),
-    'unsigned-x-posts.json': json(drafts),
+    'x-sources.json': json(Object.fromEntries(sources.flatMap((k, i) => k.startsWith('x:') ? [[k, ids[i]]] : []))),
+    'social-sources.json': json(Object.fromEntries(sources.flatMap((k, i) => k.startsWith('x:') ? [] : [[k, ids[i]]]))),
+    'profile-captures.json': json(captures),
+    'matched-x-posts.json': json(matches),
+    'unsigned-x-posts.json': json(drafts.filter(post => !('source' in post))),
     'pending-deliveries.json': json(pending),
   };
   keys.forEach((key, i) => {

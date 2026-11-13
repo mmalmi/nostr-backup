@@ -7,17 +7,19 @@ import { HashTree, sha256 } from '@hashtree/core';
 import { DexieStore } from '@hashtree/dexie';
 import { encodeAuthorizationHeader } from 'nostr-tools/nipb7';
 import { hex, unhex } from './model.ts';
-import { blossomHash, httpsURL } from './media-refs.ts';
+import { blossomHash, httpsURL, isLoopback } from './media-refs.ts';
 
 type Progress = (done: number, total: number) => void;
 interface DownloadOptions {
   server?: string;
+  servers?: string[];
   maxBytes: number;
   fetcher: typeof fetch;
   resolveServers: () => Promise<string[]>;
   signal?: AbortSignal;
 }
 interface BackupOptions extends Partial<Omit<DownloadOptions, 'maxBytes'>> {
+  include?: (ref: MediaReference) => boolean;
   maxMiB?: number;
   progress?: Progress;
 }
@@ -26,12 +28,12 @@ export const openMediaBlocks = (db: Pick<Archive, 'name'>) => new DexieStore(db.
 export const DEFAULT_MEDIA_MIB = 64;
 
 // Keep the request timeout and the account's cancellation signal active through the response body.
-export function accountFetch(signal: AbortSignal): typeof fetch {
+export function accountFetch(signal: AbortSignal, fetcher = fetch): typeof fetch {
   return (url, options) => {
     const timeout = options?.signal;
-    if (!timeout) return fetch(url, { ...options, signal });
+    if (!timeout) return fetcher(url, { ...options, signal });
     if (AbortSignal.any)
-      return fetch(url, { ...options, signal: AbortSignal.any([signal, timeout]) });
+      return fetcher(url, { ...options, signal: AbortSignal.any([signal, timeout]) });
     signal.throwIfAborted();
     timeout.throwIfAborted();
     const controller = new AbortController();
@@ -40,11 +42,11 @@ export function accountFetch(signal: AbortSignal): typeof fetch {
         once: true,
         signal: controller.signal,
       });
-    return fetch(url, { ...options, signal: controller.signal });
+    return fetcher(url, { ...options, signal: controller.signal });
   };
 }
 
-async function download(
+export async function download(
   url: string,
   expected: string | undefined,
   maxBytes: number,
@@ -91,13 +93,13 @@ async function download(
 
 async function fetchAttachment(
   ref: MediaReference,
-  { server, resolveServers, maxBytes, fetcher, signal }: DownloadOptions,
+  { server, servers, resolveServers, maxBytes, fetcher, signal }: DownloadOptions,
 ) {
   const tried = new Set();
   let failure = 'No download location for this hash.';
   async function trySources(urls: string[]) {
     for (const url of urls) {
-      const source = httpsURL(url);
+      const source = httpsURL(url) ?? (URL.canParse(url) && servers?.includes(new URL(url).origin) && isLoopback(new URL(url)) ? new URL(url) : undefined);
       if (!source || tried.has(url)) continue;
       tried.add(url);
       try {
@@ -119,7 +121,7 @@ async function fetchAttachment(
   const direct = await trySources([
     ref.url,
     ...ref.fallbacks,
-    ...(ref.expected ? hashed([...ref.servers, server]) : []),
+    ...(ref.expected ? hashed([...ref.servers, ...(servers ?? [server])]) : []),
   ]);
   if (direct) return direct;
   if (ref.expected) {
@@ -127,6 +129,45 @@ async function fetchAttachment(
     if (mirrored) return mirrored;
   }
   throw Error(failure);
+}
+
+export async function storeDownloadedFile(
+  db: Archive,
+  blocks: DexieStore,
+  result: { bytes: Uint8Array; hash: string; mime?: string },
+): Promise<MediaFile> {
+  const existing = await db.get('mediaFiles', result.hash);
+  if (existing) return existing;
+  const keys = new Set<string>();
+  // DexieStore returns false on a failed write. Commit the CID only after
+  // every immutable block is durable. Interrupted writes are safe to repeat.
+  const tree = new HashTree({
+    store: {
+      get: (key) => blocks.get(key),
+      has: (key) => blocks.has(key),
+      delete: (key) => blocks.delete(key),
+      async put(key, bytes) {
+        if (!(await blocks.has(key)) && !(await blocks.put(key, bytes)))
+          throw Error('Could not write the media block to IndexedDB.');
+        keys.add(hex(key));
+        return true;
+      },
+    },
+  });
+  const { cid, size } = await tree.putFile(result.bytes);
+  const file = {
+    sha256: result.hash,
+    size,
+    mime: result.mime || 'application/octet-stream',
+    cid: { hash: hex(cid.hash), key: hex(cid.key!) },
+    blocks: [...keys],
+    copies: [],
+  };
+  const tx = db.transaction('mediaFiles', 'readwrite');
+  const concurrent = await tx.store.get(result.hash);
+  if (!concurrent) await tx.store.add(file);
+  await tx.done;
+  return concurrent ?? file;
 }
 
 async function saveReference(
@@ -141,46 +182,18 @@ async function saveReference(
     const matches = await db.getAllFromIndex('mediaRefs', 'url', ref.url);
     hash = matches.find((row) => row.sha256)?.sha256;
   }
-  let file = hash && (await db.get('mediaFiles', hash));
-  if (!file) {
+  if (!hash || !(await db.getKey('mediaFiles', hash))) {
     const result = await fetchAttachment(ref, options);
     hash = result.hash;
-    file = await db.get('mediaFiles', hash);
-    if (!file) {
-      const keys = new Set<string>();
-      // DexieStore returns false on a failed write. Commit the CID only after
-      // every immutable block is durable. Interrupted writes are safe to repeat.
-      const tree = new HashTree({
-        store: {
-          get: (key) => blocks.get(key),
-          has: (key) => blocks.has(key),
-          delete: (key) => blocks.delete(key),
-          async put(key, bytes) {
-            if (!(await blocks.has(key)) && !(await blocks.put(key, bytes)))
-              throw Error('Could not write the media block to IndexedDB.');
-            keys.add(hex(key));
-            return true;
-          },
-        },
-      });
-      const { cid, size } = await tree.putFile(result.bytes);
-      file = {
-        sha256: hash,
-        size,
-        mime: result.mime || ref.mime || 'application/octet-stream',
-        cid: { hash: hex(cid.hash), key: hex(cid.key!) },
-        blocks: [...keys],
-        copies: [],
-      };
-    }
+    await storeDownloadedFile(db, blocks, { ...result, mime: result.mime || ref.mime });
   }
   if (!hash) throw Error('Missing media digest.');
-  const tx = db.transaction(['mediaFiles', 'mediaRefs'], 'readwrite');
-  if (!(await tx.objectStore('mediaFiles').getKey(hash)))
-    await tx.objectStore('mediaFiles').add(file);
-  await tx
-    .objectStore('mediaRefs')
-    .put({ ...ref, error: undefined, sha256: hash, status: ref.poster ? 'poster only' : 'saved' });
+  const tx = db.transaction('mediaRefs', 'readwrite');
+  for (const same of await tx.store.index('url').getAll(ref.url)) {
+    if (same.invalidHash || (same.expected && same.expected !== hash)) continue;
+    await tx.store.put({ ...same, error: undefined, sha256: hash,
+      status: same.poster ? 'poster only' : 'saved' });
+  }
   await tx.done;
 }
 
@@ -188,14 +201,16 @@ export async function backupMedia(
   db: Archive,
   {
     server,
+    servers,
     maxMiB = DEFAULT_MEDIA_MIB,
     resolveServers = async () => [],
     progress = () => {},
+    include,
     fetcher = fetch,
     signal,
   }: BackupOptions = {},
 ) {
-  const refs = (await db.getAll('mediaRefs')).filter((ref) => !ref.sha256);
+  const refs = (await db.getAll('mediaRefs')).filter((ref) => !ref.sha256 && (!include || include(ref)));
   const blocks = openMediaBlocks(db);
   let unavailable = 0,
     done = 0;
@@ -204,7 +219,7 @@ export async function backupMedia(
       progress(done, refs.length);
       try {
         await saveReference(db, blocks, ref, {
-          server,
+          server, servers,
           maxBytes: maxMiB * 1048576,
           fetcher,
           resolveServers,
@@ -233,32 +248,21 @@ export async function readMediaFile(store: Pick<Store, 'get'>, file: MediaFile) 
   return bytes;
 }
 
-export async function uploadMedia(
-  db: Archive,
-  server: string,
-  authorize: (hash: string, server: string) => Promise<Event>,
-  progress: Progress = () => {},
-  fetcher = fetch,
-) {
-  const files = (await db.getAll('mediaFiles')).filter((file) => !file.copies.includes(server));
-  const blocks = openMediaBlocks(db);
-  let done = 0;
-  try {
-    for (const file of files) {
-      progress(done, files.length);
-      const bytes = await readMediaFile(blocks, file);
-      const auth = await authorize(file.sha256, server);
-      await putBlossom(server, file.sha256, bytes, file.mime, auth, fetcher);
-      await db.put('mediaFiles', { ...file, copies: [...file.copies, server] });
-      done++;
+export class BlossomResponseError extends Error {
+  readonly status: number;
+  readonly retryAt?: number;
+  constructor(operation: string, response: Response) {
+    super('Blossom ' + operation + ' returned HTTP ' + response.status + '.');
+    this.status = response.status;
+    const hint = response.headers.get('Retry-After');
+    if (hint) {
+      const value = /^\d+$/.test(hint) ? Date.now() + Number(hint) * 1000 : Date.parse(hint);
+      if (Number.isFinite(value) && value > Date.now()) this.retryAt = value;
     }
-  } finally {
-    blocks.close();
   }
-  return done;
 }
 
-async function putBlossom(
+export async function putBlossom(
   server: string,
   hash: string,
   bytes: Uint8Array,
@@ -279,14 +283,16 @@ async function putBlossom(
     body: bytes as Uint8Array<ArrayBuffer>,
     signal: AbortSignal.timeout(120000),
   });
-  if (!res.ok) throw Error('Blossom upload returned HTTP ' + res.status + '.');
+  if (!res.ok) throw new BlossomResponseError('upload', res);
   const descriptor = await res.json();
-  const location = httpsURL(descriptor?.url);
+  const location = typeof descriptor?.url === 'string' && URL.canParse(descriptor.url) ? new URL(descriptor.url) : undefined;
+  const validLocation = location && (httpsURL(location.href) || (isLoopback(location) && location.origin === server && !location.username && !location.password));
   if (
-    !location ||
+    !validLocation || !location ||
     blossomHash(location) !== hash ||
     descriptor.sha256 !== hash ||
     descriptor.size !== bytes.byteLength
   )
     throw Error('Blossom returned a mismatched file descriptor.');
+  return location.href;
 }

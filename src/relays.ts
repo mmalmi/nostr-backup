@@ -87,6 +87,13 @@ export async function readPage(url: string, filter: Filter) {
   });
 }
 
+async function finishImport(db: Archive, key: string[], through: number) {
+  const tx = db.transaction(['cursors', 'meta'], 'readwrite');
+  tx.objectStore('cursors').put({ through }, key);
+  tx.objectStore('meta').put(Date.now(), ['lastSyncedAt', key[1]]);
+  await tx.done;
+}
+
 export async function importWithNegentropy({
   db,
   url,
@@ -129,7 +136,7 @@ export async function importWithNegentropy({
       return { ...result, report: `${imported} imported · Incomplete relay response, will retry` };
     }
   }
-  await db.put('cursors', { through: until }, key);
+  await finishImport(db, key, until);
   return { ...result, report: `Negentropy import · ${imported} new` };
 }
 
@@ -184,7 +191,7 @@ export async function syncHistory({
     if (status === 'limited')
       throw Error('Too many posts at one timestamp. History is incomplete.');
     if (status === 'exhausted') {
-      await db.put('cursors', { through: started }, key);
+      await finishImport(db, key, started);
       return 'Up to date';
     }
     page = cursor.beginPage();

@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { captureSites } from '../src/social.ts';
 import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 
@@ -9,18 +10,24 @@ const common = {
   manifest_version: 3,
   name: 'Nostr Backup',
   version: pkg.version,
-  description: 'Archive your X and Nostr posts locally, publish to your relays, and export a ZIP.',
+  description: 'Back up posts from X, Instagram, Facebook and Nostr. Share public posts with your relays and export your archive.',
   permissions: ['storage', 'alarms', 'scripting', 'activeTab', 'unlimitedStorage'],
-  host_permissions: ['https://x.com/*'],
-  optional_host_permissions: ['https://*/*'],
+  host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
   icons,
   action: { default_title: 'Nostr Backup', default_icon: icons },
   options_ui: { page: 'archive.html', open_in_tab: true },
-  content_scripts: [{ matches: ['https://x.com/*'], js: ['content.js'], run_at: 'document_idle' }],
+  content_scripts: [
+    { matches: ['https://*/*'], js: ['browser-helper.js'], run_at: 'document_start', all_frames: true },
+    { matches: ['https://*/*'], js: ['bridge.js'], run_at: 'document_start' },
+    { matches: ['https://*/*'], js: ['provider.js'], world: 'MAIN', run_at: 'document_start' },
+    { matches: captureSites, js: ['content.js'], run_at: 'document_idle' }],
 };
 const bundles = await build({
   entryPoints: [
+    'src/browser-helper.ts',
     'src/background.ts',
+    'src/provider.ts',
+    'src/bridge.ts',
     'src/content.ts',
     'src/archive-ui.ts',
     'src/popup.ts',
@@ -47,7 +54,7 @@ for (const target of ['chrome', 'firefox', 'safari']) {
       // Keep scripts local and allow plaintext connections only on loopback.
       content_security_policy: {
         extension_pages:
-          "script-src 'self'; object-src 'self'; connect-src 'self' https: wss: ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+          "script-src 'self'; object-src 'self'; connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
       },
       browser_specific_settings: {
         gecko: {

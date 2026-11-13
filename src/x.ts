@@ -30,8 +30,6 @@ function bodyText(node: Node): string {
 }
 export function capturePosts(doc: Document, url: string, handle?: string): Capture[] {
   if (!handle || profileHandle(url) !== handle) return [];
-  const ownLink = doc.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
-  if (profileHandle(ownLink?.getAttribute('href') || '/') !== handle) return [];
   const posts = [];
   for (const article of doc.querySelectorAll(tweet)) {
     if (
@@ -50,12 +48,21 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
     const time = header?.querySelector<HTMLTimeElement>('a[href] time[datetime]');
     const match = status.exec(xPath(time?.closest('a')?.getAttribute('href')));
     if (!time || !match || match[1].toLowerCase() !== handle) continue;
+    const audience = article.querySelector(
+      '[data-testid="icon-lock"],[data-testid="protectedIcon"],[data-testid="superFollowsLabel"],' +
+      '[data-testid="exclusiveTweetLabel"],[data-testid="trustedFriendsTweetBanner"],' +
+      '[aria-label*="protected account" i],[aria-label*="subscriber-only" i],[aria-label*="subscribers only" i]',
+    );
     const text = primary('[data-testid="tweetText"]');
     const content = text && bodyText(text).trim();
     const millis = Date.parse(time.dateTime || time.getAttribute('datetime') || '');
     const timestamp = Math.floor(millis / 1000);
     const attachments = [],
       posters = [];
+    const photos = Array.from(article.querySelectorAll('[data-testid="tweetPhoto"]')).filter(
+      node => node.closest(tweet) === article && !node.closest('[role="link"]:not(a),[data-testid="quoteTweet"]'),
+    );
+    const readyPhotos = new Set<Element>();
     for (const img of article.querySelectorAll<HTMLImageElement | HTMLVideoElement>(
       '[data-testid="tweetPhoto"] img,video',
     )) {
@@ -76,18 +83,27 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
           );
           if (video) {
             attachments.push(video);
+            const photo = img.closest('[data-testid="tweetPhoto"]');
+            if (photo) readyPhotos.add(photo);
             continue;
           }
         }
-        const url = new URL(img.getAttribute('poster') || img.getAttribute('src') || '');
+        const imageSource = img.getAttribute('poster') || img.getAttribute('src');
+        if (!imageSource) continue;
+        const url = new URL(imageSource);
         if (url.protocol === 'https:' && url.hostname === 'pbs.twimg.com') {
           attachments.push(url.href);
+          const photo = img.closest('[data-testid="tweetPhoto"]');
+          if (photo) readyPhotos.add(photo);
           if (img.tagName === 'VIDEO') posters.push(url.href);
         }
       } catch {
         /* An image can be present before its source loads. */
       }
     }
+    // X sometimes mounts the text one frame before its photo source. Wait for
+    // the attachment before committing the immutable signed copy.
+    if (photos.some(photo => !readyPhotos.has(photo))) continue;
     const parts = [content, ...new Set(attachments)].filter(Boolean);
     const quote = article.querySelector(
       '[data-testid="quoteTweet"] a[href*="/status/"], div[role="link"] a[href*="/status/"]',
@@ -99,6 +115,7 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
       posts.push({
         id: match[2],
         author: handle,
+        ...(audience ? { visibility: 'private' as const } : {}),
         time: timestamp,
         ...(millis % 1000 ? { timeMs: millis } : {}),
         ...(posters.length ? { posters } : {}),

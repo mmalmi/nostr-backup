@@ -2,6 +2,8 @@ import type { Event } from 'nostr-tools/pure';
 import type { MediaReference } from './types.ts';
 import { parseBlossomURI } from 'nostr-tools/nipb7';
 
+export const DEFAULT_BLOSSOM_SERVER = 'https://blossom.band';
+
 const hashPattern = /^[a-f0-9]{64}$/;
 const mediaPath =
   /\.(avif|gif|hei[cf]|jpe?g|png|svg|webp|m4a|mp3|oga|ogg|opus|wav|flac|mov|mp4|m4v|ogv|webm|pdf)$/i;
@@ -21,11 +23,25 @@ export function blossomHash(url: URL) {
   return /\/([0-9a-f]{64})(?:\.[a-z0-9]+)?$/i.exec(url.pathname)?.[1].toLowerCase();
 }
 
+export function isLoopback(url: URL) {
+  return ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+}
+
 export function blossomOrigin(value: string) {
-  const url = httpsURL(value);
-  if (!url || url.pathname !== '/' || url.search || url.hash)
-    throw Error('Enter a Blossom server origin such as https://media.example.com.');
+  const url = new URL(value);
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url))) ||
+      url.username || url.password || url.pathname !== '/' || url.search || url.hash)
+    throw Error('Use an HTTPS Blossom server, or HTTP on localhost.');
   return url.origin;
+}
+
+export function mediaServers(conf: {blossomServer?: string; blossomServers?: string[]}) {
+  return conf.blossomServers?.length ? conf.blossomServers : [conf.blossomServer || DEFAULT_BLOSSOM_SERVER];
+}
+
+export function publicMediaURL(value: string) {
+  const url = httpsURL(value);
+  return !!url && !isLoopback(url);
 }
 
 // Record signed metadata before looking at bare URLs so a content link cannot

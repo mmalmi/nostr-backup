@@ -31,7 +31,7 @@ test('upgrading a v1 archive indexes existing posts for reconciliation', async (
 });
 test('locked capture survives reopen; signing indexes, dequeues and exports in one transaction', async () => {
   const name = crypto.randomUUID(),
-    draft = { id: '123', author: 'alice', text: 'hi', time: 100 };
+    draft = { id: '123', author: 'alice', text: 'hi', time: 100, visibility: 'public' as const };
   let db = await openArchive(name);
   await stagePosts(db, [draft, draft]);
   db.close();

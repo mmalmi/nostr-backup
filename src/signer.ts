@@ -4,12 +4,14 @@ import type { Sender } from './platform.d.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { unhex } from './model.ts';
 
+import { hasPermission, savePermission } from './signer-storage.ts';
+
 type SessionKey = () => Promise<string | undefined>;
 interface PendingSignature extends Approval {
   token: string;
   tabId: number;
   windowId?: number;
-  finish(error: Error | null, value?: NostrEvent): void;
+  finish(error: Error | null, value?: NostrEvent | string): void;
 }
 
 const api = globalThis.browser ?? chrome;
@@ -22,105 +24,6 @@ export async function revokeSession() {
   await api.storage.session.clear();
 }
 
-export async function enableSigner() {
-  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id === undefined || !tab.url || new URL(tab.url).protocol !== 'https:')
-    throw Error('Open an HTTPS site, then use this button.');
-  const origin = new URL(tab.url).origin,
-    token = crypto.randomUUID();
-  const target = { tabId: tab.id };
-  // Only the isolated bridge holds this tab capability. Page messages never contain it.
-  await api.scripting.executeScript({ target, func: installBridge, args: [token] });
-  const [result] = await api.scripting.executeScript({
-    target,
-    world: 'MAIN',
-    func: installProvider,
-  });
-  if (result.result !== true) throw Error('This page already has another Nostr signer.');
-  await api.storage.session.set({ [grantKey(tab.id)]: { token, origin } });
-  return origin;
-}
-
-function installBridge(token: string) {
-  const api = globalThis.browser ?? chrome;
-  globalThis.nostrBackupBridge?.abort();
-  const controller = new AbortController();
-  globalThis.nostrBackupBridge = controller;
-  window.addEventListener(
-    'message',
-    async (e) => {
-      const data = e.data;
-      if (
-        e.source !== window ||
-        e.origin !== location.origin ||
-        data?.channel !== 'nostr-backup-request' ||
-        typeof data.id !== 'string' ||
-        data.id.length > 64
-      )
-        return;
-      try {
-        const reply = await api.runtime.sendMessage({
-          type: 'nip07',
-          token,
-          method: data.method,
-          event: data.event,
-        });
-        window.postMessage(
-          { channel: 'nostr-backup-response', id: data.id, ...reply },
-          location.origin,
-        );
-      } catch {
-        window.postMessage(
-          {
-            channel: 'nostr-backup-response',
-            id: data.id,
-            ok: false,
-            error: 'Signer unavailable.',
-          },
-          location.origin,
-        );
-      }
-    },
-    { signal: controller.signal },
-  );
-}
-function installProvider() {
-  if (window.nostr) return window.nostr === window.nostrBackupProvider;
-  function call(method: 'getPublicKey'): Promise<string>;
-  function call(method: 'signEvent', event: EventTemplate): Promise<NostrEvent>;
-  function call(method: string, event?: EventTemplate): Promise<string | NostrEvent> {
-    return new Promise((resolve, reject) => {
-      const id = crypto.randomUUID();
-      const finish = () => {
-        clearTimeout(timer);
-        window.removeEventListener('message', onMessage);
-      };
-      const timer = setTimeout(() => {
-        finish();
-        reject(Error('Signer timed out.'));
-      }, 75000);
-      function onMessage(e: MessageEvent) {
-        if (
-          e.source !== window ||
-          e.origin !== location.origin ||
-          e.data?.channel !== 'nostr-backup-response' ||
-          e.data.id !== id
-        )
-          return;
-        finish();
-        e.data.ok ? resolve(e.data.value) : reject(Error(e.data.error));
-      }
-      window.addEventListener('message', onMessage);
-      window.postMessage({ channel: 'nostr-backup-request', id, method, event }, location.origin);
-    });
-  }
-  window.nostrBackupProvider = Object.freeze({
-    getPublicKey: () => call('getPublicKey'),
-    signEvent: (event: EventTemplate) => call('signEvent', event),
-  });
-  window.nostr = window.nostrBackupProvider;
-  return true;
-}
 export function template(value: unknown): EventTemplate {
   const input = value as Partial<EventTemplate> | null;
   if (
@@ -164,15 +67,23 @@ export async function handleSignerRequest(
   )
     throw Error('Enable the signer for this tab first.');
   if (!(await sessionKey())) throw Error('Signer is locked.');
-  if (msg.method === 'getPublicKey') return pubkey;
-  if (msg.method !== 'signEvent') throw Error('Unsupported signer method.');
-  const event = template(msg.event);
+  if (msg.method === 'getPublicKey' && grant.loginPubkey === pubkey) return pubkey;
+  if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('Unsupported signer method.');
+  const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
+  if (await hasPermission(pubkey, grant.origin, event?.kind ?? -1)) {
+    const tab = await api.tabs.get(tabId);
+    const current = (await api.storage.session.get(key))[key];
+    const secret = await sessionKey();
+    if (!secret || getPublicKey(unhex(secret)) !== pubkey || current?.token !== msg.token ||
+        !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('Signer or tab changed.');
+    return event ? finalizeEvent(event, unhex(secret)) : pubkey;
+  }
   if (Array.from(requests.values()).some((r) => r.tabId === tabId))
     throw Error('There is already a request from this tab.');
   const id = crypto.randomUUID();
-  return new Promise<NostrEvent>((resolve, reject) => {
+  return new Promise<NostrEvent | string>((resolve, reject) => {
     const timer = setTimeout(() => finish(Error('Signing request expired.')), 60000);
-    function finish(error: Error | null, value?: NostrEvent) {
+    function finish(error: Error | null, value?: NostrEvent | string) {
       clearTimeout(timer);
       requests.delete(id);
       if (error) reject(error);
@@ -214,7 +125,9 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
     new URL(tab.url).origin !== request.origin
   )
     throw Error('Signer or tab changed.');
-  request.finish(null, finalizeEvent(request.event, unhex(key)));
+  if (msg.remember) await savePermission(request.pubkey, request.origin, request.event?.kind ?? -1);
+  if (!request.event) await api.storage.session.set({ [name]: { ...grant, loginPubkey: request.pubkey } });
+  request.finish(null, request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey);
 }
 api.windows.onRemoved.addListener((win) => {
   for (const r of requests.values()) if (r.windowId === win) r.finish(Error('Signature declined.'));

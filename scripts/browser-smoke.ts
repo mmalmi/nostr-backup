@@ -6,8 +6,13 @@ import { resolve } from 'node:path';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocketServer } from 'ws';
-import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure';
-import { nsecEncode } from 'nostr-tools/nip19';
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  verifyEvent,
+} from 'nostr-tools/pure';
+import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
 import { profileHTML } from '../test/fixtures.ts';
 import './build.ts';
 
@@ -85,23 +90,31 @@ try {
     if (m.method === 'log.entryAdded' && m.params.level === 'error')
       console.error('Browser error:', m.params.text);
     if (m.method === 'network.beforeRequestSent' && m.params.isBlocked) {
+      const check = new URL(m.params.request.url).hostname === 'publish.x.com';
       void bidi('network.provideResponse', {
         request: m.params.request.request,
         statusCode: 200,
         headers: [
-          { name: 'Content-Type', value: { type: 'string', value: 'text/html; charset=utf-8' } },
+          {
+            name: 'Content-Type',
+            value: { type: 'string', value: check ? 'application/json' : 'text/html; charset=utf-8' },
+          },
         ],
         body: {
           type: 'string',
-          value: '<!DOCTYPE html><html><body>' + profileHTML + '</body></html>',
+          value: check ? JSON.stringify({ type: 'rich', url: 'https://x.com/alice/status/123',
+            author_url: 'https://x.com/alice', html: '<blockquote class="twitter-tweet"><p>Hello<br>backup 🌲</p></blockquote>' })
+            : '<!DOCTYPE html><html><body>' + profileHTML + '</body></html>',
         },
       });
     }
   };
-  await bidi('session.subscribe', { events: ['network.beforeRequestSent', 'log.entryAdded'] });
+  await bidi('session.subscribe', {
+    events: ['network.beforeRequestSent', 'log.entryAdded'],
+  });
   await bidi('network.addIntercept', {
     phases: ['beforeRequestSent'],
-    urlPatterns: [{ type: 'pattern', protocol: 'https', hostname: 'x.com' }],
+    urlPatterns: ['x.com', 'publish.x.com'].map(hostname => ({ type: 'pattern', protocol: 'https', hostname })),
   });
   const { extension } = await bidi<{ extension: string }>('webExtension.install', {
     extensionData: { type: 'path', path: resolve('dist', browser) },
@@ -112,7 +125,10 @@ try {
   const key = generateSecretKey(),
     pubkey = getPublicKey(key),
     saved: NostrEvent[] = [];
-  const native = finalizeEvent({ kind: 1, created_at: 2, content: 'Native note', tags: [] }, key);
+  const native = finalizeEvent(
+    { kind: 1, created_at: 2, content: 'Native note', tags: [] },
+    key,
+  );
   relay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(relay, 'listening');
   const address = relay.address();
@@ -149,33 +165,41 @@ try {
     'options page ready',
   );
   await js(
-    "document.querySelector('#existingProfile').click();document.querySelector('#usePublic').click();document.querySelector('#watchKey').value=arguments[0];document.querySelector('#watch').requestSubmit()",
+    "return (globalThis.browser??chrome).storage.local.set({['account:'+arguments[0]]:{pubkey:arguments[0],handle:'',capture:false,relaySync:false,relays:[arguments[1]],relaysConfigured:true,archiveName:'nostr-backup-'+arguments[0]}})",
     pubkey,
+    url,
+  );
+  await js(
+    "document.querySelector('#existingProfile').click();const input=document.querySelector('#loginKey');input.value=arguments[0];input.dispatchEvent(new Event('input',{bubbles:true}))",
+    npubEncode(pubkey),
   );
   await waitFor(
-    () => js("return !document.querySelector('#workspace').hidden && location.hash==='#settings'"),
+    () =>
+      js("return !document.querySelector('#workspace').hidden && location.hash==='#archive'"),
     'read-only profile opened',
   );
+  await js(
+    "const input=document.querySelector('#secret');input.value=arguments[0];input.dispatchEvent(new Event('input',{bubbles:true}))",
+    nsecEncode(key),
+  );
+  await waitFor(() => js("return !document.querySelector('#lock').hidden"), 'signer unlock');
   await js(
     "const u=arguments[0];document.querySelector('#handle').value='alice';document.querySelector('#relays').value=u;document.querySelector('#capture').checked=true;document.querySelector('#relaySync').checked=true;document.querySelector('#backupSettings').requestSubmit()",
     url,
   );
   await waitFor(
-    () => js("return document.querySelector('#notice').textContent==='Settings saved.'"),
+    () => js("return document.querySelector('#notice').textContent==='Saved.'"),
     'settings save',
   );
-  await js(
-    "document.querySelector('#secret').value=arguments[0];document.querySelector('#unlock').requestSubmit()",
-    nsecEncode(key),
-  );
-  await waitFor(() => js("return !document.querySelector('#lock').hidden"), 'signer unlock');
   await go('https://x.com/alice');
   try {
     await waitFor(() => saved.length === 1, 'published X event');
   } catch (error) {
     console.error(
       'Capture page:',
-      await js("return {url:location.href,articles:document.querySelectorAll('article').length}"),
+      await js(
+        "return {url:location.href,articles:document.querySelectorAll('article').length}",
+      ),
     );
     await go(options);
     await waitFor(
@@ -184,7 +208,9 @@ try {
     );
     console.error(
       'Archive state:',
-      await js("return Object.fromEntries(['events','drafts','pending','notice','activity','reports'].map(id=>[id,document.getElementById(id)?.textContent]))"),
+      await js(
+        "return Object.fromEntries(['events','drafts','pending','notice','activity','reports'].map(id=>[id,document.getElementById(id)?.textContent]))",
+      ),
     );
     throw error;
   }

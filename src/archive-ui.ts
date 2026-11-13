@@ -1,6 +1,12 @@
+import { socialNetworks } from './social.ts';
+import { mediaServers, publicMediaURL } from './media-refs.ts';
 import { defaults } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
 import { npubEncode } from 'nostr-tools/nip19';
+import { showProfile } from './profile-ui.ts';
+import { showRelayStatus } from './relay-status-ui.ts';
+import { DEFAULT_RELAYS } from './default-relays.ts';
+import { relayList, secretKey } from './model.ts';
 import { indexName } from './index-pointer.ts';
 import { showStorage } from './storage-ui.ts';
 import { api, el, send, notice, on } from './ui.ts';
@@ -8,17 +14,37 @@ import { dump, openArchive } from './archive.ts';
 import { downloadBlob, mediaConfig, refreshMedia } from './media-ui.ts';
 import { DEFAULT_MEDIA_MIB } from './media-files.ts';
 
-let mediaState: string | undefined,
-  archiveName: string | undefined,
+let permissionState = '';
+let archiveName: string | undefined,
   confirmingDelete: string | undefined,
   publishing = false,
   refreshId = 0;
+let shownRelays = '';
+function showRelays(relays: string[]) {
+  const state = JSON.stringify(relays);
+  if (state === shownRelays) return;
+  shownRelays = state;
+  el('relaySummary').textContent = `Relays (${relays.length})`;
+  el('relayChoices').replaceChildren(
+    ...[...new Set([...DEFAULT_RELAYS, ...relays])].map((url) => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = url;
+      checkbox.checked = relays.includes(url);
+      label.append(checkbox, ' ' + new URL(url).host);
+      return label;
+    }),
+  );
+}
 function cancelDelete() {
   confirmingDelete = undefined;
   el('deleteConfirm').hidden = true;
   el('deleteStart').hidden = false;
 }
 function selectSection() {
+  if (location.hash === '#settings') history.replaceState(null, '', '#account');
   const links = [...document.querySelectorAll<HTMLAnchorElement>('nav a')];
   const current = links.find((link) => link.hash === location.hash) ?? links[0];
   for (const link of links) {
@@ -27,64 +53,96 @@ function selectSection() {
   }
   for (const panel of document.querySelectorAll<HTMLElement>('[data-panel]'))
     panel.hidden = '#' + panel.dataset.panel !== current.hash;
-  if (current.hash !== '#settings') {
+  if (current.hash !== '#account') {
     cancelDelete();
     el('secret').value = '';
   }
-  mediaState = undefined;
 }
 window.addEventListener('hashchange', () => {
   selectSection();
   refresh().catch((e) => notice(e.message));
 });
 let pubkey = '',
-  queuingBroadcast = false;
+  queuingBroadcast = false,
+  unlocking = false,
+  syncing = false,
+  lastRefresh = 0;
 async function refresh(initial = false) {
   const request = ++refreshId;
   const {
     conf,
+    profile,
     unlocked,
     events,
     drafts,
     pending,
+    relays,
+    x,
+    social,
+    localX,
     running,
-    lastRun,
     indexHash,
     pointer,
     preparingIndex,
   } = await send('status');
   if (request !== refreshId) return;
+  syncing = running;
+  lastRefresh = Date.now();
   const changed = pubkey !== conf.pubkey;
   if (changed) {
     resetOnboarding();
     cancelDelete();
     el('secret').value = '';
-    el('watchKey').value = '';
-    mediaState = undefined;
-  }
+    }
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
+  showProfile(pubkey, profile, !unlocked);
+  el('profilesReadOnly').hidden = unlocked;
+  for (const site of socialNetworks) {
+    el(`${site}Capture`).disabled = !unlocked;
+    const counts = social?.[site];
+    el(`${site}Count`).textContent = counts?.saved
+      ? counts.saved.toLocaleString() + ' backed up · ' + counts.signed.toLocaleString() + ' signed'
+      : 'No posts backed up yet';
+    if (initial || changed) {
+      el(`${site}Handle`).value = conf.social?.[site]?.handle ?? '';
+      el(`${site}Capture`).checked = conf.social?.[site]?.capture ?? false;
+    }
+  }
+  el('localXCount').hidden = !localX;
+  el('localXCount').textContent = (localX ?? 0).toLocaleString() + ' local only';
+  el('capture').disabled = !unlocked;
+  el('skipCrossposts').disabled = !unlocked;
+  el('captureReadOnly').hidden = unlocked;
+  el('xCaptured').textContent = x.captured.toLocaleString();
+  el('xMatched').textContent = x.matched.toLocaleString();
+  el('xSigned').textContent = x.signed.toLocaleString();
+  el('xImageState').hidden = !x.media;
+  el('xImageState').textContent = x.media
+    ? x.media.toLocaleString() + (x.media === 1 ? ' post waiting for images' : ' posts waiting for images') +
+      (x.mediaError ? ' · ' + x.mediaError : '') : '';
+  el('xDrafts').textContent = x.drafts.toLocaleString();
   mediaConfig(conf, unlocked);
   if (pubkey && !el('onboarding').hidden && !location.hash) {
-    history.replaceState(null, '', conf.relays.length ? '#archive' : '#settings');
+    history.replaceState(null, '', '#archive');
     selectSection();
   }
   const enteringWelcome = !pubkey && el('onboarding').hidden;
   el('onboarding').hidden = !!pubkey;
   if (enteringWelcome) el('profileName').focus();
   el('workspace').hidden = !pubkey;
-  const state = JSON.stringify([events, unlocked, conf.blossomServer]);
-  if (pubkey && location.hash === '#media' && mediaState !== state) {
+  if (pubkey && location.hash === '#media') {
     await refreshMedia();
     if (request !== refreshId) return;
-    mediaState = state;
   }
   showStorage(conf, location.hash === '#storage');
   if (initial || changed) {
     el('handle').value = conf.handle;
-    el('blossomServer').value = conf.blossomServer ?? '';
+    el('skipCrossposts').checked = conf.skipCrossposts !== false;
+    el('blossomServer').value = mediaServers(conf).join('\n');
     el('mediaMiB').value = String(conf.mediaMiB ?? DEFAULT_MEDIA_MIB);
     el('relays').value = conf.relays.join('\n');
+    showRelays(conf.relays);
     for (const k of ['capture', 'relaySync'] as const) el(k).checked = conf[k];
   }
   el('backupSettings').hidden = !pubkey;
@@ -99,7 +157,7 @@ async function refresh(initial = false) {
   const needs = [
     !indexHash && 'an indexed event',
     !unlocked && 'an unlocked signer',
-    !conf.blossomServer && 'a Blossom server',
+    !mediaServers(conf).some(publicMediaURL) && 'a public Blossom server',
     !conf.relays.length && 'a saved relay',
   ].filter(Boolean);
   el('publishIndex').disabled = !!needs.length || publishing || !!preparingIndex;
@@ -112,7 +170,7 @@ async function refresh(initial = false) {
       : pointer
         ? [
             receipts,
-            pointer.hash !== indexHash ? 'The local index has newer events.' : '',
+            (pointer.localHash ?? pointer.hash) !== indexHash ? 'The local index has newer events.' : '',
             pointer.pending.length ? 'Pending on ' + pointer.pending.join(', ') + '.' : '',
           ]
             .filter(Boolean)
@@ -122,12 +180,34 @@ async function refresh(initial = false) {
     stateText +
     (pointer ? ' Block server: ' + pointer.server + '.' : '') +
     (needs.length ? ' Publishing requires ' + needs.join(', ') + '.' : '');
-  for (const [k, n] of Object.entries({ events, drafts, pending })) el(k).textContent = String(n);
-  el('lockState').textContent = unlocked
-    ? 'Signer unlocked for this session.'
-    : 'Read-only. Unlock your signer to sign posts.';
+  for (const [k, n] of Object.entries({ events, drafts, pending }))
+    el(k).textContent = String(n);
+  el('lockState').hidden = unlocked;
+  if (pubkey && location.hash === '#account') {
+    const owner = pubkey;
+    const rules = await send('listPermissions', { account: owner });
+    if (request !== refreshId) return;
+    const state = JSON.stringify([owner, rules]);
+    if (state !== permissionState) {
+      permissionState = state;
+      const origins = [...new Set(rules.map(rule => rule.origin))];
+      el('permissionList').replaceChildren(...origins.map(origin => {
+        const li = document.createElement('li');
+        const button = document.createElement('button');
+        button.textContent = 'Revoke';
+        button.className = 'secondary';
+        button.onclick = () => send('forgetPermissions', { account: owner, origin })
+          .then(() => refresh()).catch(error => notice(error.message));
+        li.append(origin + ' · ' + rules.filter(rule => rule.origin === origin)
+          .map(rule => rule.kind === -1 ? 'login' : rule.kind === 1 ? 'posts' : 'reactions').join(', ') + ' ', button);
+        return li;
+      }));
+      el('sitePermissions').hidden = !rules.length;
+    }
+  }
   el('unlock').hidden = unlocked;
   el('lock').hidden = !unlocked;
+  el('copyPrivateKey').hidden = !unlocked;
   el('sync').disabled = running || !pubkey;
   el('rescan').disabled = running || !pubkey;
   el('broadcast').textContent = conf.relaySync
@@ -138,39 +218,70 @@ async function refresh(initial = false) {
     : 'Publish archived posts to every saved relay.';
   el('broadcast').disabled =
     queuingBroadcast || running || (!events && !conf.relaySync) || !conf.relays.length;
-  el('activity').textContent = running
-    ? 'Sync in progress…'
-    : lastRun
-      ? 'Last run ' + new Date(lastRun.at).toLocaleString()
-      : '';
-  el('reports').replaceChildren(
-    ...Object.entries(lastRun?.reports ?? {}).map(([url, v]) => {
-      const li = document.createElement('li');
-      li.textContent = url + ' — ' + v;
-      return li;
-    }),
-  );
+  const latest = Math.max(0, ...relays.map(relay => relay.lastSyncedAt ?? 0));
+  el('lastSynced').textContent = latest ? 'Last synced ' + new Date(latest).toLocaleString() : 'Not synced yet';
+  el('activity').textContent = running ? 'Syncing…' : !conf.relays.length ? 'Select a relay to sync your posts.' : '';
+  showRelayStatus(relays);
 }
 on('backupSettings', 'submit', async () => {
   await send('settings', {
     pubkey,
     account: pubkey,
     handle: el('handle').value,
+    social: Object.fromEntries(socialNetworks.map(site => [site, {
+      handle: el(`${site}Handle`).value, capture: el(`${site}Capture`).checked,
+    }])),
     relays: el('relays').value,
     capture: el('capture').checked,
+    skipCrossposts: el('skipCrossposts').checked,
     blossomServer: el('blossomServer').value,
     mediaMiB: el('mediaMiB').value,
     relaySync: el('relaySync').checked,
   });
   await refresh(true);
-  notice('Settings saved.');
+  notice('Saved.');
 });
-on('unlock', 'submit', async () => {
+on('relayChoices', 'change', () => {
+  el('relays').value = [
+    ...document.querySelectorAll<HTMLInputElement>('#relayChoices input:checked'),
+  ]
+    .map((input) => input.value)
+    .join('\n');
+  el('backupSettings').requestSubmit();
+});
+on('addRelay', 'click', () => {
+  const value = el('customRelay').value.trim();
+  if (!value) return;
+  const url = value.includes('://') ? value : 'wss://' + value;
+  el('relays').value = relayList(el('relays').value + '\n' + url).join('\n');
+  el('customRelay').value = '';
+  el('backupSettings').requestSubmit();
+});
+on('relaySync', 'change', () => el('backupSettings').requestSubmit());
+async function unlockSigner() {
+  if (unlocking) return;
   const key = el('secret').value;
+  secretKey(key);
+  unlocking = true;
+  el('secret').disabled = true;
   el('secret').value = '';
-  await send('login', { key, account: pubkey });
-  await refresh(true);
-  notice('Logged in.');
+  try {
+    await send('login', { key, account: pubkey });
+    await refresh(true);
+    notice('');
+  } finally {
+    unlocking = false;
+    el('secret').disabled = false;
+  }
+}
+on('unlock', 'submit', unlockSigner);
+on('secret', 'input', () => {
+  try {
+    secretKey(el('secret').value);
+  } catch {
+    return;
+  }
+  return unlockSigner();
 });
 on('lock', 'click', async () => {
   await send('lock', { account: pubkey });
@@ -198,6 +309,11 @@ on('deleteAccount', 'click', async () => {
   await refresh(true);
   notice('Local archive deleted.');
 });
+on('copyPrivateKey', 'click', async () => {
+  const key = await send('exportPrivateKey', { account: pubkey });
+  await navigator.clipboard.writeText(key);
+  notice('Private key copied.');
+});
 on('copyIndex', 'click', async () => {
   await navigator.clipboard.writeText(el('indexAddress').value);
   notice('Hashtree address copied.');
@@ -219,11 +335,7 @@ on('broadcast', 'click', async () => {
   el('broadcast').disabled = true;
   try {
     const count = await send('broadcast', { account: pubkey });
-    notice(
-      count
-        ? `Queued ${count} signed ${count === 1 ? 'post' : 'posts'} for broadcast to your saved relays.`
-        : 'Checking saved relays for your posts.',
-    );
+    notice(count ? 'Broadcast queued.' : 'Checking saved relays for your posts.');
   } finally {
     queuingBroadcast = false;
     await refresh();
@@ -231,8 +343,13 @@ on('broadcast', 'click', async () => {
 });
 for (const id of ['sync', 'rescan'] as const)
   on(id, 'click', async () => {
-    await send(id, { account: pubkey });
-    await refresh();
+    notice('');
+    el(id).disabled = true;
+    try {
+      await send(id, { account: pubkey });
+    } finally {
+      await refresh();
+    }
   });
 on('download', 'click', async () => {
   if (!archiveName) return;
@@ -259,5 +376,6 @@ api.storage?.onChanged?.addListener((changes, area) => {
 selectSection();
 refresh(true).catch((e) => notice(e.message));
 setInterval(() => {
-  if (!document.hidden) refresh().catch((e) => notice(e.message));
-}, 2500);
+  if (!document.hidden && (syncing || Date.now() - lastRefresh >= 2500))
+    refresh().catch((e) => notice(e.message));
+}, 1000);

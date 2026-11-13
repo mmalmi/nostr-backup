@@ -11,12 +11,30 @@
     <main>
       <h1>Nostr Backup</h1>
       <div id="backupActions" hidden>
+        <a id="signedInProfile" class="profile" target="_blank" rel="noopener noreferrer" title="View profile on Iris" hidden>
+          <span class="avatar" aria-hidden="true">
+            <span id="profileInitials"></span>
+            <img id="profileAvatar" alt="" referrerpolicy="no-referrer" hidden />
+          </span>
+          <span class="profileText"
+            ><strong id="displayName"></strong><small id="profileIdentity"></small
+            ><small id="profileMode" class="profileMode" hidden>Read-only</small></span
+          >
+        </a>
         <p id="summary"></p>
-        <button id="open">View backup</button
-        ><button class="secondary" id="signer">Enable NIP-07 for this tab</button>
-        <p class="hint" id="signerHint">
-          Shares your public key with this page. Each signature needs your approval.
-        </p>
+        <p id="socialPopup" hidden></p>
+        <section id="xPopupStats" hidden aria-label="X capture statistics">
+          <h2>X capture</h2>
+          <div class="stats">
+            <div><strong id="xCaptured">0</strong>Captured</div>
+            <div><strong id="xSigned">0</strong>Signed</div>
+            <div><strong id="xMatched">0</strong>Already on Nostr</div>
+            <div><strong id="xDrafts">0</strong>Awaiting signature</div>
+          </div>
+          <p id="xImageState" class="hint" hidden></p>
+          <p id="xCaptureState"></p>
+        </section>
+        <button id="open">Open</button>
       </div>
       <p id="notice" role="status"></p>
     </main>

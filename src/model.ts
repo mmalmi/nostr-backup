@@ -32,6 +32,17 @@ export function secretKey(value: string) {
   throw Error('Enter a valid nsec or 64-character hex private key.');
 }
 
+export function loginKey(value: string) {
+  const key = value.trim();
+  try {
+    if (/^npub1/i.test(key)) return { type: 'watch' as const, key: identity(key) };
+    secretKey(key);
+    return { type: 'login' as const, key };
+  } catch {
+    throw Error('Invalid key.');
+  }
+}
+
 export function relayList(input: string) {
   const urls = input
     .split(/\s+/)
@@ -89,6 +100,7 @@ export function xTemplate(post: Capture, handle: string) {
     ['r', url],
     ['i', url],
     ['k', 'web'],
+    ['client', 'nostr-backup'],
   ];
   // Modern X IDs encode milliseconds above their low 22 worker/sequence bits.
   // Cross-check with the independent DOM date before using that precision.

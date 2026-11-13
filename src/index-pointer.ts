@@ -1,10 +1,11 @@
 import type { Archive, Settings, IndexPointer, Sign } from './types.ts';
 import type { CID } from '@hashtree/core';
 import type { Event } from 'nostr-tools/pure';
-import { readPointer, readRoot } from './archive.ts';
+import { publicMediaURL } from './media-refs.ts';
+import { readPointer } from './archive.ts';
 import { readOnlyStore } from './blocks.ts';
-import { BlossomStore, HashTree, toHex } from '@hashtree/core';
-import { createNostrRefResolver } from '@hashtree/nostr';
+import { BlossomStore, HashTree, MemoryStore, toHex } from '@hashtree/core';
+import { createNostrRefResolver, NostrEventStore } from '@hashtree/nostr';
 import * as nip19 from 'nostr-tools/nip19';
 import { normalizeServerTag } from 'nostr-tools/nipb7';
 
@@ -55,18 +56,28 @@ export async function queueIndexPointer(
   signal?: AbortSignal,
 ) {
   const server = conf.blossomServer;
-  if (!server || !conf.relays.length)
-    throw Error('Save a Blossom server and at least one relay first.');
-  const root = await readRoot(db);
-  if (!root) throw Error('The event index is empty.');
-  const tree = new HashTree({
-    store: readOnlyStore(async (hash) => {
-      signal?.throwIfAborted();
-      const bytes = await db.get('blocks', toHex(hash));
-      if (!bytes) throw Error('The local index is missing block ' + toHex(hash) + '.');
-      return bytes;
-    }),
+  if (!server || !publicMediaURL(server) || !conf.relays.length)
+    throw Error('Save a public Blossom server and at least one relay first.');
+  const snapshot = db.transaction(['meta', 'heldEvents', 'events']);
+  const localRoot = await snapshot.objectStore('meta').get('root') as CID | undefined;
+  if (!localRoot) throw Error('The event index is empty.');
+  let root: CID = localRoot;
+  let store = readOnlyStore(async (hash) => {
+    signal?.throwIfAborted();
+    const bytes = await db.get('blocks', toHex(hash));
+    if (!bytes) throw Error('The local index is missing block ' + toHex(hash) + '.');
+    return bytes;
   });
+  const held = new Set(await snapshot.objectStore('heldEvents').getAllKeys());
+  if (held.size) {
+    // The previous root and its index blocks can contain restricted posts. Build
+    // an independent snapshot from the eligible events before uploading any bytes.
+    const events = (await snapshot.objectStore('events').getAll()).filter(event => !held.has(event.id));
+    if (!events.length) throw Error('No public events are available for the index.');
+    store = new MemoryStore();
+    root = (await new NostrEventStore(store).build(null, events))!;
+  }
+  const tree = new HashTree({store});
   const blossom = new BlossomStore({
     servers: [{ url: server, write: true }],
     signer: async (template) =>
@@ -99,10 +110,13 @@ export async function queueIndexPointer(
   const same = previous?.hash === hash && previous.server === server;
   const event = same ? previous.event : await signIndexRoot(conf, root, previous, sign);
   await checkActive();
-  await db.put(
-    'meta',
+  const tx = db.transaction(['heldEvents', 'meta'], 'readwrite');
+  const nowHeld = await tx.objectStore('heldEvents').getAllKeys();
+  if (nowHeld.some(id => !held.has(id))) throw Error('Post visibility changed. Publish the updated index.');
+  await tx.objectStore('meta').put(
     {
       hash,
+      localHash: toHex(localRoot.hash),
       server,
       event,
       pending: [...conf.relays],
@@ -110,6 +124,7 @@ export async function queueIndexPointer(
     },
     'indexPointer',
   );
+  await tx.done;
 }
 
 export async function deliverIndexPointer(

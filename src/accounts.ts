@@ -2,23 +2,38 @@ import type { Settings } from './types.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { deleteDB } from 'idb';
 import { DexieStore } from '@hashtree/dexie';
-import { append, openArchive } from './archive.ts';
+import { archiveRouter, localArchive } from './archive-event-bus.ts';
+import { openArchive } from './archive.ts';
 import { hex, secretKey } from './model.ts';
+import { DEFAULT_BLOSSOM_SERVER, mediaServers, publicMediaURL } from './media-refs.ts';
+import { DEFAULT_RELAYS } from './default-relays.ts';
+
+import { saveKey, forgetPermissions } from './signer-storage.ts';
 
 const api = globalThis.browser ?? chrome;
 export const defaults: Settings = {
   pubkey: '',
   handle: '',
   capture: false,
-  relaySync: false,
-  relays: [],
+  relaySync: true,
+  relays: DEFAULT_RELAYS,
+  blossomServer: DEFAULT_BLOSSOM_SERVER,
 };
 const accountKey = (pubkey: string) => `account:${pubkey}` as const;
+function withDefaults(conf: Settings): Settings {
+  const servers = mediaServers(conf);
+  conf = { ...conf, blossomServer: servers.find(publicMediaURL) ?? servers[0], blossomServers: servers };
+  return !conf.relays.length && !conf.relaysConfigured
+    ? { ...conf, relays: [...DEFAULT_RELAYS], relaySync: true }
+    : conf;
+}
 
 export async function settings(): Promise<Settings> {
   const { settings: conf } = await api.storage.local.get('settings');
   // Archives created before multiple accounts all used this database name.
-  return conf?.pubkey ? { archiveName: 'nostr-backup-v1', ...conf } : defaults;
+  return conf?.pubkey
+    ? withDefaults({ archiveName: 'nostr-backup-v1', ...conf })
+    : defaults;
 }
 
 export async function accountSettings(pubkey: string): Promise<Settings> {
@@ -28,12 +43,12 @@ export async function accountSettings(pubkey: string): Promise<Settings> {
     return active;
   }
   const id = accountKey(pubkey);
-  return (
+  return withDefaults(
     (await api.storage.local.get(id))[id] ?? {
       ...defaults,
       pubkey,
       archiveName: 'nostr-backup-' + pubkey,
-    }
+    },
   );
 }
 
@@ -46,11 +61,16 @@ export async function login(value: string, profileName?: string) {
   const pubkey = getPublicKey(key);
   const conf = await accountSettings(pubkey);
   if (profileName !== undefined) {
-    if (typeof profileName !== 'string' || !profileName.trim() || profileName.trim().length > 100)
+    if (
+      typeof profileName !== 'string' ||
+      !profileName.trim() ||
+      profileName.trim().length > 100
+    )
       throw Error('Enter a profile name of up to 100 characters.');
     const db = await openArchive(conf.archiveName);
     try {
-      if (await db.count('events')) throw Error('This public key already has a local archive.');
+      if (await db.count('events'))
+        throw Error('This public key already has a local archive.');
       const event = finalizeEvent(
         {
           kind: 0,
@@ -60,13 +80,14 @@ export async function login(value: string, profileName?: string) {
         },
         key,
       );
-      await append(db, [{ event }], pubkey);
+      const receipt = await archiveRouter(db, pubkey, conf.relays).publish(event, localArchive);
+      if (!receipt.accepted) throw Error(receipt.reason ?? 'Could not save the profile.');
     } finally {
       db.close();
     }
   }
   await saveSettings(conf);
-  await api.storage.session.set({ signingKey: hex(key) });
+  await saveKey(hex(key));
 }
 
 export async function eraseAccount(conf: Settings) {
@@ -75,6 +96,7 @@ export async function eraseAccount(conf: Settings) {
     if (!conf.archiveName) throw Error('Missing archive database name.');
     await DexieStore.deleteDatabase(conf.archiveName + '-media');
     await deleteDB(conf.archiveName);
+    await forgetPermissions(conf.pubkey);
     await api.storage.local.remove(accountKey(conf.pubkey));
     await api.storage.local.remove('deletingAccount');
   };

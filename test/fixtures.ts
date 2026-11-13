@@ -11,6 +11,6 @@ export function article(author: string, id: string, text: string | null = 'A pos
   );
 }
 export const profileHTML =
-  '<a data-testid="AppTabBar_Profile_Link" href="/alice">Profile</a>' +
+  '<a data-testid="AppTabBar_Profile_Link" href="/viewer">Profile</a>' +
   article('alice', '123', 'Hello<br>backup <img alt="🌲">') +
   article('bob', '456', 'Foreign content');

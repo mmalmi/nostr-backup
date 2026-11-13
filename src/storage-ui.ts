@@ -92,7 +92,7 @@ export function showStorage(conf: Pick<Settings, 'archiveName'>, visible: boolea
         ['Unique media files', stats.mediaFiles],
         ['Original media bytes', size(stats.mediaBytes)],
         ['Media block storage', size(stats.mediaBlockBytes)],
-        ['Unsigned X captures', stats.drafts],
+        ['Unsigned public captures', stats.drafts],
         ['Pending event deliveries', stats.pending],
       ];
       for (const [label, value] of totals)

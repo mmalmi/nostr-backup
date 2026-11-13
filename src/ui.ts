@@ -2,23 +2,22 @@ import type { Action, Approval, Message, Payloads, Result } from './types.ts';
 import { errorMessage } from './types.ts';
 
 export const api = globalThis.browser ?? chrome;
+export function el(id: 'profileAvatar'): HTMLImageElement;
 export function el(
   id:
     | 'indexAddress'
     | 'accountNpub'
     | 'secret'
     | 'profileName'
-    | 'recoveryKey'
-    | 'keySaved'
     | 'loginKey'
-    | 'usePrivate'
-    | 'usePublic'
-    | 'watchKey'
+    | 'remember'
+    | 'customRelay'
     | 'relaySync'
+    | 'instagramHandle' | 'facebookHandle' | 'instagramCapture' | 'facebookCapture'
     | 'handle'
     | 'capture'
-    | 'mediaMiB'
-    | 'blossomServer',
+    | 'skipCrossposts'
+    | 'mediaMiB',
 ): HTMLElementTagNameMap['input'];
 export function el(
   id:
@@ -38,14 +37,14 @@ export function el(
     | 'refreshStats'
     | 'lock'
     | 'logout'
-    | 'cancelProfile'
+    | 'copyPrivateKey'
     | 'deleteStart'
     | 'deleteAccount'
     | 'cancelDelete',
 ): HTMLElementTagNameMap['button'];
-export function el(id: 'relays'): HTMLElementTagNameMap['textarea'];
+export function el(id: 'relays' | 'blossomServer'): HTMLElementTagNameMap['textarea'];
 export function el(
-  id: 'nameForm' | 'loginForm' | 'newProfile' | 'backupSettings' | 'unlock' | 'watch',
+  id: 'nameForm' | 'loginForm' | 'backupSettings' | 'unlock',
 ): HTMLFormElement;
 export function el(id: string): HTMLElement;
 export function el(id: string): HTMLElement {

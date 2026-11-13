@@ -29,7 +29,7 @@ async function check() {
       posts.length === 1 && posts[0].text === 'Hello\nbackup 🌲',
       'Captured own post and excluded the foreign author',
     );
-    await stagePosts(db, posts);
+    await stagePosts(db, posts.map(post => ({ ...post, visibility: 'public' })));
     db.close();
     db = await openArchive(name);
     const [draft] = await db.getAll('drafts');
