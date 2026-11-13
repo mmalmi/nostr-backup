@@ -54,7 +54,9 @@ nav a:hover, footer a:hover { text-decoration: underline; }
 h1, h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; text-wrap: balance; }
 h1 { font-size: clamp(3.1rem, 5.6vw, 5rem); line-height: 1.02; letter-spacing: -.065em; }
 p, li { text-wrap: pretty; }
-.intro p { max-width: 31rem; margin: 1.4rem 0 1.7rem; color: var(--muted); font-size: 1.07rem; }
+.intro p { max-width: 31rem; margin-top: 1.4rem; color: var(--muted); font-size: 1.07rem; }
+.intro ul { margin: .8rem 0 1.7rem; padding-left: 1.25rem; color: var(--muted); }
+.intro li + li { margin-top: .3rem; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: .7rem; width: fit-content; padding: .75rem 1.1rem; border-radius: .4rem; background: var(--button); color: white; font-weight: 620; white-space: nowrap; }
 .button:hover { background: var(--button-hover); color: white; }
 .button span { font-size: 1.2em; line-height: 1; }
