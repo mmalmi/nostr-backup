@@ -102,7 +102,7 @@ async function refresh(initial = false) {
     el(`${site}Capture`).disabled = !unlocked;
     const counts = social?.[site];
     el(`${site}Count`).textContent = counts?.saved
-      ? counts.saved.toLocaleString() + ' backed up · ' + counts.signed.toLocaleString() + ' signed'
+      ? counts.saved.toLocaleString() + ' backed up · ' + counts.signed.toLocaleString() + ' prepared for sharing'
       : 'No posts backed up yet';
     if (initial || changed) {
       el(`${site}Handle`).value = conf.social?.[site]?.handle ?? '';
@@ -155,30 +155,30 @@ async function refresh(initial = false) {
   el('pointerSection').hidden = !pubkey;
   el('indexAddress').value = pubkey ? 'htree://' + indexName(pubkey) : '';
   const needs = [
-    !indexHash && 'an indexed event',
-    !unlocked && 'an unlocked signer',
+    !indexHash && 'a saved item',
+    !unlocked && 'an unlocked account',
     !mediaServers(conf).some(publicMediaURL) && 'a public Blossom server',
     !conf.relays.length && 'a saved relay',
   ].filter(Boolean);
   el('publishIndex').disabled = !!needs.length || publishing || !!preparingIndex;
   const receipts = pointer?.acknowledged.length
-    ? 'Acknowledged by ' + pointer.acknowledged.join(', ') + '.'
-    : 'No relay acknowledgement yet.';
+    ? 'Received by ' + pointer.acknowledged.join(', ') + '.'
+    : 'Waiting for confirmation.';
   const stateText =
     publishing || preparingIndex
-      ? 'Uploading index blocks…'
+      ? 'Preparing your public backup…'
       : pointer
         ? [
             receipts,
-            (pointer.localHash ?? pointer.hash) !== indexHash ? 'The local index has newer events.' : '',
+            (pointer.localHash ?? pointer.hash) !== indexHash ? 'There are newer items on this device.' : '',
             pointer.pending.length ? 'Pending on ' + pointer.pending.join(', ') + '.' : '',
           ]
             .filter(Boolean)
             .join(' ')
-        : 'This index has not been published from this archive.';
+        : 'Your backup link hasn’t been published yet.';
   el('pointerStatus').textContent =
     stateText +
-    (pointer ? ' Block server: ' + pointer.server + '.' : '') +
+    (pointer ? ' Storage server: ' + pointer.server + '.' : '') +
     (needs.length ? ' Publishing requires ' + needs.join(', ') + '.' : '');
   for (const [k, n] of Object.entries({ events, drafts, pending }))
     el(k).textContent = String(n);
@@ -211,11 +211,11 @@ async function refresh(initial = false) {
   el('sync').disabled = running || !pubkey;
   el('rescan').disabled = running || !pubkey;
   el('broadcast').textContent = conf.relaySync
-    ? 'Broadcast and import'
-    : 'Broadcast to saved relays';
+    ? 'Share and check for posts'
+    : 'Share backed-up posts';
   el('broadcast').title = conf.relaySync
-    ? 'Publish archived posts to every saved relay and fetch your missing posts.'
-    : 'Publish archived posts to every saved relay.';
+    ? 'Share your backed-up public posts and check for older posts to save.'
+    : 'Share your backed-up public posts with your selected servers.';
   el('broadcast').disabled =
     queuingBroadcast || running || (!events && !conf.relaySync) || !conf.relays.length;
   const latest = Math.max(0, ...relays.map(relay => relay.lastSyncedAt ?? 0));
@@ -286,7 +286,7 @@ on('secret', 'input', () => {
 on('lock', 'click', async () => {
   await send('lock', { account: pubkey });
   await refresh();
-  notice('Signer locked.');
+  notice('Account locked.');
 });
 setupOnboarding(() => refresh(true));
 on('logout', 'click', async () => {
@@ -312,7 +312,7 @@ on('deleteAccount', 'click', async () => {
 on('copyPrivateKey', 'click', async () => {
   const key = await send('exportPrivateKey', { account: pubkey });
   await navigator.clipboard.writeText(key);
-  notice('Private key copied.');
+  notice('Secret key copied.');
 });
 on('copyIndex', 'click', async () => {
   await navigator.clipboard.writeText(el('indexAddress').value);
@@ -321,10 +321,10 @@ on('copyIndex', 'click', async () => {
 on('publishIndex', 'click', async () => {
   publishing = true;
   el('publishIndex').disabled = true;
-  el('pointerStatus').textContent = 'Uploading index blocks…';
+  el('pointerStatus').textContent = 'Preparing your public backup…';
   try {
     await send('publishIndex', { account: pubkey });
-    notice('Index blocks uploaded. The pointer is queued for relay delivery.');
+    notice('Your public backup is ready. Its link is waiting to be shared.');
   } finally {
     publishing = false;
     await refresh();
@@ -335,7 +335,7 @@ on('broadcast', 'click', async () => {
   el('broadcast').disabled = true;
   try {
     const count = await send('broadcast', { account: pubkey });
-    notice(count ? 'Broadcast queued.' : 'Checking saved relays for your posts.');
+    notice(count ? 'Posts queued for sharing.' : 'Checking saved relays for your posts.');
   } finally {
     queuingBroadcast = false;
     await refresh();

@@ -17,7 +17,7 @@ function installBridge(token: string) {
         return;
       try {
         const registration = await api.runtime.sendMessage({ type: 'registerBridge', token });
-        if (!registration?.ok) throw Error('Signer unavailable.');
+        if (!registration?.ok) throw Error('Account access is unavailable.');
         const reply = await api.runtime.sendMessage({
           type: 'nip07',
           token,
@@ -34,7 +34,7 @@ function installBridge(token: string) {
             channel: 'nostr-backup-response',
             id: data.id,
             ok: false,
-            error: 'Signer unavailable.',
+            error: 'Account access is unavailable.',
           },
           location.origin,
         );

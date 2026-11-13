@@ -20,8 +20,8 @@ async function refreshPopup() {
   if (site && site !== 'x') {
     const label = site === 'instagram' ? 'Instagram' : 'Facebook';
     const selection = conf.social?.[site];
-    el('socialPopup').textContent = !unlocked ? label + ' capture paused · Read-only mode' :
-      selection?.capture ? label + ' · ' + (social?.[site].saved ?? 0) + ' backed up for ' + selection.handle : label + ' capture off';
+    el('socialPopup').textContent = !unlocked ? label + ' backup paused · Read-only mode' :
+      selection?.capture ? label + ' · ' + (social?.[site].saved ?? 0) + ' backed up for ' + selection.handle : label + ' backup off';
   }
   el('xPopupStats').hidden = !onX;
   el('xCaptured').textContent = x.captured.toLocaleString();
@@ -35,9 +35,9 @@ async function refreshPopup() {
   el('xCaptureState').textContent = !unlocked
     ? 'Capture paused · Read-only mode'
     : conf.capture
-      ? 'Capture enabled for @' + conf.handle
-      : 'Capture off';
-  el('summary').textContent = `${events} backed-up ${events === 1 ? 'event' : 'events'}`;
+      ? 'Backing up @' + conf.handle
+      : 'Backup off';
+  el('summary').textContent = `${events} backed-up ${events === 1 ? 'item' : 'items'}`;
   el('backupActions').hidden = false;
 }
 refreshPopup().catch((e) => notice(e.message));

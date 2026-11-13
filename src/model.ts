@@ -12,7 +12,7 @@ export function identity(value: string) {
   value = value.trim();
   if (/^[a-f0-9]{64}$/.test(value)) return value;
   const key = decode(value);
-  if (key.type !== 'npub') throw Error('Enter an npub or a hex public key.');
+  if (key.type !== 'npub') throw Error('Enter a valid user ID.');
   return key.data;
 }
 
@@ -29,7 +29,7 @@ export function secretKey(value: string) {
   } catch {
     /* Never include a private key in a validation message. */
   }
-  throw Error('Enter a valid nsec or 64-character hex private key.');
+  throw Error('Enter a valid secret key.');
 }
 
 export function loginKey(value: string) {
@@ -39,7 +39,7 @@ export function loginKey(value: string) {
     secretKey(key);
     return { type: 'login' as const, key };
   } catch {
-    throw Error('Invalid key.');
+    throw Error('Check your secret key or user ID and try again.');
   }
 }
 

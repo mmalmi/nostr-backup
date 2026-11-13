@@ -54,7 +54,7 @@ export function validateSocialPost(post: SocialCapture, network: SocialNetwork, 
 }
 
 export function socialTemplate(post: SocialCapture) {
-  if (post.visibility !== 'public') throw Error('Only public posts can be signed.');
+  if (post.visibility !== 'public') throw Error('Only public posts can be prepared for sharing.');
   const media = [...new Set([...(post.media ?? []), ...(post.posters ?? [])])];
   const content = [post.text, ...media.filter(url => !post.text.includes(url))].join('\n\n');
   return {

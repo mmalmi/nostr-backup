@@ -529,9 +529,9 @@ async function configure(msg: Message<'settings'>) {
   const activeSocial = Object.values(social).some(site => site.capture);
   if (activeSocial && Object.entries(social).some(([site, value]) =>
     value.capture && !prev.social?.[site as keyof typeof social]?.capture) && !(await sessionKey()))
-    throw Error('Unlock the signer to enable profile backup.');
+    throw Error('Unlock your account to enable profile backup.');
   if (msg.capture && !prev.capture && !(await sessionKey()))
-    throw Error('Sign in with your private key to enable X capture.');
+    throw Error('Sign in with your secret key to enable X capture.');
   if ((msg.capture || activeSocial || msg.relaySync) && !relays.length) throw Error('Choose a relay first.');
   const input = msg.blossomServers ?? (msg.blossomServer === undefined ? mediaServers(prev) : msg.blossomServer.trim().split(/\s+/).filter(Boolean));
   const blossomServers = [...new Set((input.length ? input : [DEFAULT_BLOSSOM_SERVER]).map(blossomOrigin))];
@@ -662,7 +662,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
   if (msg.type === 'registerBridge') {
     if (sender.frameId !== 0 || sender.tab?.id === undefined || !sender.url ||
         new URL(sender.url).protocol !== 'https:' || typeof msg.token !== 'string' || msg.token.length !== 36)
-      throw Error('Invalid signer tab.');
+      throw Error('Open the website again and retry.');
     const key = `grant-${sender.tab.id}` as const;
     const existing = (await api.storage.session.get(key))[key];
     const origin = new URL(sender.url).origin;
@@ -844,7 +844,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
             throw Error('The active profile or backup destinations changed.');
           const key = await sessionKey();
           if (!key || getPublicKey(unhex(key)) !== conf.pubkey)
-            throw Error('Sign in with the archive private key first.');
+            throw Error('Sign in with the archive secret key first.');
           return unhex(key);
         };
         const sign: Sign = async (event) => finalizeEvent(event, await checkActive());
@@ -870,9 +870,9 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         return forgetPermissions(conf.pubkey, msg.origin);
       case 'exportPrivateKey': {
         if (page !== api.runtime.getURL('archive.html') || msg.account !== conf.pubkey)
-          throw Error('Open Account to copy your private key.');
+          throw Error('Open Account to copy your secret key.');
         const key = await sessionKey();
-        if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your signer first.');
+        if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
         return nsecEncode(unhex(key));
       }
       case 'lock':
@@ -885,7 +885,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         void kick(true);
         return;
       case 'syncBlossom': {
-        if (!(await sessionKey())) throw Error('Sign in with your private key to sync media.');
+        if (!(await sessionKey())) throw Error('Sign in with your secret key to sync media.');
         const count = await queueBlossom(db, await shareableMediaHashes(db), mediaServers(conf), true);
         kickMedia();
         return count;
@@ -900,7 +900,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           throw Error('Choose a saved file and the configured Blossom server.');
         const key = await sessionKey();
         if (!key || getPublicKey(unhex(key)) !== conf.pubkey)
-          throw Error('Unlock the archive signer first.');
+          throw Error('Unlock your account first.');
         return createUploadAuth(async (event) => finalizeEvent(event, unhex(key)), msg.hash, {
           servers: msg.server,
           expiration: Math.floor(Date.now() / 1000) + 300,

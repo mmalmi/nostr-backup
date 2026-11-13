@@ -2,6 +2,7 @@ import type { Action, Approval, Message, Payloads, Result } from './types.ts';
 import { errorMessage } from './types.ts';
 
 export const api = globalThis.browser ?? chrome;
+export function el(id: 'requestDetails'): HTMLDetailsElement;
 export function el(id: 'profileAvatar'): HTMLImageElement;
 export function el(
   id:

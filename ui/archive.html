@@ -25,7 +25,7 @@
       </header>
       <section id="onboarding" aria-label="Profile setup" hidden>
         <form id="nameForm">
-          <h2>Sign up</h2>
+          <h2>Create your profile</h2>
           <input
             id="profileName"
             aria-label="Your name"
@@ -34,7 +34,7 @@
             maxlength="100"
             required
           />
-          <button type="submit">Go</button>
+          <button type="submit">Create profile</button>
           <div class="existingProfile">
             <a href="#signin" id="existingProfileLink">Already have an account?</a>
             <button type="button" class="secondary" id="existingProfile">Sign in</button>
@@ -42,13 +42,14 @@
         </form>
         <div id="existingLogin" hidden>
           <h2>Sign in</h2>
+          <p id="loginHelp" class="hint">Use your secret key to sign in. To view a backup without making changes, use your user ID instead.</p>
           <form id="loginForm">
             <input
               id="loginKey"
               type="password"
-              aria-label="Secret or public key"
+              aria-label="Secret key or user ID" aria-describedby="loginHelp"
               required
-              placeholder="Paste secret or public key"
+              placeholder="Paste your secret key or user ID"
               autocomplete="off"
               spellcheck="false"
             />
@@ -73,14 +74,15 @@
             <h2>Your backup</h2>
             <section aria-label="Backup contents">
               <div class="stats">
-                <div><strong id="events">0</strong>Signed events</div>
-                <div><strong id="drafts">0</strong>Awaiting signature</div>
-                <div><strong id="pending">0</strong>Pending deliveries</div>
+                <div><strong id="events">0</strong>Saved items</div>
+                <div><strong id="drafts">0</strong>Preparing</div>
+                <div><strong id="pending">0</strong>Waiting to send</div>
               </div>
               <button id="download">Download ZIP</button>
             </section>
             <section>
-              <h3>Relay sync</h3>
+              <h3>Online copies</h3>
+              <p class="hint">Relays are servers that store and share public posts. You can use the ones already selected.</p>
               <details id="relaySelector">
                 <summary id="relaySummary">Relays</summary>
                 <div id="relayChoices"></div>
@@ -101,49 +103,49 @@
               <div class="actions">
                 <button id="sync" class="secondary">Sync now</button>
                 <button id="broadcast" class="secondary" disabled>
-                  Broadcast to saved relays
+                  Share backed-up posts
                 </button>
-                <button id="rescan" class="quiet">Rescan relay history</button>
+                <button id="rescan" class="quiet">Check for older posts</button>
               </div>
               <p id="lastSynced"></p>
               <p id="activity" role="status"></p>
               <ul id="reports" class="relayRows" aria-label="Relay status"></ul>
             </section>
             <section id="pointerSection" hidden>
-              <h3>Public event index</h3>
+              <details><summary>Share a link to your public backup</summary>
               <label
-                >Hashtree address<input id="indexAddress" readonly spellcheck="false"
+                >Backup address<input id="indexAddress" readonly spellcheck="false"
               /></label>
               <p id="pointerStatus"></p>
               <div class="actions">
-                <button id="publishIndex" disabled>Publish index</button
-                ><button id="copyIndex" class="secondary">Copy address</button>
+                <button id="publishIndex" disabled>Publish link</button
+                ><button id="copyIndex" class="secondary">Copy link</button>
               </div>
               <p class="hint">
-                Uploads the index blocks to your Blossom server and publishes the public read
-                key to your relays.
+                Anyone with the link can read the public items in this backup.
               </p>
+              </details>
             </section>
           </div>
           <div data-panel="x" hidden>
             <h2>X</h2>
             <section aria-label="X capture statistics">
               <div class="stats">
-                <div><strong id="xCaptured">0</strong>Captured</div>
-                <div><strong id="xSigned">0</strong>Signed</div>
+                <div><strong id="xCaptured">0</strong>Posts found</div>
+                <div><strong id="xSigned">0</strong>New copies</div>
                 <div><strong id="xMatched">0</strong>Already on Nostr</div>
-                <div><strong id="xDrafts">0</strong>Awaiting signature</div>
+                <div><strong id="xDrafts">0</strong>Preparing</div>
               </div>
               <p id="localXCount" class="hint" hidden></p>
               <p id="xImageState" class="hint" hidden></p>
             </section>
             <section>
-              <h3>X capture</h3>
+              <h3>X backup</h3>
               <p id="captureReadOnly" class="hint" hidden>
-                Read-only mode. Sign in with your private key to capture X posts.
+                Read-only mode. Sign in with your secret key to back up X posts.
               </p>
               <label
-                >X handle<input
+                >X username<input
                   id="handle"
                   form="backupSettings"
                   placeholder="@yourname"
@@ -151,20 +153,19 @@
                   spellcheck="false"
               /></label>
               <label class="check"
-                ><input type="checkbox" id="capture" form="backupSettings" /> Capture posts
-                from my profile and publish them to my relays</label
+                ><input type="checkbox" id="capture" form="backupSettings" /> Back up my X posts as I browse</label
               >
               <label class="check"><input type="checkbox" id="skipCrossposts" form="backupSettings" /> Skip posts already on Nostr</label>
               <p class="hint">
-                Only posts confirmed public can be shared on relays. Other captures stay in your local backup.
+                Only public posts are shared. Other posts stay on this device.
               </p>
               <button form="backupSettings">Save</button>
             </section>
           </div>
           <div data-panel="profiles" hidden>
             <h2>Instagram &amp; Facebook</h2>
-            <p class="hint">Visit your profile and scroll to back up your posts. Only confirmed public posts are signed and shared with your saved relays. Other captures stay on this device.</p>
-            <p id="profilesReadOnly" class="hint" hidden>Sign in with your private key to enable capture.</p>
+            <p class="hint">Visit your profile and scroll to back up your posts. Only public posts are shared. Other posts stay on this device.</p>
+            <p id="profilesReadOnly" class="hint" hidden>Sign in with your secret key to turn on backup.</p>
             <section aria-label="Instagram backup">
               <h3>Instagram</h3>
               <label>Username<input id="instagramHandle" form="backupSettings" placeholder="@yourname" autocomplete="off" spellcheck="false" /></label>
@@ -182,7 +183,7 @@
           <div data-panel="media" hidden>
             <h2>Media</h2>
             <section>
-              <h3>Media backup</h3>
+              <h3>Photo and video settings</h3>
               <label
                 >Maximum download per file (MiB)<input
                   id="mediaMiB"
@@ -198,7 +199,7 @@
                 <textarea id="blossomServer" form="backupSettings" rows="3"
                   placeholder="https://blossom.band" spellcheck="false"></textarea></label>
               <p class="hint">
-                Files are kept in local Hashtree storage. Add a localhost Blossom server for another local copy.
+                Files are saved on this device. These servers store extra copies of public files.
               </p>
               <button form="backupSettings">Save</button>
             </section>
@@ -211,14 +212,14 @@
               </p>
               <div class="stats">
                 <div><strong id="savedFiles">0</strong>Local files</div>
-                <div><strong id="posterRefs">0</strong>Poster only</div>
+                <div><strong id="posterRefs">0</strong>Video previews</div>
                 <div><strong id="missingRefs">0</strong>Unavailable</div>
               </div>
               <button id="backupMedia" disabled>Back up media</button>
               <p id="mediaProgress" role="status"></p>
             </section>
             <section>
-              <h3>Blossom copies</h3>
+              <h3>Copies on other servers</h3>
               <p id="uploadHint"></p>
               <ul id="blossomStatus" aria-label="Blossom server status"></ul>
               <button id="uploadMedia" class="secondary" disabled>Sync media</button>
@@ -239,10 +240,9 @@
                 <dl id="storageTotals"></dl>
               </section>
               <section>
-                <h3>Indexed events by kind</h3>
+                <h3>Saved items by type</h3>
                 <p class="hint">
-                  Sizes are the encoded event payloads in the current Hashtree index. Open a
-                  kind to see individual events.
+                  Choose a type to see individual items and how much space they use.
                 </p>
                 <div id="kindList"></div>
               </section>
@@ -253,24 +253,25 @@
             <h2>Account</h2>
             <section>
               <h3>Profile</h3>
-              <p id="lockState" hidden>Read-only. Enter your private key to sign posts.</p>
+              <p id="lockState" hidden>You can view this backup. Enter your secret key to back up new posts or approve website requests.</p>
               <label id="currentIdentity" hidden
-                >Public key<input id="accountNpub" readonly spellcheck="false"
+                >User ID<input id="accountNpub" readonly spellcheck="false"
               /></label>
+              <p class="hint">Your user ID is safe to share. Keep a copy of your secret key somewhere private. Anyone with it can use your account.</p>
               <form id="unlock">
                 <label
-                  >Private key<input
+                  >Secret key<input
                     id="secret"
                     type="password"
                     required
-                    placeholder="nsec1… or 64-character hex"
+                    placeholder="Paste your secret key"
                     autocomplete="off"
                     spellcheck="false"
                 /></label>
               </form>
               <div class="actions">
-                <button id="copyPrivateKey" class="secondary" hidden>Copy private key</button>
-                <button id="lock" class="secondary" hidden>Lock signer</button>
+                <button id="copyPrivateKey" class="secondary" hidden>Copy secret key</button>
+                <button id="lock" class="secondary" hidden>Lock account</button>
                 <button id="logout" class="secondary" hidden>Log out</button>
               </div>
             </section>
@@ -281,12 +282,12 @@
             </section>
             <section id="manageArchive" hidden>
               <h3>Local data</h3>
-              <p><a href="#storage">View storage statistics and indexed events</a></p>
+              <p><a href="#storage">See what’s saved on this device</a></p>
               <button id="deleteStart" class="secondary">Delete local archive…</button>
               <div id="deleteConfirm" hidden>
                 <p>
                   Delete the posts, drafts, media, settings and queued deliveries saved in
-                  this browser for this public key? Remote copies and downloaded ZIPs are
+                  this browser for this profile? Remote copies and downloaded ZIPs are
                   kept.
                 </p>
                 <div class="actions">

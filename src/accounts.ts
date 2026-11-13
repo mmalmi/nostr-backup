@@ -70,7 +70,7 @@ export async function login(value: string, profileName?: string) {
     const db = await openArchive(conf.archiveName);
     try {
       if (await db.count('events'))
-        throw Error('This public key already has a local archive.');
+        throw Error('This user ID already has a backup on this device.');
       const event = finalizeEvent(
         {
           kind: 0,

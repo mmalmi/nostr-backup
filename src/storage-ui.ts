@@ -35,14 +35,14 @@ function kindSection(row: KindStats) {
   section.append(
     tag(
       'summary',
-      `Kind ${row.kind} · ${labels.get(row.kind) ?? 'Events'} · ${row.events.length} · ${size(row.bytes)}`,
+      `${labels.get(row.kind) ?? 'Other items (type ' + row.kind + ')'} · ${row.events.length} · ${size(row.bytes)}`,
     ),
   );
   section.addEventListener('toggle', () => {
     if (!section.open || section.querySelector('table')) return;
     const table = document.createElement('table');
     const header = table.createTHead().insertRow();
-    header.append(...['Event ID', 'Created', 'Bytes'].map((text) => tag('th', text)));
+    header.append(...['Item ID', 'Created', 'Bytes'].map((text) => tag('th', text)));
     const body = table.createTBody(),
       more = tag('button', 'Show more');
     more.className = 'quiet';
@@ -76,7 +76,7 @@ export function showStorage(conf: Pick<Settings, 'archiveName'>, visible: boolea
   el('kindList').replaceChildren();
   el('storageTotals').replaceChildren();
   el('refreshStats').hidden = !name;
-  el('storageState').textContent = name ? 'Reading the local index…' : '';
+  el('storageState').textContent = name ? 'Checking storage…' : '';
   if (!name) return;
   (async () => {
     const db = await openArchive(name);
@@ -84,16 +84,16 @@ export function showStorage(conf: Pick<Settings, 'archiveName'>, visible: boolea
       const stats = await storageStats(db);
       if (request !== version) return;
       const totals: [string, string | number][] = [
-        ['Currently indexed events', stats.kinds.reduce((n, kind) => n + kind.events.length, 0)],
-        ['Indexed event payloads', size(stats.kinds.reduce((n, kind) => n + kind.bytes, 0))],
-        ['Archived event versions', stats.retained],
-        ['Event index blocks', stats.blocks],
-        ['Index block storage', size(stats.blockBytes)],
+        ['Items in your backup', stats.kinds.reduce((n, kind) => n + kind.events.length, 0)],
+        ['Size of saved items', size(stats.kinds.reduce((n, kind) => n + kind.bytes, 0))],
+        ['Saved versions', stats.retained],
+        ['Pieces in the backup index', stats.blocks],
+        ['Space used by the index', size(stats.blockBytes)],
         ['Unique media files', stats.mediaFiles],
         ['Original media bytes', size(stats.mediaBytes)],
         ['Media block storage', size(stats.mediaBlockBytes)],
-        ['Unsigned public captures', stats.drafts],
-        ['Pending event deliveries', stats.pending],
+        ['Public posts being prepared', stats.drafts],
+        ['Copies waiting to send', stats.pending],
       ];
       for (const [label, value] of totals)
         el('storageTotals').append(tag('dt', label), tag('dd', value));
@@ -101,7 +101,7 @@ export function showStorage(conf: Pick<Settings, 'archiveName'>, visible: boolea
       el('storageDetails').hidden = false;
       el('storageState').textContent = stats.kinds.length
         ? ''
-        : 'This archive has no indexed events yet.';
+        : 'No items in this backup yet.';
     } finally {
       db.close();
     }

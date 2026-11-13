@@ -22,7 +22,7 @@ export function setupOnboarding(openBackup: () => Promise<void>) {
     try {
       parsed = loginKey(value);
     } catch {
-      if (submitted || value.length >= 63) notice('Invalid key.');
+      if (submitted || value.length >= 63) notice('Check your secret key or user ID and try again.');
       else notice('');
       return;
     }

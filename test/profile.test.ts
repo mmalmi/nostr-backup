@@ -22,7 +22,7 @@ test('login validates encoded keys and rejects bad checksums and invalid private
     'f'.repeat(64),
     noteEncode(owner),
   ]) {
-    assert.throws(() => loginKey(key), { message: 'Invalid key.' });
+    assert.throws(() => loginKey(key), { message: 'Check your secret key or user ID and try again.' });
   }
 });
 

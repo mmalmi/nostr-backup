@@ -35,7 +35,7 @@ export interface ImportResult {
 
 export const pool = new RateLimitAwarePool();
 export function publish(relay: string, event: Event) {
-  if (!verifyEvent(event)) throw Error('Invalid event signature.');
+  if (!verifyEvent(event)) throw Error('Could not verify who created this item.');
   return new SimplePoolNostrRelayTransport({
     pool,
     getRelays: () => [relay],

@@ -72,7 +72,7 @@ export class ArchiveEventBus implements EventBus {
     const batch = entries.map((entry) => {
       const event = verifyNostrEvent(entry.event);
       if (!isOwnPost(event, this.owner))
-        throw Error('Invalid event signature, author or post kind.');
+        throw Error('Could not verify this item for your backup.');
       return {
         event,
         source: entry.source,

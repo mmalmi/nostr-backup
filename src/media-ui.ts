@@ -53,14 +53,14 @@ function render() {
     return row;
   }));
   el('mediaSummary').textContent = refs.length
-    ? `${refs.length} attachment references · ${pending} awaiting backup`
+    ? `${refs.length} attachments found · ${pending} awaiting backup`
     : 'No media found in your archived posts.';
   el('mediaList').replaceChildren(
     ...refs.slice(0, visibleRows).map((ref) => {
       const li = document.createElement('li');
       const source = document.createElement('small');
       source.textContent = ref.url;
-      li.append(ref.status + (ref.error ? ' · ' + ref.error : ''), source);
+      li.append((ref.status === 'poster only' ? 'Video preview only' : ref.status) + (ref.error ? ' · ' + ref.error : ''), source);
       if (ref.sha256) {
         const button = document.createElement('button');
         button.className = 'secondary';

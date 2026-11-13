@@ -20,7 +20,7 @@ const grantKey = (id: number) => `grant-${id}` as const;
 
 export async function revokeSession() {
   for (const request of requests.values())
-    request.finish(Error('Signing request cancelled on logout.'));
+    request.finish(Error('Request cancelled because you logged out.'));
   await api.storage.session.clear();
 }
 
@@ -46,7 +46,7 @@ export function template(value: unknown): EventTemplate {
     tags: input.tags,
     content: input.content,
   };
-  if (JSON.stringify(event).length > 131072) throw Error('Event exceeds the signing limit.');
+  if (JSON.stringify(event).length > 131072) throw Error('This request is too large to approve.');
   return event;
 }
 export async function handleSignerRequest(
@@ -56,7 +56,7 @@ export async function handleSignerRequest(
   sessionKey: SessionKey,
 ) {
   const tabId = sender.tab?.id;
-  if (tabId === undefined || !sender.url) throw Error('Enable the signer for this tab first.');
+  if (tabId === undefined || !sender.url) throw Error('Allow the extension to work on this tab first.');
   const key = grantKey(tabId);
   const grant = (await api.storage.session.get(key))[key];
   if (
@@ -65,24 +65,24 @@ export async function handleSignerRequest(
     grant.origin !== new URL(sender.url).origin ||
     sender.frameId !== 0
   )
-    throw Error('Enable the signer for this tab first.');
-  if (!(await sessionKey())) throw Error('Signer is locked.');
+    throw Error('Allow the extension to work on this tab first.');
+  if (!(await sessionKey())) throw Error('Your account is locked.');
   if (msg.method === 'getPublicKey' && grant.loginPubkey === pubkey) return pubkey;
-  if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('Unsupported signer method.');
+  if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('This type of request is not supported.');
   const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
   if (await hasPermission(pubkey, grant.origin, event?.kind ?? -1)) {
     const tab = await api.tabs.get(tabId);
     const current = (await api.storage.session.get(key))[key];
     const secret = await sessionKey();
     if (!secret || getPublicKey(unhex(secret)) !== pubkey || current?.token !== msg.token ||
-        !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('Signer or tab changed.');
+        !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('The account or website changed.');
     return event ? finalizeEvent(event, unhex(secret)) : pubkey;
   }
   if (Array.from(requests.values()).some((r) => r.tabId === tabId))
     throw Error('There is already a request from this tab.');
   const id = crypto.randomUUID();
   return new Promise<NostrEvent | string>((resolve, reject) => {
-    const timer = setTimeout(() => finish(Error('Signing request expired.')), 60000);
+    const timer = setTimeout(() => finish(Error('The request expired.')), 60000);
     function finish(error: Error | null, value?: NostrEvent | string) {
       clearTimeout(timer);
       requests.delete(id);
@@ -109,7 +109,7 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
   if (msg.decision === undefined)
     return { origin: request.origin, event: request.event, pubkey: request.pubkey };
   if (msg.decision !== true) {
-    request.finish(Error('Signature declined.'));
+    request.finish(Error('Request declined.'));
     return;
   }
   const key = await sessionKey();
@@ -124,13 +124,13 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
     !tab.url ||
     new URL(tab.url).origin !== request.origin
   )
-    throw Error('Signer or tab changed.');
+    throw Error('The account or website changed.');
   if (msg.remember) await savePermission(request.pubkey, request.origin, request.event?.kind ?? -1);
   if (!request.event) await api.storage.session.set({ [name]: { ...grant, loginPubkey: request.pubkey } });
   request.finish(null, request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey);
 }
 api.windows.onRemoved.addListener((win) => {
-  for (const r of requests.values()) if (r.windowId === win) r.finish(Error('Signature declined.'));
+  for (const r of requests.values()) if (r.windowId === win) r.finish(Error('Request declined.'));
 });
 api.tabs.onRemoved.addListener((id) => {
   void api.storage.session.remove(grantKey(id));

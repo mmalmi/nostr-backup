@@ -27,12 +27,12 @@ The build also writes a ZIP for each browser, with fixed entry timestamps so rep
 
 ## First backup
 
-1. Click the Nostr Backup toolbar icon. Enter your name and choose **Go** to start a new Nostr profile. If you already have a profile, choose **Sign in** and paste your nsec private key or npub public key. The archive opens automatically; npub stays read-only. As in Iris, a 64-character hex key is treated as a private key. The default relays match Iris. Open **Backup → Relays** to change the selection or add your own.
+1. Click the Nostr Backup toolbar icon. Enter your name and choose **Create profile** to start a new Nostr profile. If you already have a profile, choose **Sign in** and paste your secret key (nsec) or user ID (npub). The archive opens automatically; npub stays read-only. As in Iris, a 64-character hex key is treated as a private key. The default relays match Iris. Open **Backup → Relays** to change the selection or add your own.
 2. **Sync daily** backs up notes with just the public key. The importer requests kinds 0, 1, 6, 16, 20, 21, 22, 1063, 1111, and 30023 and verifies the author, event ID and signature.
 3. To mirror X, open **X**, enter your handle, enable capture, and choose **Save**. If you opened the archive with a public key, log in with its private key to sign captures.
 4. Visit the configured X profile and scroll. You can view it from another X account. The profile URL and the post author’s timestamp permalink must both match the configured handle. It handles Posts, Replies and Media profile tabs. Read-only mode pauses capture; existing unsigned captures remain on disk.
 5. **Download ZIP** exports a snapshot. The Backup tab shows local signed posts, captures awaiting signature, pending deliveries, and the most recent result for each relay.
-6. **Broadcast to saved relays** sends the signed posts currently in your archive, including imported Nostr posts and signed X copies. With import enabled, the button reads **Broadcast and import** and also checks each saved relay for posts missing from your archive. This works with a locked signer and can restore an empty archive.
+6. **Share backed-up posts** sends the signed posts currently in your archive, including imported Nostr posts and signed X copies. With import enabled, the button reads **Share and check for posts** and also checks each saved relay for posts missing from your archive. This works with a locked signer and can restore an empty archive.
 
 **Sync now** imports from your saved relays even when automatic import is off, and retries queued deliveries. Each relay has a live connection indicator, activity, imported and acknowledged-send counts, queue size and broadcast progress. Errors and retry times stay with the affected relay. Each connection closes when its work finishes. Backup shows the last completed history sync for each relay. Your latest archived Nostr profile supplies the avatar and name shown in the header and toolbar popup; the public key stays in **Account**.
 
@@ -46,9 +46,9 @@ When a captured post quotes a public post from one of your configured profiles, 
 
 ## Profile and local storage
 
-After you enter your name, the extension generates your private key. Signup opens the archive directly. While the signer is unlocked, **Account → Copy private key** copies the key without displaying it. The signer stays available across browser restarts. Keep a backup before locking, logging out, or uninstalling. Signup saves your signed kind 0 profile and queues its name for publication to your relays. The archive opens immediately, and pending deliveries retry in the background.
+After you enter your name, the extension generates your private key. Signup opens the archive directly. While the signer is unlocked, **Account → Copy secret key** copies the key without displaying it. The signer stays available across browser restarts. Keep a backup before locking, logging out, or uninstalling. Signup saves your signed kind 0 profile and queues its name for publication to your relays. The archive opens immediately, and pending deliveries retry in the background.
 
-Each public key has its own local archive and settings. **Lock signer** removes the saved private key, pauses X capture and keeps relay import available. Existing unsigned captures stay saved until you unlock. **Log out** pauses backup for that public key and revokes tab signing permissions. Log back in or open the same public key read-only to return to its archive. If you used an earlier version, opening the same profile reopens your original archive.
+Each public key has its own local archive and settings. **Lock account** removes the saved private key, pauses X capture and keeps relay import available. Existing unsigned captures stay saved until you unlock. **Log out** pauses backup for that public key and revokes tab signing permissions. Log back in or open the same public key read-only to return to its archive. If you used an earlier version, opening the same profile reopens your original archive.
 
 **Account → Delete local archive** asks for confirmation and removes the local events, drafts, media, settings and delivery records for the active public key. Copies already sent to relays or Blossom and ZIPs downloaded to disk can still be read.
 
@@ -56,9 +56,9 @@ Open **Storage** for event versions, index blocks and bytes, media counts and si
 
 ## Public event index
 
-**Backup → Public event index** displays your copyable `htree://<npub>/my-events` address. To publish it, choose a Blossom server in **Media** and at least one relay in **Backup**, sign in with the archive key, then choose **Publish index**. The extension uploads the blocks reachable from the current event index, then signs a public Hashtree kind 30064 pointer named `my-events`. The extension uses `HashTree.push`, `BlossomStore` and `createNostrRefResolver().publish` from the TypeScript Hashtree packages. The pointer includes the root hash, its read key and a Blossom server hint. Anyone who resolves it can read the signed events and their attachment URLs. Use **Media → Upload saved files** to publish the media bytes themselves.
+**Backup → Share a link to your public backup** displays your copyable `htree://<npub>/my-events` address. To publish it, choose a Blossom server in **Media** and at least one relay in **Backup**, sign in with the archive key, then choose **Publish link**. The extension uploads the blocks reachable from the current event index, then signs a public Hashtree kind 30064 pointer named `my-events`. The extension uses `HashTree.push`, `BlossomStore` and `createNostrRefResolver().publish` from the TypeScript Hashtree packages. The pointer includes the root hash, its read key and a Blossom server hint. Anyone who resolves it can read the signed events and their attachment URLs. Use **Media → Upload saved files** to publish the media bytes themselves.
 
-The Archive page shows the block server, pending relays, acknowledgements and whether the local index has advanced. Choose **Publish index** again to update the same address. Readers need access to a relay that accepted the pointer and a Blossom server holding the blocks. New indexes use 33-byte, suite-prefixed CHK keys. A reader limited to the older 32-byte key format needs an upgrade.
+The Archive page shows the block server, pending relays, acknowledgements and whether the local index has advanced. Choose **Publish link** again to update the same address. Readers need access to a relay that accepted the pointer and a Blossom server holding the blocks. New indexes use 33-byte, suite-prefixed CHK keys. A reader limited to the older 32-byte key format needs an upgrade.
 
 ## What gets preserved
 

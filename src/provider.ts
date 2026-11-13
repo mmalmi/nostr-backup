@@ -12,7 +12,7 @@ function installProvider() {
       };
       const timer = setTimeout(() => {
         finish();
-        reject(Error('Signer timed out.'));
+        reject(Error('Account request timed out.'));
       }, 75000);
       function onMessage(e: MessageEvent) {
         if (

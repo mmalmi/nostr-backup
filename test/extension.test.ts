@@ -304,7 +304,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   dispatch('loginKey', 'input');
   assert.equal(id('notice').textContent, '');
   id('loginForm').requestSubmit();
-  await until(() => id('notice').textContent === 'Invalid key.');
+  await until(() => id('notice').textContent === 'Check your secret key or user ID and try again.');
   const secret = generateSecretKey(),
     owner = getPublicKey(secret);
   const profile = finalizeEvent(
@@ -325,7 +325,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   archive.close();
   id('loginKey').value = npubEncode(owner).slice(0, -1) + '!';
   dispatch('loginKey', 'input');
-  await until(() => id('notice').textContent === 'Invalid key.');
+  await until(() => id('notice').textContent === 'Check your secret key or user ID and try again.');
   assert.equal((await success('status')).conf.pubkey, '');
   id('loginKey').value = '  ' + npubEncode(owner) + '\n';
   dispatch('loginKey', 'input');
@@ -367,7 +367,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   );
   const popup = await extensionPage(t, 'popup');
   await until(() => !pageElements(popup)('backupActions').hidden);
-  assert.equal(pageElements(popup)('open').textContent, 'Open');
+  assert.equal(pageElements(popup)('open').textContent, 'Open backup');
   assert.equal(popup.document.getElementById('signer'), null);
   assert.equal(popup.document.querySelector('#displayName')?.closest('a')?.getAttribute('href'), irisProfile);
   assert.equal(pageElements(popup)('displayName').textContent, 'Alice Example');
@@ -647,7 +647,7 @@ test('the extension injects window.nostr and the page signs a login event throug
   await until(() => !!winURL);
   const loginReview = await extensionPage(t, 'approve', undefined, approvalScreen().url);
   await until(() => !pageElements(loginReview)('allow').disabled);
-  assert.equal(pageElements(loginReview)('allow').textContent, 'Share public key');
+  assert.equal(pageElements(loginReview)('allow').textContent, 'Share user ID');
   pageElements(loginReview)('allow').click();
   assert.equal(await loginRequest, pubkey);
   const login = {
@@ -787,7 +787,7 @@ test('archive button reconciles each relay, falls back and retries with capture 
   const button = pageElements(page)('broadcast');
   await until(() => !button.disabled);
   button.click();
-  await until(() => pageElements(page)('notice').textContent === 'Broadcast queued.');
+  await until(() => pageElements(page)('notice').textContent === 'Posts queued for sharing.');
   await idle();
   assert.deepEqual(
     neg.sent.map((e) => e.id).sort(),
@@ -871,7 +871,7 @@ test('two-way sync restores an empty archive, reconciles both sides and retries 
   const page = await archivePage(t);
   const button = pageElements(page)('broadcast');
   await until(() => !button.disabled);
-  assert.equal(button.textContent, 'Broadcast and import');
+  assert.equal(button.textContent, 'Share and check for posts');
   button.click();
   await until(() =>
     pageElements(page)('notice').textContent.includes('Checking saved relays'),
@@ -1156,15 +1156,15 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   id('publishIndex').click();
   await until(async () => (await success('status')).pointer?.acknowledged.includes(relayUrl));
   page.dispatchEvent(new page.Event('hashchange'));
-  await until(() => id('pointerStatus').textContent.includes('Acknowledged by ' + relayUrl));
+  await until(() => id('pointerStatus').textContent.includes('Received by ' + relayUrl));
   assert.equal(relay.sent.length, 1);
   assert.equal(relay.sent[0].kind, 30064);
   assert.ok(verifyEvent(relay.sent[0]));
   assert.equal((await success('status')).events, 1);
   page.location.hash = '#storage';
   page.dispatchEvent(new page.Event('hashchange'));
-  await until(() => id('kindList').textContent.includes('Kind 0'));
-  assert.match(id('storageTotals').textContent, /Event index blocks/);
+  await until(() => id('kindList').textContent.includes('Profile'));
+  assert.match(id('storageTotals').textContent, /Pieces in the backup index/);
   const details = id('kindList').querySelector('details');
   assert.ok(details);
   details.open = true;
@@ -1319,7 +1319,7 @@ test('relay rows show live connections and acknowledgements while another relay 
   assert.equal(complete.pending, 0);
   assert.equal(healthy.sent.length, 2);
   const page = await archivePage(t);
-  await until(() => pageElements(page)('reports').textContent.includes('Broadcasting'));
+  await until(() => pageElements(page)('reports').textContent.includes('Sharing'));
   assert.equal(page.document.querySelectorAll('.relayRow').length, 2);
   assert.match(pageElements(page)('reports').textContent, /Connected/);
   assert.match(pageElements(page)('reports').textContent, /0 sent · 2 queued/);
