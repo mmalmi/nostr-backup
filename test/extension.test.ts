@@ -1758,6 +1758,37 @@ test('X images are archived locally, retried on the selected Blossom server and 
   }
 });
 
+test('post backup is on by default for every platform and waits for a username', async () => {
+  const target = 'wss://default-capture.example/';
+  fixtureRelay(target);
+  const save = (pubkey: string) => success('settings', { pubkey, handle: '', capture: true, relays: target, relaySync: false,
+    social: { instagram: { handle: '', capture: true }, facebook: { handle: '', capture: true } } });
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    const { conf } = await success('status');
+    assert.equal(conf.capture, true);
+    assert.equal(conf.social?.instagram?.capture, true);
+    assert.equal(conf.social?.facebook?.capture, true);
+    await save(owner);
+    const post = { author: 'alice', id: '1', time: 1700000000, text: 'Post 1' };
+    assert.equal((await call('capture', { posts: [post] }, x)).ok, false);
+    assert.equal((await success('captureConfig', {}, x)).handle, '');
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+  // A read-only profile can save its sources with the default switches on.
+  const viewer = getPublicKey(generateSecretKey());
+  await success('watch', { pubkey: viewer });
+  try {
+    await save(viewer);
+  } finally {
+    await idle();
+    await success('logout', { pubkey: viewer });
+  }
+});
+
 test('social profile backup keeps restricted posts local across duplicate capture, export and broadcast', async () => {
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const target = 'wss://profile-backup.example/';

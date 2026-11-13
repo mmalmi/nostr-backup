@@ -11,18 +11,21 @@ import { DEFAULT_RELAYS } from './default-relays.ts';
 import { saveKey, forgetPermissions } from './signer-storage.ts';
 
 const api = globalThis.browser ?? chrome;
+// Post backup starts on for every platform. It begins once the user enters a username.
 export const defaults: Settings = {
   pubkey: '',
   handle: '',
-  capture: false,
+  capture: true,
   relaySync: true,
   relays: DEFAULT_RELAYS,
   blossomServer: DEFAULT_BLOSSOM_SERVER,
+  social: { instagram: { handle: '', capture: true }, facebook: { handle: '', capture: true } },
 };
 const accountKey = (pubkey: string) => `account:${pubkey}` as const;
 function withDefaults(conf: Settings): Settings {
   const servers = mediaServers(conf);
-  conf = { ...conf, blossomServer: servers.find(publicMediaURL) ?? servers[0], blossomServers: servers };
+  conf = { ...conf, blossomServer: servers.find(publicMediaURL) ?? servers[0], blossomServers: servers,
+    social: { ...defaults.social, ...conf.social } };
   return !conf.relays.length && !conf.relaysConfigured
     ? { ...conf, relays: [...DEFAULT_RELAYS], relaySync: true }
     : conf;

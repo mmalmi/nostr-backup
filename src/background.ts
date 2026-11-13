@@ -537,19 +537,22 @@ async function configure(msg: Message<'settings'>) {
   const pubkey = identity(msg.pubkey);
   const prev = await accountSettings(pubkey);
   const handle = msg.handle.trim().replace(/^@/, '').toLowerCase();
-  if ((handle || msg.capture) && !handlePattern.test(handle))
+  if (handle && !handlePattern.test(handle))
     throw Error('Enter your X handle.');
   const relays = relayList(msg.relays);
   const relayKinds = msg.relayKinds === undefined ? prev.relayKinds
     : parseRelayKinds(msg.relayKinds.mode, msg.relayKinds.list);
   const social = socialSettings(msg.social, prev.social);
-  const activeSocial = Object.values(social).some(site => site.capture);
-  if (activeSocial && Object.entries(social).some(([site, value]) =>
-    value.capture && !prev.social?.[site as keyof typeof social]?.capture) && !(await sessionKey()))
+  // Backup is on by default, but a platform only captures once it has a username.
+  const active = (site?: { handle: string; capture: boolean }) => !!site?.capture && !!site.handle;
+  const capturing = active({ handle, capture: !!msg.capture });
+  const activeSocial = Object.values(social).some(active);
+  if (Object.entries(social).some(([site, value]) =>
+    active(value) && !active(prev.social?.[site as keyof typeof social])) && !(await sessionKey()))
     throw Error('Unlock your account to enable profile backup.');
-  if (msg.capture && !prev.capture && !(await sessionKey()))
+  if (capturing && !active(prev) && !(await sessionKey()))
     throw Error('Sign in with your secret key to enable X capture.');
-  if ((msg.capture || activeSocial || msg.relaySync) && !relays.length) throw Error('Choose a relay first.');
+  if ((capturing || activeSocial || msg.relaySync) && !relays.length) throw Error('Choose a relay first.');
   const input = msg.blossomServers ?? (msg.blossomServer === undefined ? mediaServers(prev) : msg.blossomServer.trim().split(/\s+/).filter(Boolean));
   const blossomServers = [...new Set((input.length ? input : [DEFAULT_BLOSSOM_SERVER]).map(blossomOrigin))];
   const blossomServer = blossomServers.find(publicMediaURL) ?? blossomServers[0];

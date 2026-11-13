@@ -27,7 +27,7 @@ export function socialSettings(input: Settings['social'], previous: Settings['so
     const value = input[network];
     if (value === undefined) continue;
     const handle = value.handle.trim().replace(/^@/, '').toLowerCase();
-    if ((handle || value.capture) && socialProfile(network, 'https://www.' + network + '.com/' + handle + '/') !== handle)
+    if (handle && socialProfile(network, 'https://www.' + network + '.com/' + handle + '/') !== handle)
       throw Error('Enter your ' + (network === 'instagram' ? 'Instagram username' : 'Facebook username or numeric profile ID') + '.');
     result[network] = { handle, capture: value.capture === true };
   }
