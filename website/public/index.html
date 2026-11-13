@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Back up your posts | Nostr Backup</title>
-    <meta name="description" content="Back up your X, Instagram and Facebook posts as you browse. Share confirmed public posts with your Nostr relays, sync existing Nostr posts and export a local ZIP.">
+    <meta name="description" content="Automatically back up posts from X, Instagram and Facebook as you scroll. Keep a copy of your posts and saved media on your device.">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
@@ -21,7 +21,7 @@
       <section class="hero" aria-labelledby="title">
         <div class="intro">
           <h1 id="title">Back up your posts.</h1>
-          <p>Automatically back up your X, Instagram and Facebook posts as you scroll your profiles. Only posts the extension can confirm are public get shared. Everything else stays on your device.</p>
+          <p>Automatically back up your X, Instagram and Facebook posts as you scroll your profiles. Download a copy of your posts and saved media. Only posts verified as public are shared. Private posts stay on your device.</p>
           <a class="button" href="#downloads">Get the extension <span aria-hidden="true">↓</span></a>
         </div>
         <figure class="backup-preview">
@@ -29,7 +29,7 @@
             <source media="(max-width: 35rem) and (prefers-color-scheme: dark)" srcset="./screenshots/toolbar-compact-dark.webp" width="366" height="525">
             <source media="(max-width: 35rem)" srcset="./screenshots/toolbar-compact-light.webp" width="366" height="525">
             <source media="(prefers-color-scheme: dark)" srcset="./screenshots/toolbar-desktop-dark.webp" width="730" height="557">
-            <img src="./screenshots/toolbar-desktop-light.webp" width="730" height="557" alt="Nostr Backup open beneath its pinned Chrome toolbar icon, showing Chad’s avatar and eight captured X posts.">
+            <img src="./screenshots/toolbar-desktop-light.webp" width="730" height="557" alt="The backup popup beneath its pinned Chrome toolbar icon, showing Chad’s avatar and eight captured X posts.">
           </picture>
           <figcaption>The toolbar popup on a sample X profile.</figcaption>
         </figure>
@@ -40,7 +40,7 @@
           <div class="platform">
             <div class="platform-head">
               <h3>Chrome</h3>
-              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download Nostr Backup for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+              <a class="button small" href="./downloads/nostr-backup-chrome.zip" download aria-label="Download the extension for Chrome as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
               <li>Unzip the download.</li>
@@ -51,7 +51,7 @@
           <div class="platform">
             <div class="platform-head">
               <h3>Firefox <small>140+</small></h3>
-              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download Nostr Backup for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
+              <a class="button small" href="./downloads/nostr-backup-firefox.zip" download aria-label="Download the extension for Firefox as a ZIP">Download ZIP <span aria-hidden="true">↓</span></a>
             </div>
             <ol>
               <li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>
@@ -71,22 +71,22 @@
         <h2 id="start-title">Your first backup</h2>
         <div class="ways">
           <div>
-            <h3>From social profiles</h3>
-            <p>Open the extension and create a Nostr profile or sign in with your private key. Under <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, enable backup and choose <strong>Save</strong>. Visit your profile and scroll to capture posts.</p>
+            <h3>Choose a profile</h3>
+            <p>Open the extension and create a profile or sign in. Choose <strong>X</strong> or <strong>Instagram &amp; Facebook</strong>, enter your username, turn on backup and select <strong>Save</strong>.</p>
           </div>
           <div>
-            <h3>From Nostr</h3>
-            <p>Sign in with your Nostr public key. Under <strong>Backup → Relays</strong>, select your relays. Choose <strong>Sync now</strong> to import your posts. With <strong>Sync daily</strong> enabled, choose <strong>Broadcast and import</strong> to copy missing posts between relays.</p>
+            <h3>Browse your posts</h3>
+            <p>Visit your profile and scroll. The extension saves posts as they appear, including older ones. Open the toolbar popup to see how many you’ve backed up.</p>
           </div>
           <div>
-            <h3>Local copy</h3>
-            <p>Choose <strong>Backup → Download ZIP</strong>. To include attachments, run <strong>Media → Back up media</strong> first.</p>
+            <h3>Download your copy</h3>
+            <p>Choose <strong>Backup → Download ZIP</strong> to save your archive. To include photos and videos, first choose <strong>Media → Back up media</strong>.</p>
           </div>
         </div>
         <figure class="backup-preview archive-preview">
           <picture>
             <source media="(prefers-color-scheme: dark)" srcset="./screenshots/archive-dark.webp" width="760" height="396">
-            <img src="./screenshots/archive-light.webp" width="760" height="396" loading="lazy" alt="Chad’s sample archive has 134 signed events and a Download ZIP button.">
+            <img src="./screenshots/archive-light.webp" width="760" height="396" loading="lazy" alt="Chad’s sample archive has 134 backed-up items and a Download ZIP button.">
           </picture>
           <figcaption>The full archive opens from the popup’s Open button.</figcaption>
         </figure>
