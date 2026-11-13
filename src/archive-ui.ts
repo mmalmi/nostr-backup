@@ -1,7 +1,6 @@
 import { errorMessage, type Profile } from './types.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
 import { settings } from './accounts.ts';
-import { resetOnboarding, setupOnboarding } from './onboarding.ts';
 import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { relayList } from './model.ts';
@@ -16,6 +15,7 @@ import ProfileSlot from './components/ProfileSlot.svelte';
 import type { SourcesPanel } from './components/views.ts';
 import Account from './components/Account.svelte';
 import Storage from './components/Storage.svelte';
+import Onboarding from './components/Onboarding.svelte';
 import { app, page } from './components/page.svelte.ts';
 
 const header = mount(ProfileSlot, { target: el('profileSlot') }) as {
@@ -33,6 +33,7 @@ const sources = mount(Sources, {
 }) as SourcesPanel;
 mount(Account, { target: el('accountPanel') });
 mount(Storage, { target: el('storagePanel') });
+const onboarding = mount(Onboarding, { target: el('onboarding') }) as { focus(): void };
 app.refresh = (initial) => refresh(initial);
 
 let archiveName: string | undefined,
@@ -101,7 +102,6 @@ async function refresh(initial = false) {
   syncing = running;
   lastRefresh = Date.now();
   const changed = pubkey !== conf.pubkey;
-  if (changed) resetOnboarding();
   page.status = status;
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
@@ -114,7 +114,7 @@ async function refresh(initial = false) {
   }
   const enteringWelcome = !pubkey && el('onboarding').hidden;
   el('onboarding').hidden = !!pubkey;
-  if (enteringWelcome) el('profileName').focus();
+  if (enteringWelcome) onboarding.focus();
   el('workspace').hidden = !pubkey;
   if (pubkey && location.hash === '#media') {
     await refreshMedia();
@@ -225,7 +225,6 @@ on('addRelay', 'click', () => {
   el('backupSettings').requestSubmit();
 });
 on('relaySync', 'change', () => el('backupSettings').requestSubmit());
-setupOnboarding(() => refresh(true));
 on('copyIndex', 'click', async () => {
   await navigator.clipboard.writeText(el('indexAddress').value);
   notice('Hashtree address copied.');

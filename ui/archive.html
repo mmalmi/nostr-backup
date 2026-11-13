@@ -14,43 +14,7 @@
         <h1 class="brand"><img src="icon.svg" alt="" width="28" height="28" />Social Backup</h1>
         <div id="profileSlot"></div>
       </header>
-      <section id="onboarding" aria-label="Profile setup" hidden>
-        <form id="nameForm">
-          <h2>Sign up</h2>
-          <input
-            id="profileName"
-            aria-label="Your name"
-            placeholder="What's your name?"
-            autocomplete="off"
-            maxlength="100"
-            required
-          />
-          <button type="submit">Go</button>
-          <div class="existingProfile">
-            <a href="#signin" id="existingProfileLink">Already have an account?</a>
-            <button type="button" class="secondary" id="existingProfile">Sign in</button>
-          </div>
-        </form>
-        <div id="existingLogin" hidden>
-          <h2>Sign in</h2>
-          <p id="loginHelp" class="hint">Use your secret key to sign in. To view a backup without making changes, use your user ID instead.</p>
-          <form id="loginForm">
-            <input
-              id="loginKey"
-              type="password"
-              aria-label="Secret key or user ID" aria-describedby="loginHelp"
-              required
-              placeholder="Paste your secret key or user ID"
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </form>
-          <div class="existingProfile">
-            <a href="#signup" id="signupLink">Don't have an account?</a>
-            <button type="button" class="secondary" id="cancelLogin">Sign up</button>
-          </div>
-        </div>
-      </section>
+      <section id="onboarding" aria-label="Profile setup" hidden></section>
       <div class="workspace" id="workspace" hidden>
         <nav aria-label="Backup sections">
           <a href="#archive" aria-current="page">Backup</a>
