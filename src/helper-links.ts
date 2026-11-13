@@ -1,4 +1,4 @@
-import { nhashDecode, objectKeyFromHex, toHex, type CID } from '@hashtree/core';
+import { nhashDecode, nhashEncode, objectKeyFromHex, toHex, type CID } from '@hashtree/core';
 import { decode as nip19Decode } from 'nostr-tools/nip19';
 
 export interface TreeAddress {
@@ -66,4 +66,22 @@ export function irisDriveURL(value: string) {
   if ('cid' in root && root.cid.key) url.searchParams.set('k', toHex(root.cid.key));
   url.hash = fragment;
   return url.href;
+}
+
+// Iris Drive publishes the Iris Apps catalog under its publisher's "sites" tree.
+export const IRIS_APPS_ADDRESS = 'htree://npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/sites/';
+
+export function openSiteURL(input: string, local: boolean) {
+  const value = input.trim().replace(/^htree:\/\//i, '');
+  const address = 'htree://' + value;
+  if (local) return irisDriveURL(address);
+  const { root, path, trailingSlash, search, fragment } = treeAddress(address);
+  const params = new URLSearchParams(search);
+  // An immutable decryption key goes in the nhash, inside the launcher's fragment.
+  if ('cid' in root) params.delete('k');
+  if (params.size || fragment)
+    throw Error('Open this address with Iris Drive to keep its query or page fragment.');
+  if (!path.length || trailingSlash) path.push('index.html');
+  const parts = 'cid' in root ? [nhashEncode(root.cid)] : [root.npub, root.name];
+  return 'https://apps.iris.to/#/' + [...parts, ...path].map(encodeURIComponent).join('/');
 }
