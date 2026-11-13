@@ -30,8 +30,8 @@ import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
 import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemplate, canDeliverCapture, validateSocialPost } from './social.ts';
 import { instagramPermalink } from './instagram.ts';
 import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
-import { readQuoteOriginal } from './quote-originals.ts';
-import { confirmPublicXPost, readPublicXOriginal } from './x-audience.ts';
+import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
+import { readPublicXOriginal } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
 import { identity, hex, unhex, handlePattern, parseRelayKinds, relayKindScope, relayList, xTemplate } from './model.ts';
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
@@ -49,9 +49,10 @@ import {
   eraseAccount,
 } from './accounts.ts';
 import { queueIndexPointer, deliverIndexPointer } from './index-pointer.ts';
-import { revokeSession, handleSignerRequest, approval } from './signer.ts';
+import { accountRecord, writeAccountRecords } from './account-storage.ts';
+import { revokeSession, revokeWebsite, handleSignerRequest, approval } from './signer.ts';
 
-import { savedKey as sessionKey, saveKey, permissions, forgetPermissions } from './signer-storage.ts';
+import { savedKey as sessionKey, saveKey, permissions } from './signer-storage.ts';
 
 const api = globalThis.browser ?? chrome;
 let changing = false,
@@ -59,9 +60,8 @@ let changing = false,
   indexController: AbortController | undefined,
   recovery: Promise<void> | undefined;
 function recover() {
-  return (recovery ??= api.storage.local
-    .get('deletingAccount')
-    .then(async ({ deletingAccount }) => {
+  return (recovery ??= accountRecord('deletingAccount')
+    .then(async (deletingAccount) => {
       if (deletingAccount) {
         await revokeSession();
         await saveKey();
@@ -487,9 +487,9 @@ async function run() {
       progress.detail ??= reports[url];
     }
     if (!changing) {
-      const { lastRun } = await api.storage.local.get('lastRun');
+      const lastRun = await accountRecord('lastRun');
       const previous = lastRun?.pubkey === conf.pubkey ? lastRun : undefined;
-      await api.storage.local.set({
+      await writeAccountRecords({
         lastRun: {
           at: Date.now(),
           pubkey: conf.pubkey,
@@ -519,7 +519,7 @@ function kick(importNow = false): Promise<void> | undefined {
           progress.detail = errorMessage(e);
         }
       }
-      await api.storage.local.set({
+      await writeAccountRecords({
         lastRun: { at: Date.now(), reports: { Archive: e.message } },
       });
     })
@@ -593,7 +593,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
     indexController?.abort();
     await revokeSession();
     await saveKey();
-    await api.storage.local.set({
+    await writeAccountRecords({
       settings: null,
       lastRun: null,
       ['account:' + conf.pubkey]: conf,
@@ -619,19 +619,22 @@ let activeImageReads = 0;
 async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
   if (sender.id !== api.runtime.id || ((sender.frameId ?? 0) > 0 && msg.type !== 'resolveImage'))
     throw Error('Untrusted sender.');
+  if (sender.origin !== undefined) {
+    const url = sender.url && new URL(sender.url);
+    if (!url || sender.origin !== url.protocol + '//' + url.host)
+      throw Error('Untrusted document origin.');
+  }
   // A media upload can hold the deletion lock while requesting its signature.
   if (
     msg.type === 'authorizeMediaUpload' &&
-    (changing || (await api.storage.local.get('deletingAccount')).deletingAccount)
+    (changing || await accountRecord('deletingAccount'))
   )
     throw Error('The active profile is changing. Try again.');
   await recover();
   const conf = await settings();
   const page = sender.url?.split('#')[0];
-  const trustedPage = [
-    api.runtime.getURL('archive.html'),
-    api.runtime.getURL('popup.html'),
-  ].includes(page ?? '');
+  const accountPage = page === api.runtime.getURL('archive.html');
+  const trustedPage = accountPage || (page === api.runtime.getURL('popup.html') && msg.type === 'status');
   if (changing && msg.type !== 'status' && msg.type !== 'captureConfig')
     throw Error('The active profile is changing. Try again.');
   if (msg.account !== undefined && msg.account !== conf.pubkey)
@@ -706,15 +709,17 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     if (msg.type === 'captureConfig') return { capture: false, handle: '' };
     throw Error('Choose a Nostr profile to start your backup.');
   }
+  if (msg.type === 'nip07')
+    return handleSignerRequest(msg, sender, conf.pubkey, sessionKey);
+  if (msg.type === 'approval') {
+    if (sender.url !== api.runtime.getURL('approve.html') + '#' + msg.id)
+      throw Error('Untrusted approval.');
+    return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
+  }
+  if (!trustedPage && msg.type !== 'captureConfig' && msg.type !== 'capture')
+    throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
-    if (msg.type === 'nip07')
-      return handleSignerRequest(msg, sender, conf.pubkey, sessionKey);
-    if (msg.type === 'approval') {
-      if (sender.url !== api.runtime.getURL('approve.html') + '#' + msg.id)
-        throw Error('Untrusted approval.');
-      return approval(msg, sessionKey);
-    }
     if (msg.type === 'captureConfig' || msg.type === 'capture') {
       const network = captureNetwork(sender.url);
       if (!network || !sender.tab || !sender.url) throw Error('Invalid capture source.');
@@ -738,23 +743,21 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         // Confirm audience outside the writer so a slow site cannot block settings or relay imports.
         for (let start = 0; start < msg.posts.length; start += 4) {
           const group = await Promise.all(msg.posts.slice(start, start + 4).map(async post => {
-            // Never keep the visible part of a long post. Use the full public post or skip it.
-            if (post.truncated)
-              return post.visibility === 'private' ? undefined : await readPublicXOriginal(handle, post.id).catch(() => undefined);
-            if (post.visibility === 'private') return post;
-            if (post.hasQuoteCard) {
-              const original = await readPublicXOriginal(handle,post.id).catch(() => undefined);
-              if (original) return original;
-              // A quote card may omit its permalink in the rendered timeline. Do not
-              // sign a standalone caption when the source relationship is unresolved.
-              return {...post,visibility:'unknown' as const};
-            }
-            return {...post,visibility:await confirmPublicXPost(post) ? 'public' as const : 'unknown' as const};
+            if (post.visibility === 'private') return post.truncated ? undefined : post;
+            const original = await readPublicXOriginal(handle, post.id).catch(() => undefined);
+            if (original) return original;
+            return post.truncated ? undefined : { ...post, visibility: 'unknown' as const };
           }));
           for (const post of group) if (post) verified.push(post);
         }
       } else {
-        for (const post of msg.posts) validateSocialPost(post as SocialCapture, network, handle);
+        const posts = msg.posts as SocialCapture[];
+        for (const post of posts) validateSocialPost(post, network, handle);
+        for (let start = 0; start < posts.length; start += 4) {
+          const group = await Promise.all(posts.slice(start, start + 4).map(verifySocialCapture));
+          for (const post of group) validateSocialPost(post, network, handle);
+          verified.push(...group);
+        }
       }
       await write(async () => {
         const current = await settings();
@@ -762,7 +765,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (current.pubkey !== conf.pubkey || !active?.capture || active.handle !== handle || !(await sessionKey()))
           throw Error('Capture settings changed.');
         if (network === 'x') await stagePosts(db, verified);
-        else await saveSocialCaptures(db, msg.posts as SocialCapture[]);
+        else await saveSocialCaptures(db, verified as SocialCapture[]);
         await signDrafts(db);
       });
       kickQuotes();
@@ -770,11 +773,10 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       void kick();
       return;
     }
-    if (!trustedPage) throw Error('Extension page required.');
     switch (msg.type) {
       case 'status': {
         const root = await readRoot(db);
-        const storedRun = (await api.storage.local.get('lastRun')).lastRun;
+        const storedRun = await accountRecord('lastRun');
         const lastRun: LastRun | null | undefined =
           storedRun?.pubkey && storedRun.pubkey !== conf.pubkey ? undefined : storedRun;
         // Rows for removed relays, paused capture or local-only events are kept but will not send now.
@@ -895,7 +897,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (page !== api.runtime.getURL('archive.html') || msg.account !== conf.pubkey)
           throw Error('Open Account to manage website permissions.');
         if (msg.type === 'listPermissions') return permissions(conf.pubkey);
-        return forgetPermissions(conf.pubkey, msg.origin);
+        return write(() => revokeWebsite(conf.pubkey, msg.origin));
       case 'exportPrivateKey': {
         if (page !== api.runtime.getURL('archive.html') || msg.account !== conf.pubkey)
           throw Error('Open Account to copy your secret key.');
@@ -967,9 +969,9 @@ function setToolbarPopup(pubkey?: string) {
 }
 let toolbarSettingsChanged = false;
 api.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.settings) return;
+  if (area !== 'local' || !changes.settingsChanged) return;
   toolbarSettingsChanged = true;
-  void setToolbarPopup(changes.settings.newValue?.pubkey);
+  void settings().then(conf => setToolbarPopup(conf.pubkey));
 });
 void settings().then((conf) => {
   if (!toolbarSettingsChanged) return setToolbarPopup(conf.pubkey);

@@ -14,6 +14,7 @@ import {
 import { httpsURL, mediaServers } from './media-refs.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
 import { api, el, send, on, notice } from './ui.ts';
+import { accountRecord } from './account-storage.ts';
 
 let conf: Settings,
   unlocked: boolean,
@@ -182,7 +183,7 @@ async function runMedia() {
   try {
     await navigator.locks.request('nostr-backup-media', { ifAvailable: true }, async (lock) => {
       if (!lock) throw Error('Media backup is running in another tab.');
-      const { settings } = await api.storage.local.get('settings');
+      const settings = await accountRecord('settings');
       if (!pubkey || settings?.pubkey !== pubkey) throw Error('The active profile changed.');
       const db = await openArchive(archiveName);
       let servers: Promise<string[]> | undefined;

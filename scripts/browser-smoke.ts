@@ -13,7 +13,7 @@ import {
   verifyEvent,
 } from 'nostr-tools/pure';
 import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
-import { profileHTML } from '../test/fixtures.ts';
+import { profileHTML, publicTweetHTML } from '../test/fixtures.ts';
 import './build.ts';
 
 const browser = process.argv[2] ?? 'chrome';
@@ -90,20 +90,19 @@ try {
     if (m.method === 'log.entryAdded' && m.params.level === 'error')
       console.error('Browser error:', m.params.text);
     if (m.method === 'network.beforeRequestSent' && m.params.isBlocked) {
-      const check = new URL(m.params.request.url).hostname === 'publish.x.com';
+      const check = m.params.request.url === 'https://x.com/alice/status/123';
       void bidi('network.provideResponse', {
         request: m.params.request.request,
         statusCode: 200,
         headers: [
           {
             name: 'Content-Type',
-            value: { type: 'string', value: check ? 'application/json' : 'text/html; charset=utf-8' },
+            value: { type: 'string', value: 'text/html; charset=utf-8' },
           },
         ],
         body: {
           type: 'string',
-          value: check ? JSON.stringify({ type: 'rich', url: 'https://x.com/alice/status/123',
-            author_url: 'https://x.com/alice', html: '<blockquote class="twitter-tweet"><p>Hello<br>backup 🌲</p></blockquote>' })
+          value: check ? publicTweetHTML('alice', '123', 'Hello\nbackup 🌲', 1704164645)
             : '<!DOCTYPE html><html><body>' + profileHTML + '</body></html>',
         },
       });
@@ -114,7 +113,7 @@ try {
   });
   await bidi('network.addIntercept', {
     phases: ['beforeRequestSent'],
-    urlPatterns: ['x.com', 'publish.x.com'].map(hostname => ({ type: 'pattern', protocol: 'https', hostname })),
+    urlPatterns: [{ type: 'pattern', protocol: 'https', hostname: 'x.com' }],
   });
   const { extension } = await bidi<{ extension: string }>('webExtension.install', {
     extensionData: { type: 'path', path: resolve('dist', browser) },
@@ -165,9 +164,19 @@ try {
     'options page ready',
   );
   await js(
-    "return (globalThis.browser??chrome).storage.local.set({['account:'+arguments[0]]:{pubkey:arguments[0],handle:'',capture:false,relaySync:false,relays:[arguments[1]],relaysConfigured:true,archiveName:'nostr-backup-'+arguments[0]}})",
-    pubkey,
-    url,
+    `const [owner,relay]=arguments;
+     return new Promise((resolve,reject)=>{
+       const request=indexedDB.open('nostr-backup-accounts');
+       request.onerror=()=>reject(request.error);
+       request.onsuccess=()=>{
+         const db=request.result,tx=db.transaction('records','readwrite');
+         tx.objectStore('records').put({pubkey:owner,handle:'',capture:false,relaySync:false,
+           relays:[relay],relaysConfigured:true,archiveName:'nostr-backup-'+owner},'account:'+owner);
+         tx.oncomplete=()=>{db.close();resolve(true)};
+         tx.onabort=()=>{db.close();reject(tx.error)};
+       };
+     })`,
+    pubkey, url,
   );
   await js(
     "document.querySelector('#existingProfile').click();const input=document.querySelector('#loginKey');input.value=arguments[0];input.dispatchEvent(new Event('input',{bubbles:true}))",

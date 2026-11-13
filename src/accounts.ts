@@ -7,10 +7,10 @@ import { openArchive } from './archive.ts';
 import { hex, secretKey } from './model.ts';
 import { DEFAULT_BLOSSOM_SERVER, mediaServers, publicMediaURL } from './media-refs.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
+import { accountRecord, writeAccountRecords } from './account-storage.ts';
 
 import { saveKey, forgetPermissions } from './signer-storage.ts';
 
-const api = globalThis.browser ?? chrome;
 // Post backup starts on for every platform. It begins once the user enters a username.
 export const defaults: Settings = {
   pubkey: '',
@@ -32,7 +32,7 @@ function withDefaults(conf: Settings): Settings {
 }
 
 export async function settings(): Promise<Settings> {
-  const { settings: conf } = await api.storage.local.get('settings');
+  const conf = await accountRecord('settings');
   // Archives created before multiple accounts all used this database name.
   return conf?.pubkey
     ? withDefaults({ archiveName: 'nostr-backup-v1', ...conf })
@@ -47,7 +47,7 @@ export async function accountSettings(pubkey: string): Promise<Settings> {
   }
   const id = accountKey(pubkey);
   return withDefaults(
-    (await api.storage.local.get(id))[id] ?? {
+    await accountRecord(id) ?? {
       ...defaults,
       pubkey,
       archiveName: 'nostr-backup-' + pubkey,
@@ -56,7 +56,7 @@ export async function accountSettings(pubkey: string): Promise<Settings> {
 }
 
 export function saveSettings(conf: Settings) {
-  return api.storage.local.set({ settings: conf, [accountKey(conf.pubkey)]: conf });
+  return writeAccountRecords({ settings: conf, [accountKey(conf.pubkey)]: conf });
 }
 
 export async function login(value: string, profileName?: string) {
@@ -70,6 +70,8 @@ export async function login(value: string, profileName?: string) {
       profileName.trim().length > 100
     )
       throw Error('Enter a profile name of up to 100 characters.');
+    if (/nsec1|[a-f\d]{64}/i.test(profileName))
+      throw Error('A profile name is public. Enter a name without a secret key.');
     const db = await openArchive(conf.archiveName);
     try {
       if (await db.count('events'))
@@ -100,8 +102,7 @@ export async function eraseAccount(conf: Settings) {
     await DexieStore.deleteDatabase(conf.archiveName + '-media');
     await deleteDB(conf.archiveName);
     await forgetPermissions(conf.pubkey);
-    await api.storage.local.remove(accountKey(conf.pubkey));
-    await api.storage.local.remove('deletingAccount');
+    await writeAccountRecords({ [accountKey(conf.pubkey)]: undefined, deletingAccount: undefined });
   };
   await navigator.locks.request('nostr-backup-media', erase);
 }

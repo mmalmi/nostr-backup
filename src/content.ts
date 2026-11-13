@@ -141,7 +141,7 @@ function startCapture() {
   }
 
   api.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.settings) void configure();
+    if (area === 'local' && changes.settingsChanged) void configure();
   });
   new MutationObserver(schedule).observe(document.documentElement, {
     childList: true,

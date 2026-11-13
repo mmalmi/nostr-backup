@@ -1,11 +1,12 @@
 import { build } from 'esbuild';
 import { captureSites } from '../src/social.ts';
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 
 const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 // Rasters of ui/icon.svg: resvg -w SIZE ui/icon.svg ui/icon-SIZE.png
 const icons = { 16: 'icon-16.png', 32: 'icon-32.png', 48: 'icon-48.png', 128: 'icon-128.png' };
+const assets = ['archive.html', 'popup.html', 'approve.html', 'style.css', 'icon.svg', ...Object.values(icons)];
 const common = {
   manifest_version: 3,
   name: 'Social Backup',
@@ -17,6 +18,9 @@ const common = {
   icons,
   action: { default_title: 'Social Backup', default_icon: icons },
   options_ui: { page: 'archive.html', open_in_tab: true },
+  content_security_policy: {
+    extension_pages: "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+  },
   content_scripts: [
     { matches: ['https://*/*'], js: ['browser-helper.js'], run_at: 'document_start', all_frames: true },
     { matches: ['https://*/*'], js: ['bridge.js'], run_at: 'document_start' },
@@ -45,7 +49,6 @@ const bundles = await build({
 for (const target of ['chrome', 'firefox', 'safari']) {
   const dir = 'dist/' + target;
   await mkdir(dir, { recursive: true });
-  await cp('ui', dir, { recursive: true });
   const manifest = {
     ...common,
     background:
@@ -55,7 +58,8 @@ for (const target of ['chrome', 'firefox', 'safari']) {
       // Keep scripts local and allow plaintext connections only on loopback.
       content_security_policy: {
         extension_pages:
-          "script-src 'self'; object-src 'self'; connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+          common.content_security_policy.extension_pages +
+          "; connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
       },
       browser_specific_settings: {
         gecko: {
@@ -68,12 +72,13 @@ for (const target of ['chrome', 'firefox', 'safari']) {
       },
     }),
   };
-  await writeFile(dir + '/manifest.json', JSON.stringify(manifest, null, 2) + '\n');
+  const files: Record<string, Uint8Array> = {
+    'manifest.json': new TextEncoder().encode(JSON.stringify(manifest, null, 2) + '\n'),
+  };
+  for (const name of assets) files[name] = await readFile('ui/' + name);
   for (const file of bundles.outputFiles)
-    await writeFile(dir + '/' + file.path.split('/').pop(), file.contents);
-  const files: Record<string, Uint8Array> = {};
-  for (const name of (await readdir(dir)).sort())
-    files[name] = new Uint8Array(await readFile(dir + '/' + name));
+    files[file.path.split('/').pop()!] = file.contents;
+  for (const [name, bytes] of Object.entries(files)) await writeFile(dir + '/' + name, bytes);
   await writeFile(
     'dist/social-backup-' + target + '.zip',
     zipSync(files, { level: 6, mtime: new Date(1980, 0, 1) }),

@@ -18,8 +18,10 @@ send('approval', { id })
       el('reviewTitle').textContent = 'Allow this website to use this post?';
       el('allow').textContent = 'Approve post';
     }
-    el('requestDetails').open = !!r.event && !isPost;
-    el('event').textContent = JSON.stringify(r.event, null, 2);
+    el('requestDetails').open = !!r.event;
+    if (r.event) el('event').textContent = JSON.stringify(r.event, null, 2)
+      .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g,
+        ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
     const label = permissionLabel(r.event?.kind ?? -1);
     if (label) {
       el('rememberLabel').textContent = 'Always allow ' + label + ' on ' + r.origin;

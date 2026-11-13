@@ -24,6 +24,7 @@ import { Reconciliation } from 'nostr-pubsub-reconcile';
 import { relayRetryDeadline as retryDeadline } from 'nostr-pubsub';
 import { build } from 'esbuild';
 import { Window } from 'happy-dom';
+import { publicTweetHTML } from './fixtures.ts';
 import { DEFAULT_RELAYS } from '../src/default-relays.ts';
 
 const key = generateSecretKey(),
@@ -136,7 +137,8 @@ function listener<F = () => void>() {
 function area(onSet?: (values: Record<string, unknown>) => void) {
   const state: Record<string, unknown> = {};
   return {
-    async get(k: string) {
+    async get(k: string | null) {
+      if (k === null) return structuredClone(state);
       return { [k]: structuredClone(state[k]) };
     },
     async set(v: Record<string, unknown>) {
@@ -181,9 +183,9 @@ const api = {
   storage: {
     onChanged: storageChanged,
     local: area((values) => {
-      if ('settings' in values)
+      if ('settingsChanged' in values)
         for (const f of storageChanged.list)
-          f({ settings: { newValue: values.settings } }, 'local');
+          f({ settingsChanged: { newValue: values.settingsChanged } }, 'local');
     }),
     session: area(),
   },
@@ -244,15 +246,13 @@ const x = {
   tab: { id: 1, url: 'https://x.com/alice' },
   frameId: 0,
 };
-function publicEmbed(input: RequestInfo | URL, caption: string) {
-  const request = new URL(String(input));
-  assert.equal(request.origin + request.pathname, 'https://publish.x.com/oembed');
-  const url = new URL(request.searchParams.get('url')!);
-  const handle = url.pathname.split('/')[1];
-  return Response.json({
-    type: 'rich', url: url.href, author_url: url.origin + '/' + handle,
-    html: '<blockquote class="twitter-tweet"><p>' + caption + '</p></blockquote>',
-  });
+function publicTweet(input: RequestInfo | URL, caption: string, time = 1700000000) {
+  const url = new URL(String(input));
+  assert.equal(url.origin, 'https://x.com');
+  const [, author, , id] = url.pathname.split('/');
+  const response = new Response(publicTweetHTML(author, id, caption, time), { headers: { 'Content-Type': 'text/html' } });
+  Object.defineProperty(response, 'url', { value: url.href });
+  return response;
 }
 function call<K extends Action>(
   type: K,
@@ -538,7 +538,7 @@ test('saved include and exclude selections rescan historical events through eith
 });
 
 test('read-only mode pauses capture and preserves existing drafts until the signer unlocks', async (t) => {
-  t.mock.method(globalThis, 'fetch', (url: URL) => publicEmbed(url, 'Text to archive'));
+  t.mock.method(globalThis, 'fetch', (url: URL) => publicTweet(url, 'Text to archive'));
   const subscriptionStart = subscriptions.length;
   assert.equal((await call('settings', { pubkey }, x)).ok, false);
   assert.equal(
@@ -614,7 +614,7 @@ test('read-only mode pauses capture and preserves existing drafts until the sign
   assert.equal(locked('profileMode').hidden, false);
   assert.equal(locked('xCaptureState').textContent, 'Capture paused · Read-only mode');
 });
-test('signer binds requests to a granted tab, exposes the key and signs only an approved template', async () => {
+test('signer binds public-key access and approvals to the authorized website', async () => {
   const token = crypto.randomUUID(),
     origin = 'https://client.example';
   const sender = { id: extensionId, url: origin + '/', tab: { id: 8 }, frameId: 0 };
@@ -675,7 +675,7 @@ test('signer binds requests to a granted tab, exposes the key and signs only an 
   const screen = approvalScreen();
   await success('approval', { id: screen.url.split('#')[1], decision: true, remember: true }, screen);
   assert.equal((await first).ok, true);
-  await api.storage.session.clear(); // A new browser session loses tab grants, but keeps the signer and website choices.
+  await api.storage.session.clear();
   assert.equal((await success('status')).unlocked, true);
   assert.equal((await req('getPublicKey')).ok, false);
   await api.storage.session.set({ 'grant-8': { token, origin } });
@@ -684,12 +684,20 @@ test('signer binds requests to a granted tab, exposes the key and signs only an 
   assert.ok(second.ok && typeof second.value === 'object' && verifyEvent(second.value));
   assert.equal(winURL, undefined);
   assert.deepEqual(await success('listPermissions', { account: pubkey }), [{ origin, kind: 1 }]);
+  for (const denied of [{ ...sender, origin: 'null' }, { ...sender, frameId: 1 }, { ...sender, origin: 'https://other.example' }])
+    assert.equal((await call('nip07', { token, method: 'signEvent', event: post }, denied)).ok, false);
   const sensitive = req('signEvent', event);
   await until(() => !!winURL);
   const sensitiveScreen = approvalScreen();
   await success('approval', { id: sensitiveScreen.url.split('#')[1], decision: false }, sensitiveScreen);
   assert.equal((await sensitive).ok, false);
+  winURL = undefined;
+  const cancelled = req('signEvent', event);
+  await until(() => !!winURL);
+  const cancelledScreen = approvalScreen();
   await success('forgetPermissions', { account: pubkey, origin });
+  assert.equal((await cancelled).ok, false);
+  assert.equal((await call('approval', {id: cancelledScreen.url.split('#')[1], decision: true}, cancelledScreen)).ok, false);
   assert.deepEqual(await success('listPermissions', { account: pubkey }), []);
   await success('lock');
   assert.equal((await req('getPublicKey')).ok, false);
@@ -1193,9 +1201,13 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.equal(getPublicKey(decoded.data), owner);
   assert.equal(page.document.body.textContent.includes(nsec), false);
   assert.equal((await call('exportPrivateKey', { account: owner }, x)).ok, false);
+  assert.equal((await call('exportPrivateKey', { account: owner }, { ...ui, url: ext + 'popup.html' })).ok, false);
   assert.equal(id('accountNpub').value, npubEncode(owner));
   assert.equal(id('indexAddress').value, 'htree://' + npubEncode(owner) + '/my-events');
   const first = await success('status');
+  await api.storage.local.set({settings: {...first.conf, pubkey: '0'.repeat(64), capture: true, handle: 'other'}});
+  assert.deepEqual((await success('status')).conf, first.conf);
+  await api.storage.local.remove('settings');
   assert.ok(first.conf.archiveName);
   assert.equal(first.events, 1);
   assert.equal(first.unlocked, true);
@@ -1313,7 +1325,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
 
 test('X captures sign locally even while the previous delivery has no reply', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
-    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+    publicTweet(url, 'Post ' + String(url).split('/').pop()));
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const url = 'wss://offline-capture.example/';
   const relay = fixtureRelay(url);
@@ -1351,7 +1363,7 @@ test('X captures sign locally even while the previous delivery has no reply', as
 
 test('new X captures reach a relay before its history import finishes', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
-    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+    publicTweet(url, 'Post ' + String(url).split('/').pop()));
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const url = 'wss://slow-history.example/';
   const relay = fixtureRelay(url);
@@ -1375,7 +1387,6 @@ test('a truncated X post is backed up with its full public text', async (t) => {
   const page = 'https://x.com/alice/status/501';
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.startsWith('https://publish.x.com/oembed?')) return publicEmbed(input, 'The opening paragraph.');
     assert.equal(url, page);
     const data = { data: { tweet_result_by_rest_id: { result: {
       __typename: 'Tweet', rest_id: '501',
@@ -1404,7 +1415,7 @@ test('a truncated X post is backed up with its full public text', async (t) => {
 
 test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
-    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+    publicTweet(url, 'Post ' + String(url).split('/').pop()));
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const a = 'wss://count-a.example/', b = 'wss://count-b.example/', gone = 'wss://count-gone.example/';
   const relays = [a, b, gone].map(url => fixtureRelay(url));
@@ -1531,7 +1542,8 @@ test('legacy single-account data reopens under its original identity after logou
     legacyPub,
   );
   db.close();
-  await api.storage.local.set({ settings: conf });
+  const { writeAccountRecords } = await import('../src/account-storage.ts');
+  await writeAccountRecords({ settings: conf });
   await success('logout', { pubkey: legacyPub });
   await success('login', { key: nsecEncode(legacyKey) });
   assert.equal((await success('status')).conf.archiveName, 'nostr-backup-v1');
@@ -1577,9 +1589,11 @@ test('X capture links same-day matches locally, preserves original text and hono
   );
   const distinct = post('3', first.replace('everyone can', 'everyone cannot'));
   const anotherDay = post('4', first, time + 86400);
-  const captions = new Map([exact, near, distinct, anotherDay, post('5', first)].map(p => [p.id, p.text]));
-  t.mock.method(globalThis, 'fetch', (url: URL) =>
-    publicEmbed(url, captions.get(new URL(String(url)).searchParams.get('url')!.split('/').pop()!)!));
+  const posts = new Map([exact, near, distinct, anotherDay, post('5', first)].map(p => [p.id, p]));
+  t.mock.method(globalThis, 'fetch', (url: URL) => {
+    const original = posts.get(String(url).split('/').pop()!)!;
+    return publicTweet(url, original.text, original.time);
+  });
   try {
     await success('capture', { posts: [exact, near, distinct, anotherDay] }, x);
     await idle();
@@ -1620,7 +1634,7 @@ test('X capture links same-day matches locally, preserves original text and hono
 });
 
 test('daily polling stays disconnected between checks and reports only successful syncs', async (t) => {
-  t.mock.method(globalThis, 'fetch', (url: URL) => publicEmbed(url, 'A new capture'));
+  t.mock.method(globalThis, 'fetch', (url: URL) => publicTweet(url, 'A new capture'));
   const secret = generateSecretKey(),
     owner = getPublicKey(secret);
   const url = 'wss://daily.example/',
@@ -1697,12 +1711,13 @@ test('X images are archived locally, retried on the selected Blossom server and 
   let downloads = 0,
     uploads = 0;
   t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init: RequestInit = {}) => {
-    if (String(url).startsWith('https://publish.x.com/oembed?')) return publicEmbed(url, 'Plain text');
+    if (String(url) === 'https://x.com/alice/status/192') return publicTweet(url, 'Plain text');
     if (/^https:\/\/x\.com\/alice\/status\/(191|193)$/.test(String(url))) {
       const postId = String(url).split('/').pop()!;
       const data = { data: { tweet_result_by_rest_id: { result: {
         __typename: 'Tweet', rest_id: postId, core: { user_results: { result: { core: { screen_name: 'alice' } } } },
-        media_entities2: [{ expanded_url: url + '/photo/1', media_url_https: source }],
+        details: { full_text: postId === '191' ? 'Photo' : '', created_at_ms: 1700000000000 },
+        media_entities2: [{ type: 'photo', expanded_url: url + '/photo/1', media_url_https: source }],
       } } } };
       const html = '<meta property="og:url" content="' + url + '"><meta property="og:description" content="' +
         (postId === '191' ? 'Photo' : '') + '">' +
@@ -1821,7 +1836,14 @@ test('post backup is on by default for every platform and waits for a username',
   }
 });
 
-test('social profile backup keeps restricted posts local across duplicate capture, export and broadcast', async () => {
+function publicFacebookFixture(link: string, caption: string) {
+  const path = new URL(link).pathname;
+  return new Response('<div data-testid="newsFeedStream"><div role="feed"><a href="/alice"><img aria-label="Alice"></a>' +
+    '<a href="' + path + '"><abbr data-utime="1600000000"></abbr></a><div data-testid="post_message">' +
+    caption + '</div></div></div>', { headers: { 'content-type': 'text/html' } });
+}
+
+test('social profile backup only signs server-confirmed posts and keeps restricted captures local', async t => {
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const target = 'wss://profile-backup.example/';
   const relay = fixtureRelay(target);
@@ -1831,6 +1853,20 @@ test('social profile backup keeps restricted posts local across duplicate captur
   const base = { source: 'instagram', author: 'alice', time: 1700000000, text: 'Caption', visibility: 'public' };
   const instagram = (id: string, visibility: string) =>
     ({ ...base, id, url: origin + '/p/' + id + '/', visibility });
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    const url = String(input), link = origin + '/p/Public123/';
+    if (url.startsWith('https://www.facebook.com/plugins/post.php?'))
+      return publicFacebookFixture(fb.url + '/posts/123456', 'Verified Facebook caption');
+    const body = url === link
+      ? '<link rel="canonical" href="' + link + '"><meta property="og:url" content="' + link +
+        '"><meta property="og:type" content="article"><meta property="article:published_time" content="2020-09-13T12:26:42Z">'
+      : '<div class="Embed" data-permalink="' + link + '" data-media-type="GraphImage"><div class="Header">' +
+        '<a class="Username" href="' + origin + '/alice/"></a></div><div class="Content"><a class="EmbeddedMedia" href="' +
+        link + '"><img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/a.jpg"></a></div></div>';
+    const response = new Response(body, { headers: { 'content-type': 'text/html' } });
+    Object.defineProperty(response, 'url', {value: url});
+    return response;
+  });
   await success('login', { key: nsecEncode(secret) });
   try {
     await success('settings', { pubkey: owner, handle: '', capture: false, relays: target, relaySync: false,
@@ -1856,6 +1892,8 @@ test('social profile backup keeps restricted posts local across duplicate captur
       assert.equal(await queueBroadcast(db, conf), 2);
       const events = await db.getAll('events');
       assert.equal(events.length, 2);
+      assert.ok(events.some(event => event.content === 'Verified Facebook caption' && event.created_at === 1600000000));
+      assert.ok(events.every(event => event.content !== 'Facebook post' && !event.content.includes('Caption')));
       assert.ok(events.every(event => verifyEvent(event)));
       assert.deepEqual(new Set(events.map(event => event.tags.find(tag => tag[0] === 'r')?.[1])),
         new Set([posts[0].url, other.url]));
@@ -1889,7 +1927,7 @@ test('self-quotes fetch and archive public originals on all three networks befor
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, opts?: RequestInit) => {
     const url = String(input);
     assert.equal(opts?.credentials, 'omit');
-    if (url.startsWith('https://publish.x.com/oembed?')) return publicEmbed(input, text);
+    if (url === 'https://x.com/alice/status/99' || url === 'https://x.com/alice/status/98') return publicTweet(input, text);
     reads.push(url);
     if (url === xLink) {
       const data = {
@@ -2011,7 +2049,14 @@ test('unavailable own quote stays a local draft, and resolves when the original 
   const sender = { ...x, url: site, tab: { id: 17, url: site } };
   const relayURL = 'wss://quote-later.example/',
     relay = fixtureRelay(relayURL);
-  t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 503 }));
+  let released = false;
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    const link = new URL(String(input)).searchParams.get('href');
+    if (link === site + '/posts/101') return publicFacebookFixture(link, 'A quote: ' + original);
+    if (link === site + '/posts/102') return publicFacebookFixture(link, 'Unrelated');
+    if (released && link === original) return publicFacebookFixture(link, 'Released original');
+    return new Response('', {status: 503});
+  });
   await success('login', { key: nsecEncode(secret) });
   await success('settings', {
     pubkey: owner,
@@ -2051,6 +2096,7 @@ test('unavailable own quote stays a local draft, and resolves when the original 
       relay.sent.map((e) => e.content),
       ['Unrelated'],
     );
+    released = true;
     await success('capture', { posts: [post('100', 'Released original', 'public')] }, sender);
     await idle();
     const id = await db.get('sources', 'facebook:100');

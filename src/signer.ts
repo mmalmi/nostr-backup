@@ -4,7 +4,7 @@ import type { Sender } from './platform.d.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { unhex } from './model.ts';
 
-import { hasPermission, savePermission } from './signer-storage.ts';
+import { forgetPermissions, hasPermission, permissionLabel, savePermission } from './signer-storage.ts';
 
 type SessionKey = () => Promise<string | undefined>;
 interface PendingSignature extends Approval {
@@ -17,11 +17,26 @@ interface PendingSignature extends Approval {
 const api = globalThis.browser ?? chrome;
 const requests = new Map<string, PendingSignature>();
 const grantKey = (id: number) => `grant-${id}` as const;
+let revision = 0;
 
 export async function revokeSession() {
+  revision++;
   for (const request of requests.values())
     request.finish(Error('Request cancelled because you logged out.'));
   await api.storage.session.clear();
+}
+
+export async function revokeWebsite(owner: string, origin: string) {
+  revision++;
+  for (const request of requests.values())
+    if (request.pubkey === owner && request.origin === origin)
+      request.finish(Error('Website permission revoked.'));
+  await forgetPermissions(owner, origin);
+  const grants = await api.storage.session.get(null);
+  const names = Object.keys(grants).filter((name): name is `grant-${number}` => /^grant-\d+$/.test(name));
+  for (const name of names)
+    if (grants[name]?.origin === origin && grants[name]?.loginPubkey === owner)
+      await api.storage.session.remove(name);
 }
 
 export function template(value: unknown): EventTemplate {
@@ -56,6 +71,7 @@ export async function handleSignerRequest(
   sessionKey: SessionKey,
 ) {
   const tabId = sender.tab?.id;
+  const started = revision;
   if (tabId === undefined || !sender.url) throw Error('Allow the extension to work on this tab first.');
   const key = grantKey(tabId);
   const grant = (await api.storage.session.get(key))[key];
@@ -67,22 +83,24 @@ export async function handleSignerRequest(
   )
     throw Error('Allow the extension to work on this tab first.');
   if (!(await sessionKey())) throw Error('Your account is locked.');
-  if (msg.method === 'getPublicKey' && grant.loginPubkey === pubkey) return pubkey;
   if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('This type of request is not supported.');
   const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
-  if (await hasPermission(pubkey, grant.origin, event?.kind ?? -1)) {
+  if ((!event && grant.loginPubkey === pubkey) || await hasPermission(pubkey, grant.origin, event?.kind ?? -1)) {
     const tab = await api.tabs.get(tabId);
     const current = (await api.storage.session.get(key))[key];
     const secret = await sessionKey();
-    if (!secret || getPublicKey(unhex(secret)) !== pubkey || current?.token !== msg.token ||
+    if (started !== revision || !secret || getPublicKey(unhex(secret)) !== pubkey || current?.token !== msg.token ||
         !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('The account or website changed.');
     return event ? finalizeEvent(event, unhex(secret)) : pubkey;
   }
+  if (started !== revision) throw Error('Website permission changed.');
   if (Array.from(requests.values()).some((r) => r.tabId === tabId))
     throw Error('There is already a request from this tab.');
   const id = crypto.randomUUID();
   return new Promise<NostrEvent | string>((resolve, reject) => {
-    const timer = setTimeout(() => finish(Error('The request expired.')), 60000);
+    const timer = setTimeout(() => {
+      if (requests.has(id)) finish(Error('The request expired.'));
+    }, 60000);
     function finish(error: Error | null, value?: NostrEvent | string) {
       clearTimeout(timer);
       requests.delete(id);
@@ -125,13 +143,25 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
     new URL(tab.url).origin !== request.origin
   )
     throw Error('The account or website changed.');
-  if (msg.remember) await savePermission(request.pubkey, request.origin, request.event?.kind ?? -1);
-  if (!request.event) await api.storage.session.set({ [name]: { ...grant, loginPubkey: request.pubkey } });
-  request.finish(null, request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey);
+  const kind = request.event?.kind ?? -1;
+  if (msg.remember && !permissionLabel(kind)) throw Error('This request needs individual approval.');
+  // Consume the decision before any asynchronous writes. A closed prompt or
+  // duplicate click cannot change a decision while its permission is saving.
+  const result = request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey;
+  requests.delete(msg.id);
+  try {
+    if (msg.remember) await savePermission(request.pubkey, request.origin, kind);
+    if (!request.event) await api.storage.session.set({ [name]: { ...grant, loginPubkey: request.pubkey } });
+    request.finish(null, result);
+  } catch (error) {
+    request.finish(Error('Could not save website permission.'));
+    throw error;
+  }
 }
 api.windows.onRemoved.addListener((win) => {
   for (const r of requests.values()) if (r.windowId === win) r.finish(Error('Request declined.'));
 });
 api.tabs.onRemoved.addListener((id) => {
+  for (const r of requests.values()) if (r.tabId === id) r.finish(Error('Request tab closed.'));
   void api.storage.session.remove(grantKey(id));
 });

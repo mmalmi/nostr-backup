@@ -19,7 +19,7 @@ export const readCooldown = (db: Archive, url: string) =>
   db.get('meta', ['retryAfter', url]) as Promise<number | undefined>;
 
 export function openArchive(name = 'nostr-backup-v1') {
-  const opened = openDB<ArchiveSchema>(name, 8, {
+  const opened = openDB<ArchiveSchema>(name, 9, {
     blocking() {
       void opened.then((db) => db.close());
     },
@@ -55,6 +55,16 @@ export function openArchive(name = 'nostr-backup-v1') {
             }
           })().catch(() => tx.abort());
         }
+      }
+      if (oldVersion >= 6 && oldVersion < 9) {
+        // Old drafts used page-supplied signing fields. Keep each snapshot
+        // local until the post is independently verified on its next capture.
+        (async () => {
+          for (let c = await tx.objectStore('drafts').openCursor(); c; c = await c.continue()) {
+            await tx.objectStore('localCaptures').put({ ...c.value, visibility: 'unknown' }, c.primaryKey);
+            await c.delete();
+          }
+        })().catch(() => tx.abort());
       }
       if (oldVersion >= 3 && oldVersion < 8) {
         tx.objectStore('mediaRefs').createIndex('sha256', 'sha256');

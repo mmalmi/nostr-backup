@@ -1,5 +1,6 @@
 // Disposable browser preview: the production UI and background run against local fixtures.
 // Build first, then run with Node. Nothing is sent to public relays.
+import { publicTweetHTML } from '../test/fixtures.ts';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { WebSocketServer } from 'ws';
@@ -46,9 +47,10 @@ const dispatch=(port,data)=>handlers[0](data.message,{id:'preview',url:data.mess
 const area=(local=false)=>{const state={};return {async get(key){return {[key]:state[key]}},async set(values){const changes=Object.fromEntries(Object.entries(values).map(([k,v])=>[k,{newValue:v}]));Object.assign(state,values);if(local){listeners.forEach(fn=>fn(changes,'local'));ports.forEach(port=>port.postMessage({changes}))}},async remove(key){delete state[key]},async clear(){Object.keys(state).forEach(k=>delete state[k])}}};
 self.chrome={tabs:{onRemoved:listener()},windows:{onRemoved:listener()},runtime:{id:'preview',getURL:p=>location.origin+'/'+p,onMessage:{addListener:f=>{handlers.push(f);queued.splice(0).forEach(([p,d])=>dispatch(p,d))}},onInstalled:listener(),onStartup:listener(),openOptionsPage:async()=>{}},storage:{local:area(true),session:area(),onChanged:{addListener:f=>listeners.push(f)}},action:{onClicked:listener(),setPopup:async()=>{}},alarms:{get:async()=>true,create:async()=>{},onAlarm:listener()}};
 const originalFetch=self.fetch.bind(self);self.fetch=(input,options)=>{
-  const u=new URL(input,location);if(u.origin!=='https://publish.x.com')return originalFetch(input,options);
-  const url=u.searchParams.get('url')||'',id=Number(url.split('/').pop());
-  return Promise.resolve(Response.json({type:'rich',url,author_url:'https://x.com/alice',html:'<blockquote class="twitter-tweet"><p>Local X capture '+(id-1000)+'</p></blockquote>'}));
+  const u=new URL(input,location);if(u.origin!=='https://x.com')return originalFetch(input,options);
+  const id=u.pathname.split('/').pop(), makeHTML=${publicTweetHTML.toString()};
+  const response=new Response(makeHTML('alice',id,'Local X capture '+(Number(id)-1000),1700000000),{headers:{'content-type':'text/html'}});
+  Object.defineProperty(response,'url',{value:u.href});return Promise.resolve(response);
 };
 const NativeWebSocket=WebSocket;self.WebSocket=class extends NativeWebSocket{constructor(url){super('ws://'+location.host+'/relay?source='+encodeURIComponent(url))}};
 onconnect=({ports:[port]})=>{ports.add(port);port.onmessage=({data})=>handlers.length?dispatch(port,data):queued.push([port,data]);port.start()};

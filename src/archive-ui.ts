@@ -1,6 +1,6 @@
 import { socialNetworks } from './social.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
-import { defaults } from './accounts.ts';
+import { settings } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
 import { npubEncode } from 'nostr-tools/nip19';
 import { showProfile } from './profile-ui.ts';
@@ -94,7 +94,7 @@ async function refresh(initial = false) {
     resetOnboarding();
     cancelDelete();
     el('secret').value = '';
-    }
+  }
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
   showProfile(pubkey, profile, !unlocked);
@@ -383,10 +383,11 @@ on('download', 'click', async () => {
   }
 });
 api.storage?.onChanged?.addListener((changes, area) => {
-  if (area !== 'local' || !changes.settings) return;
-  const next = changes.settings.newValue;
-  if ((next?.pubkey ?? '') !== pubkey) mediaConfig(next ?? defaults, false);
-  refresh().catch((e) => notice(e.message));
+  if (area !== 'local' || !changes.settingsChanged) return;
+  settings().then(next => {
+    if (next.pubkey !== pubkey) mediaConfig(next, false);
+    return refresh();
+  }).catch(e => notice(e.message));
 });
 selectSection();
 refresh(true).catch((e) => notice(e.message));

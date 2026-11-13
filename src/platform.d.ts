@@ -9,10 +9,11 @@ export interface Sender {
   id?: string;
   frameId?: number;
   url?: string;
+  origin?: string;
   tab?: Tab;
 }
 type Listener<F> = { addListener(listener: F): void };
-interface LocalData {
+export interface LocalData {
   settings?: Settings | null;
   lastRun?: LastRun | null;
   deletingAccount?: Settings;
@@ -23,6 +24,7 @@ interface SessionData {
   [key: `grant-${number}`]: { token: string; origin: string; loginPubkey?: string } | undefined;
 }
 interface Area<T> {
+  get(key: null): Promise<Partial<T>>;
   get<K extends keyof T>(key: K): Promise<Pick<T, K>>;
   set(values: Partial<T>): Promise<void>;
   remove(key: keyof T): Promise<void>;
@@ -34,10 +36,10 @@ interface ExtensionAPI {
     setPopup(details: { popup: string }): Promise<void>;
   };
   storage: {
-    local: Area<LocalData>;
+    local: Area<LocalData & { settingsChanged?: string }>;
     session: Area<SessionData>;
     onChanged: Listener<
-      (changes: { settings?: { newValue?: Settings | null } }, area: string) => void
+      (changes: { settingsChanged?: unknown }, area: string) => void
     >;
   };
   runtime: {

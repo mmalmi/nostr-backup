@@ -5,75 +5,53 @@ import { openDB } from 'idb';
 import { generateSecretKey, finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { unzipSync, strFromU8 } from 'fflate';
 import { Window } from 'happy-dom';
-import { confirmPublicXPost } from '../src/x-audience.ts';
+import { readPublicXOriginal } from '../src/x-audience.ts';
 import { capturePosts } from '../src/x.ts';
 import { shareableMediaHashes } from '../src/legacy-x.ts';
 import { openArchive, readPointer, inventory, queueBroadcast, dump } from '../src/archive.ts';
-import { article } from './fixtures.ts';
+import { article, publicTweetHTML } from './fixtures.ts';
 
 const draft = { id: '321', author: 'alice', time: 1234, text: 'Line one\nLine two & three' };
 const url = 'https://x.com/alice/status/321';
-const embed = { url, author_url: 'https://x.com/alice', type: 'rich',
-  html: '<blockquote class="twitter-tweet"><p>Line one<br>Line two &amp; three</p></blockquote>' };
-
-test('X visibility needs matching public content and cannot be asserted by a signed-in capture', async () => {
-  const fetcher: typeof fetch = async (input, options) => {
-    assert.equal(new URL(String(input)).origin, 'https://publish.x.com');
-    assert.equal(options?.credentials, 'omit');
-    assert.equal(options?.cache, 'no-store');
-    return Response.json(embed);
-  };
-  assert.equal(await confirmPublicXPost(draft, fetcher), true);
-  for (const result of [{...embed, url: url + '5'}, {...embed, author_url: 'https://x.com/bob'},
-    {...embed, html: '<blockquote class="twitter-tweet"><p>Public preview</p></blockquote>'}]) {
-    assert.equal(await confirmPublicXPost({...draft, visibility: 'public'}, async () => Response.json(result)), false);
-  }
+test('X signing fields come from the anonymous permalink and its author-scoped record', async () => {
+  const fetchPost = async (body: string, resultURL = url) =>
+    readPublicXOriginal('alice', draft.id, async (input, options) => {
+      assert.equal(input, url);
+      assert.equal(options?.credentials, 'omit');
+      assert.equal(options?.cache, 'no-store');
+      const response = new Response(body, { headers: { 'content-type': 'text/html' } });
+      Object.defineProperty(response, 'url', { value: resultURL });
+      return response;
+    });
+  const html = publicTweetHTML('alice', '321', draft.text, draft.time);
+  const original = await fetchPost(html);
+  assert.deepEqual(original, { ...draft, visibility: 'public' });
+  assert.equal(await fetchPost(publicTweetHTML('bob', '321', draft.text, draft.time)), undefined);
+  assert.equal(await fetchPost(publicTweetHTML('alice', '123', draft.text, draft.time)), undefined);
+  assert.equal(await fetchPost(html, url + '5'), undefined);
+  assert.equal(await fetchPost('<meta property="og:description" content="Public preview">'), undefined);
   const window = new Window();
   try {
-    const page = 'https://x.com/alice';
     window.document.body.innerHTML = article('alice', '321', 'Restricted', '<span data-testid="superFollowsLabel"></span>');
-    const [restricted] = capturePosts(window.document as unknown as Document, page, 'alice');
-    assert.equal(restricted.visibility, 'private');
-    let requests = 0;
-    assert.equal(await confirmPublicXPost(restricted, async () => { requests++; return Response.json(embed); }), false);
-    assert.equal(requests, 0);
+    assert.equal(capturePosts(window.document as unknown as Document, 'https://x.com/alice', 'alice')[0].visibility, 'private');
   } finally { await window.happyDOM.abort(); }
 });
 
-test('X media proof binds each attachment to the original post even with a matching preview', async () => {
-  const photo = 'https://pbs.twimg.com/media/photo.jpg', other = 'https://pbs.twimg.com/media/hidden.jpg';
-  const record = {data: {tweet_result_by_rest_id: {result: {
-    __typename: 'Tweet', rest_id: '321', core: {user_results: {result: {core: {screen_name: 'alice'}}}},
-    media_entities2: [{media_url_https: photo, expanded_url: url + '/photo/1'}],
-  }}}};
-  const html = '<meta property="og:url" content="' + url + '"><meta property="og:description" content="Caption">' +
-    '<script>const data=' + JSON.stringify(JSON.stringify(record)) + '</script><img src="' + other + '">';
-  const fetcher: typeof fetch = async () => {
-    const response = new Response(html, {headers:{'Content-Type':'text/html'}});
-    Object.defineProperty(response, 'url', {value:url});
-    return response;
-  };
-  assert.equal(await confirmPublicXPost({...draft, text:'Caption\n\n' + photo},fetcher),true);
-  assert.equal(await confirmPublicXPost({...draft, text:'Caption\n\n' + photo + '\n\n' + other},fetcher),false);
-  assert.equal(await confirmPublicXPost({...draft, text:'Secret caption\n\n' + photo},fetcher),false);
-});
-
-test('a photo-only X post is confirmed by its media when the public page has a generic description', async () => {
-  const photo = 'https://pbs.twimg.com/media/photo?format=jpg&name=small', other = 'https://pbs.twimg.com/media/hidden.jpg';
-  const record = {data: {tweet_result_by_rest_id: {result: {
-    __typename: 'Tweet', rest_id: '321', core: {user_results: {result: {core: {screen_name: 'alice'}}}},
-    media_entities2: [{media_url_https: 'https://pbs.twimg.com/media/photo.jpg', expanded_url: url + '/photo/1'}],
-  }}}};
-  const html = '<meta property="og:url" content="' + url + '"><meta property="og:description" content="Alice (@alice) on X">' +
-    '<script>const data=' + JSON.stringify(JSON.stringify(record)) + '</script>';
-  const fetcher: typeof fetch = async () => {
-    const response = new Response(html, {headers:{'Content-Type':'text/html'}});
-    Object.defineProperty(response, 'url', {value:url});
-    return response;
-  };
-  assert.equal(await confirmPublicXPost({...draft, text: photo}, fetcher), true);
-  assert.equal(await confirmPublicXPost({...draft, text: photo + '\n\n' + other}, fetcher), false);
-  assert.equal(await confirmPublicXPost({...draft, text: other}, fetcher), false);
+test('X media and photo-only posts use only the attachments belonging to the public original', async () => {
+  const photo = 'https://pbs.twimg.com/media/photo.jpg';
+  for (const caption of ['', 'Caption']) {
+    for (const parent of [url, 'https://x.com/alice/status/123']) {
+      const media = [{ type: 'photo', media_url_https: photo, expanded_url: parent + '/photo/1' }];
+      const html = publicTweetHTML('alice', '321', caption, draft.time, media) +
+        '<img src="https://pbs.twimg.com/media/other.jpg">';
+      const original = await readPublicXOriginal('alice', draft.id, async () => {
+        const response = new Response(html, { headers: { 'content-type': 'text/html' } });
+        Object.defineProperty(response, 'url', {value: url});
+        return response;
+      });
+      assert.equal(original?.text, parent === url ? [caption, photo].filter(Boolean).join('\n\n') : undefined);
+    }
+  }
 });
 
 test('old X backups preserve their contents locally and lose pending public sends and index deliveries', async () => {
