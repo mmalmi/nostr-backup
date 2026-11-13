@@ -56,7 +56,8 @@ export function tipPresets(currency: string, perBitcoin: number) {
 }
 
 /** A fiat amount such as "€0.10" or "¥100". */
-export function formatFiat(value: number, currency: string, locale?: string) {
+export function formatFiat(value: number, currency: string, locale?: string): string {
+  if (value > 0 && value < 0.01) return '<' + formatFiat(0.01, currency, locale);
   return new Intl.NumberFormat(locale, {
     style: 'currency', currency, minimumFractionDigits: value < 10 && value % 1 ? 2 : 0, maximumFractionDigits: 2,
   }).format(value);

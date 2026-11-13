@@ -7,9 +7,8 @@ import qrcode from 'qrcode-generator';
 // that can receive tips. Paying happens in the user's own wallet via a lightning: link.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
-// Small, medium and large tips, with Iris's emoji. Sats are used when no exchange rate is available.
+// Small, medium and large tips, with Iris's emoji.
 const EMOJI = ['👍', '💯', '🔥'];
-const SATS = [21, 100, 1000];
 const MARK = 'data-social-backup-tip';
 
 function author(article: Element) {
@@ -89,7 +88,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
         padding:12px 14px;width:240px;box-shadow:0 8px 24px #0002}
       @media (prefers-color-scheme:dark){.box{background:#181c26;color:#e9ecf3;border-color:#2a3142}}
       p{margin:0 0 10px} small{opacity:.7;display:block;margin-top:8px} small:empty{display:none}
-      .row{display:flex;gap:6px} button small{display:block;margin:2px 0 0;font-weight:400}
+      .row{display:flex;gap:6px}
       button,a{flex:1;font:600 13px system-ui;border-radius:8px;padding:7px 0;cursor:pointer;
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
       button.alt{background:none;color:inherit;border-color:#dce2ec}
@@ -110,11 +109,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
       box.querySelector('.address span')!.textContent = target.lightning;
       box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(target.lightning));
       const row = box.querySelector('.row')!;
-      rate ??= send({ type: 'tipRate', currency })
+      const currentRate = rate ??= send({ type: 'tipRate', currency })
         .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
         .catch(() => null);
-      const amount = (sats: number, perBitcoin: number | null) =>
-        perBitcoin ? formatFiat((sats / 1e8) * perBitcoin, currency) : sats.toLocaleString() + ' sats';
       // Look for this post's Nostr copy now, not while scrolling, so relays only learn about posts you tip.
       if (post)
         void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
@@ -124,23 +121,22 @@ export function createTipButtons(send: Send, doc: Document = document) {
             if (!found?.note || !line) return;
             const show = (perBitcoin: number | null) => {
               line.textContent = found.tips
-                ? 'On Nostr · ' + amount(found.sats, perBitcoin) + ' from ' + found.tips + (found.tips === 1 ? ' tip' : ' tips')
+                ? 'On Nostr · ' + (perBitcoin ? formatFiat(found.sats * perBitcoin / 1e8, currency) + ' from ' : '') + found.tips + (found.tips === 1 ? ' tip' : ' tips')
                 : 'This post is on Nostr.';
             };
-            void rate!.then(show);
+            void currentRate.then(show);
           })
           .catch(() => {});
-      // Amounts appear once the exchange rate is known: in fiat, with sats in small print.
-      void rate!.then((perBitcoin) => {
-        const presets = perBitcoin ? tipPresets(currency, perBitcoin) : SATS.map((sats) => ({ sats, fiat: 0 }));
-        presets.forEach(({ sats, fiat }, i) => {
+      void currentRate.then((perBitcoin) => {
+        if (!perBitcoin) {
+          rate = undefined;
+          row.textContent = 'Exchange rate unavailable.';
+          return;
+        }
+        tipPresets(currency, perBitcoin).forEach(({ sats, fiat }, i) => {
+          const label = formatFiat(fiat, currency);
           const choice = doc.createElement('button');
-          choice.textContent = EMOJI[i] + ' ' + (fiat ? formatFiat(fiat, currency) : sats.toLocaleString() + ' sats');
-          if (fiat) {
-            const small = doc.createElement('small');
-            small.textContent = sats.toLocaleString() + ' sats';
-            choice.append(small);
-          }
+          choice.textContent = EMOJI[i] + ' ' + label;
           choice.addEventListener('click', async () => {
             show('<p>Getting an invoice…</p>');
             const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
@@ -160,7 +156,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
             show('<p>Pay <b></b> in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
               qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
               '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
-            box.querySelector('b')!.textContent = fiat ? formatFiat(fiat, currency) + ' (' + sats.toLocaleString() + ' sats)' : sats.toLocaleString() + ' sats';
+            box.querySelector('b')!.textContent = label;
             box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
             box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
           });

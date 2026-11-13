@@ -27,6 +27,10 @@ test('Coinbase is read without cookies, and fiat amounts are short', async () =>
     assert.equal(init?.credentials, 'omit');
     return Response.json({ data: { currency: 'BTC', rates: { USD: '100000.5' } } });
   }), 100000.5);
+  assert.equal(formatFiat(0, 'USD', 'en-US'), '$0');
+  assert.equal(formatFiat(0.0099, 'USD', 'en-US'), '<$0.01');
+  assert.equal(formatFiat(0.001, 'EUR', 'de-DE'), '<0,01 €');
+  assert.equal(formatFiat(0.01, 'USD', 'en-US'), '$0.01');
   assert.equal(formatFiat(0.1, 'USD', 'en-US'), '$0.10');
   assert.equal(formatFiat(5, 'USD', 'en-US'), '$5');
   assert.equal(formatFiat(1.234, 'EUR', 'en-US'), '€1.23');

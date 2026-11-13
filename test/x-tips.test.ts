@@ -74,9 +74,9 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     (buttons[0] as HTMLElement).click();
     const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // Amounts are in the page's currency, here 0.10 at 100,000 per bitcoin, with sats in small print.
+    // Amounts are in the page's currency, here 0.10 at 100,000 per bitcoin, with no secondary amount.
     assert.match(box().querySelector('.row button')!.textContent!, /^👍 \D?0[.,]10/);
-    assert.equal(box().querySelector('.row button small')!.textContent, '100 sats');
+    assert.doesNotMatch(box().textContent!, /sats/i);
     assert.match(box().querySelector('.address')!.textContent!, /alice@wallet\.example/);
     // Opening the popover looks for this post's Nostr copy, with its time and opening text.
     const lookup = sent.find((m) => m.type === 'tipPost')!;
@@ -87,7 +87,8 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 100, post: '9' });
-    assert.match(box().querySelector('p b')!.textContent!, /100 sats/);
+    assert.match(box().querySelector('p b')!.textContent!, /^\D?0[.,]10\D*$/);
+    assert.doesNotMatch(box().textContent!, /sats/i);
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
     // A QR code lets a phone wallet pay the same invoice.
     assert.ok(box().querySelector('.qr svg'));
