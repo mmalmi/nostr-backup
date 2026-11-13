@@ -58,6 +58,24 @@ test('X media proof binds each attachment to the original post even with a match
   assert.equal(await confirmPublicXPost({...draft, text:'Secret caption\n\n' + photo},fetcher),false);
 });
 
+test('a photo-only X post is confirmed by its media when the public page has a generic description', async () => {
+  const photo = 'https://pbs.twimg.com/media/photo?format=jpg&name=small', other = 'https://pbs.twimg.com/media/hidden.jpg';
+  const record = {data: {tweet_result_by_rest_id: {result: {
+    __typename: 'Tweet', rest_id: '321', core: {user_results: {result: {core: {screen_name: 'alice'}}}},
+    media_entities2: [{media_url_https: 'https://pbs.twimg.com/media/photo.jpg', expanded_url: url + '/photo/1'}],
+  }}}};
+  const html = '<meta property="og:url" content="' + url + '"><meta property="og:description" content="Alice (@alice) on X">' +
+    '<script>const data=' + JSON.stringify(JSON.stringify(record)) + '</script>';
+  const fetcher: typeof fetch = async () => {
+    const response = new Response(html, {headers:{'Content-Type':'text/html'}});
+    Object.defineProperty(response, 'url', {value:url});
+    return response;
+  };
+  assert.equal(await confirmPublicXPost({...draft, text: photo}, fetcher), true);
+  assert.equal(await confirmPublicXPost({...draft, text: photo + '\n\n' + other}, fetcher), false);
+  assert.equal(await confirmPublicXPost({...draft, text: other}, fetcher), false);
+});
+
 test('old X backups preserve their contents locally and lose pending public sends and index deliveries', async () => {
   const key = generateSecretKey(), pubkey = getPublicKey(key), name = crypto.randomUUID();
   const event = (text: string) => JSON.parse(JSON.stringify(finalizeEvent({kind:1,content:text,created_at:10,tags:[]},key)));

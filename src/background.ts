@@ -738,6 +738,9 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         // Confirm audience outside the writer so a slow site cannot block settings or relay imports.
         for (let start = 0; start < msg.posts.length; start += 4) {
           const group = await Promise.all(msg.posts.slice(start, start + 4).map(async post => {
+            // Never keep the visible part of a long post. Use the full public post or skip it.
+            if (post.truncated)
+              return post.visibility === 'private' ? undefined : await readPublicXOriginal(handle, post.id).catch(() => undefined);
             if (post.visibility === 'private') return post;
             if (post.hasQuoteCard) {
               const original = await readPublicXOriginal(handle,post.id).catch(() => undefined);
@@ -748,7 +751,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
             }
             return {...post,visibility:await confirmPublicXPost(post) ? 'public' as const : 'unknown' as const};
           }));
-          verified.push(...group);
+          for (const post of group) if (post) verified.push(post);
         }
       } else {
         for (const post of msg.posts) validateSocialPost(post as SocialCapture, network, handle);

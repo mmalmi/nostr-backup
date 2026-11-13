@@ -28,8 +28,12 @@ function publicPageMatches(html: string, postURL: string, caption: string, asset
   const metadata = new Map<string, string>();
   for (const match of html.matchAll(/<meta\s+property="(og:url|og:description)"\s+content="([^"]*)"[^>]*>/gi))
     metadata.set(match[1], decode(match[2]));
-  if (metadata.get('og:url')?.toLowerCase() !== postURL ||
-      !metadata.has('og:description') || normalized(metadata.get('og:description')!) !== normalized(caption)) return false;
+  if (metadata.get('og:url')?.toLowerCase() !== postURL) return false;
+  // A photo-only post has a generic page description, so only its media can be matched.
+  if (caption.trim() || !assets.length) {
+    const description = metadata.get('og:description');
+    if (description === undefined || normalized(description) !== normalized(caption)) return false;
+  }
   if (!assets.length) return true;
   // X serializes the public result as a JSON string in its page hydration data.
   const record = tweetRecord(html);

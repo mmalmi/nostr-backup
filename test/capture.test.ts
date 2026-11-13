@@ -42,7 +42,7 @@ test('text, emoji, timestamp, case and canonical permalink', () => {
     ['client', 'Social Backup'],
   ]);
 });
-test('skip truncated text, foreign reposts and nested quotations', () => {
+test('mark truncated text and skip foreign reposts and nested quotations', () => {
   const nested = '<div role="link">' + article('alice', '222', 'quoted body') + '</div>';
   const html =
     profileHTML +
@@ -53,9 +53,10 @@ test('skip truncated text, foreign reposts and nested quotations', () => {
       'partial',
       '<button data-testid="tweet-text-show-more-link">Show more</button>',
     );
+  // A long post is kept so the background can replace it with its full public text.
   assert.deepEqual(
-    capture(html).map((p) => p.id),
-    ['123'],
+    capture(html).map((p) => [p.id, !!p.truncated]),
+    [['123', false], ['333', true]],
   );
 });
 test('media-only post retains its image URL', () => {

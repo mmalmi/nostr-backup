@@ -46,11 +46,8 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
   if (!handle || profileHandle(url) !== handle) return [];
   const posts = [];
   for (const article of doc.querySelectorAll(tweet)) {
-    if (
-      article.parentElement?.closest(tweet) ||
-      article.querySelector('[data-testid="tweet-text-show-more-link"]')
-    )
-      continue;
+    if (article.parentElement?.closest(tweet)) continue;
+    const truncated = !!article.querySelector('[data-testid="tweet-text-show-more-link"]');
     // Quote cards can have their own name, timestamp and text inside a link container.
     const primary = (selector: string) =>
       Array.from(article.querySelectorAll(selector)).find(
@@ -129,6 +126,7 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
         id: match[2],
         author: handle,
         ...(card ? {hasQuoteCard:true} : {}),
+        ...(truncated ? {truncated:true} : {}),
         ...(audience ? { visibility: 'private' as const } : {}),
         time: timestamp,
         ...(millis % 1000 ? { timeMs: millis } : {}),

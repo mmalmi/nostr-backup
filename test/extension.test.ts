@@ -1370,6 +1370,38 @@ test('new X captures reach a relay before its history import finishes', async (t
   }
 });
 
+test('a truncated X post is backed up with its full public text', async (t) => {
+  const full = 'The opening paragraph.\n\nThe rest of a long post that X hides behind Show more.';
+  const page = 'https://x.com/alice/status/501';
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith('https://publish.x.com/oembed?')) return publicEmbed(input, 'The opening paragraph.');
+    assert.equal(url, page);
+    const data = { data: { tweet_result_by_rest_id: { result: {
+      __typename: 'Tweet', rest_id: '501',
+      core: { user_results: { result: { core: { screen_name: 'alice' }, privacy: { protected: false } } } },
+      details: { full_text: full, created_at_ms: 1700000000000 }, media_entities2: [],
+    } } } };
+    const response = new Response('<script>const data=' + JSON.stringify(JSON.stringify(data)) + '</script>',
+      { headers: { 'Content-Type': 'text/html' } });
+    Object.defineProperty(response, 'url', { value: page });
+    return response;
+  });
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const url = 'wss://long-post.example/';
+  const relay = fixtureRelay(url);
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
+    await success('capture', { posts: [{ author: 'alice', id: '501', time: 1700000000, text: 'The opening paragraph.', truncated: true }] }, x);
+    await until(() => relay.sent.length === 1);
+    assert.equal(relay.sent[0].content, full);
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
     publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));

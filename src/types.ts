@@ -37,6 +37,8 @@ export interface Capture {
   text: string;
   posters?: string[];
   hasQuoteCard?: boolean;
+  /** The timeline showed Show more. The background reads the full public post instead. */
+  truncated?: boolean;
   visibility?: 'public' | 'private' | 'unknown';
 }
 export type SocialNetwork = 'instagram' | 'facebook';
