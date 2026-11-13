@@ -11,7 +11,10 @@ import type {
   LastRun,
   SocialCapture,
   Capture,
+  Settings,
+  XLink,
 } from './types.ts';
+import type { EventTemplate } from 'nostr-tools/pure';
 import { normalizeURL } from 'nostr-tools/utils';
 import type { Sender } from './platform.d.ts';
 import type { ImportOptions, ImportResult } from './relays.ts';
@@ -20,7 +23,9 @@ import { imageDataURL, resolveImage } from './helper-images.ts';
 import { readCooldown, readPointer, readRoot } from './archive.ts';
 import { nsecEncode } from 'nostr-tools/nip19';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
-import { ArchiveEventBus } from './archive-event-bus.ts';
+import { ArchiveEventBus, archiveRouter } from './archive-event-bus.ts';
+import { SimplePool } from 'nostr-tools/pool';
+import { contactsTemplate, findXMatches, identityTemplate, IDENTITY_KIND, isProofPost, type XClaim } from './x-identity.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
 import { relaySource, RelayRateLimitError, retryRelayOutbox } from 'nostr-pubsub';
@@ -33,11 +38,11 @@ import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts
 import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
 import { readPublicXOriginal } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
-import { identity, hex, unhex, handlePattern, parseRelayKinds, relayKindScope, relayList, xTemplate } from './model.ts';
+import { identity, hex, unhex, handlePattern, isOwnEvent, parseRelayKinds, relayKindScope, relayList, xTemplate } from './model.ts';
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
 import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
-import { profileHandle } from './x.ts';
+import { followingHandle, profileHandle } from './x.ts';
 import { readProfile } from './profile.ts';
 import { importWithNegentropy, pool, publish, syncHistory } from './relays.ts';
 import {
@@ -332,6 +337,30 @@ async function processImages(signal: AbortSignal) {
     db.close();
   }
 }
+// The newest own event of a kind, from the archive or the selected relays.
+async function latestOwn(db: Archive, conf: Settings, kind: number) {
+  const local = await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [kind], limit: 1 }]);
+  const relays = new SimplePool();
+  try {
+    const remote = conf.relays.length
+      ? await relays.querySync(conf.relays, { authors: [conf.pubkey], kinds: [kind] }, { maxWait: 5000 })
+      : [];
+    return [...local.events.map((row) => row.event), ...remote]
+      .filter((event) => event.kind === kind && isOwnEvent(event, conf.pubkey))
+      .sort((a, b) => b.created_at - a.created_at)[0];
+  } finally {
+    relays.destroy();
+  }
+}
+// Signs an own non-post event, such as a follow list, archives it and queues it for the relays.
+async function publishOwn(db: Archive, conf: Settings, template: EventTemplate) {
+  const key = await sessionKey();
+  if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+  const event = finalizeEvent(template, unhex(key));
+  await write(() => new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]));
+  void kick();
+}
+
 async function run() {
   const importNow = syncRequested;
   syncRequested = false;
@@ -705,6 +734,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         running: false,
         relays: [],
         x: { captured: 0, signed: 0, matched: 0, drafts: 0 },
+        xFollows: 0,
       } satisfies Status;
     if (msg.type === 'captureConfig') return { capture: false, handle: '' };
     throw Error('Choose a Nostr profile to start your backup.');
@@ -716,7 +746,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && msg.type !== 'captureConfig' && msg.type !== 'capture')
+  if (!trustedPage && msg.type !== 'captureConfig' && msg.type !== 'capture' && msg.type !== 'xFollows')
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -759,6 +789,12 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           verified.push(...group);
         }
       }
+      // Only a verification post the user chose to publish links the X account (a NIP-39 claim).
+      const proof = network === 'x' ? verified.find((post) => post.visibility === 'public' && isProofPost(post.text, conf.pubkey)) : undefined;
+      const linked = (await db.get('meta', 'xLink')) as XLink | undefined;
+      const link = proof && (linked?.handle !== handle || linked.proof !== proof.id)
+        ? identityTemplate(await latestOwn(db, conf, IDENTITY_KIND), handle, proof.id)
+        : undefined;
       await write(async () => {
         const current = await settings();
         const active = network === 'x' ? current : current.social?.[network];
@@ -768,13 +804,31 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         else await saveSocialCaptures(db, verified as SocialCapture[]);
         await signDrafts(db);
       });
+      if (link && proof) {
+        await publishOwn(db, conf, link);
+        await db.put('meta', { handle, proof: proof.id }, 'xLink');
+      }
       kickQuotes();
       kickMedia();
       void kick();
       return;
     }
+    if (msg.type === 'xFollows') {
+      // Handles read from the user's own X following list, to find them on Nostr later.
+      const own = (url?: string) => captureNetwork(url) === 'x' && !!conf.handle && followingHandle(url) === conf.handle;
+      if (!sender.tab || !own(sender.url) || !own(sender.tab.url ?? sender.url)) throw Error('Outside your X following list.');
+      if (!Array.isArray(msg.handles) || msg.handles.length > 200 || !msg.handles.every((h) => typeof h === 'string' && handlePattern.test(h)))
+        throw Error('Invalid following list.');
+      const known = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
+      await db.put('meta', [...new Set([...known, ...msg.handles.map((h) => h.toLowerCase())])].slice(0, 10000), 'xFollows');
+      return;
+    }
     switch (msg.type) {
       case 'status': {
+        const currentXLink = async () => {
+          const link = (await db.get('meta', 'xLink')) as XLink | undefined;
+          return link?.handle === conf.handle ? link : undefined;
+        };
         const root = await readRoot(db);
         const storedRun = await accountRecord('lastRun');
         const lastRun: LastRun | null | undefined =
@@ -857,6 +911,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           indexHash: root ? hex(root.hash) : undefined,
           pointer: await readPointer(db),
           lastRun,
+          xLink: await currentXLink(),
+          xFollows: (((await db.get('meta', 'xFollows')) as string[] | undefined) ?? []).length,
         } satisfies Status;
       }
       case 'publishIndex': {
@@ -914,6 +970,33 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (!conf.relays.length) throw Error('Select a relay first.');
         void kick(true);
         return;
+      case 'findXFollows': {
+        const handles = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
+        if (!conf.relays.length) throw Error('Select a relay first.');
+        const relays = new SimplePool();
+        const proofKey = (claim: XClaim) => ['xProof', claim.pubkey, claim.handle, claim.proof];
+        try {
+          const found = await findXMatches(handles, {
+            query: (identities) => relays.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], '#i': identities }, { maxWait: 6000 }),
+            remembered: async (claim) => (await db.get('meta', proofKey(claim))) as boolean | undefined,
+            remember: (claim, ok) => db.put('meta', ok, proofKey(claim)).then(() => {}),
+            // One check per second keeps the load on X low.
+            pause: () => new Promise((resolve) => setTimeout(resolve, 1000)),
+          });
+          const contacts = await latestOwn(db, conf, 3);
+          const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
+          return { ...found, following: found.matches.map((match) => match.pubkey).filter((key) => following.has(key)) };
+        } finally {
+          relays.destroy();
+        }
+      }
+      case 'followOnNostr': {
+        if (!Array.isArray(msg.pubkeys) || !msg.pubkeys.length || !msg.pubkeys.every((key) => /^[0-9a-f]{64}$/.test(key)))
+          throw Error('Choose people to follow.');
+        // Start from the newest follow list so existing follows are kept.
+        await publishOwn(db, conf, contactsTemplate(await latestOwn(db, conf, 3), msg.pubkeys));
+        return msg.pubkeys.length;
+      }
       case 'syncBlossom': {
         if (!(await sessionKey())) throw Error('Sign in with your secret key to sync media.');
         const count = await queueBlossom(db, await shareableMediaHashes(db), mediaServers(conf), true);

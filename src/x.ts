@@ -136,3 +136,21 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
   }
   return posts;
 }
+
+const following = /^\/([a-z\d_]{1,15})\/following\/?$/i;
+/** The handle whose following list this page shows. */
+export function followingHandle(url?: string) {
+  return following.exec(xPath(url))?.[1].toLowerCase();
+}
+/** Handles listed on the user's own following page, not suggestions elsewhere on the page. */
+export function captureFollows(doc: Document, url: string, handle?: string) {
+  if (!handle || followingHandle(url) !== handle) return [];
+  const found = new Set<string>();
+  for (const cell of doc.querySelectorAll('[data-testid="primaryColumn"] [data-testid="UserCell"]')) {
+    const link = Array.from(cell.querySelectorAll('a[href]'))
+      .map((a) => profileHandle(a.getAttribute('href') ?? undefined))
+      .find(Boolean);
+    if (link && link !== handle) found.add(link);
+  }
+  return [...found];
+}

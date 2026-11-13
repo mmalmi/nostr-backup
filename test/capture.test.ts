@@ -186,3 +186,20 @@ test('a quote card points to its own permalink, separate from the outer commenta
   assert.equal(post.text, 'Commentary\n\nhttps://x.com/alice/status/10');
   assert.equal(post.hasQuoteCard, true);
 });
+
+test('following list reads only cells in the main column of your own following page', async () => {
+  const { captureFollows, followingHandle } = await import('../src/x.ts');
+  const cell = (handle: string) => '<div data-testid="UserCell"><a href="/' + handle + '">' + handle + '</a></div>';
+  const html = '<div data-testid="primaryColumn">' + cell('Bob') + cell('carol') + cell('alice') + '</div>' +
+    '<aside>' + cell('suggested') + '</aside>';
+  const window = new Window({ url: 'https://x.com/alice/following' });
+  try {
+    window.document.body.innerHTML = html;
+    const doc = window.document as unknown as Document;
+    assert.equal(followingHandle('https://x.com/Alice/following'), 'alice');
+    assert.deepEqual(captureFollows(doc, 'https://x.com/alice/following', 'alice'), ['bob', 'carol']);
+    assert.deepEqual(captureFollows(doc, 'https://x.com/bob/following', 'alice'), []);
+  } finally {
+    await window.happyDOM.abort();
+  }
+});

@@ -1,5 +1,5 @@
 import type { Capture, CaptureConfig, SocialCapture } from './types.ts';
-import { capturePosts, profileHandle } from './x.ts';
+import { captureFollows, capturePosts, followingHandle, profileHandle } from './x.ts';
 
 import { captureNetwork, socialProfile } from './social.ts';
 import { captureInstagramPosts, createInstagramCollector, instagramPermalink } from './instagram.ts';
@@ -32,7 +32,20 @@ function startCapture() {
     }
     if (!sending && !retry && pending.size) void flush();
   }
+  // Handles from the user's own X following list, sent once each, to find them on Nostr later.
+  const sentFollows = new Set<string>();
+  function sendFollows() {
+    const handles = captureFollows(document, location.href, config?.handle).filter((h) => !sentFollows.has(h)).slice(0, 200);
+    if (!handles.length) return;
+    for (const handle of handles) sentFollows.add(handle);
+    api.runtime.sendMessage({ type: 'xFollows', handles }).then((reply: { ok?: boolean } | undefined) => {
+      if (!reply?.ok) for (const handle of handles) sentFollows.delete(handle);
+    }, () => {
+      for (const handle of handles) sentFollows.delete(handle);
+    });
+  }
   function collect() {
+    if (network === 'x' && config?.handle && followingHandle(location.href) === config.handle) return sendFollows();
     if (!config?.capture || !onProfile(config.handle)) {
       pending.clear();
       return;
@@ -91,7 +104,7 @@ function startCapture() {
   }
 
   function schedule() {
-    if (frame !== undefined || !config?.capture) return;
+    if (frame !== undefined || !config?.handle) return;
     frame = requestAnimationFrame(() => {
       frame = undefined;
       collect();

@@ -1,4 +1,5 @@
 import type { RelayDelivery as Delivery } from 'nostr-pubsub';
+import type { XMatch } from './x-identity.ts';
 import type { CID } from '@hashtree/core';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
@@ -54,6 +55,8 @@ export interface Entry {
   source?: string;
   targets?: string[];
   posters?: string[];
+  /** Send this own event to relays even when its kind is not a post, such as a follow list. */
+  announce?: boolean;
 }
 export type CaptureDelivery = Delivery & { network?: SocialNetwork };
 export type { CaptureDelivery as Delivery };
@@ -98,7 +101,7 @@ export interface BlossomDelivery {
 export interface ArchiveSchema extends DBSchema {
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
   blocks: { key: string; value: Uint8Array };
-  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number };
+  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink };
   events: { key: string; value: Event; indexes: { created_at: number } };
   drafts: { key: string; value: Capture | SocialCapture };
   localCaptures: { key: string; value: Capture | SocialCapture };
@@ -157,8 +160,16 @@ export interface Profile {
   displayName: string;
   picture?: string;
 }
+/** The X post that proves this profile's X account, published as a NIP-39 claim. */
+export interface XLink {
+  handle: string;
+  proof: string;
+}
 export interface Status {
   conf: Settings;
+  xLink?: XLink;
+  /** How many accounts were read from the user's X following list. */
+  xFollows: number;
   profile?: Profile;
   unlocked: boolean;
   events: number;
@@ -215,6 +226,9 @@ export interface Payloads {
   authorizeMediaUpload: { hash: string; server: string };
   nip07: { token: string; method: string; event?: unknown };
   approval: { id: string; decision?: boolean; remember?: boolean };
+  xFollows: { handles: string[] };
+  findXFollows: {};
+  followOnNostr: { pubkeys: string[] };
 }
 export type Action = keyof Payloads;
 export type Message<K extends Action = Action> = {
@@ -231,6 +245,8 @@ interface ActionResults {
   approval: Approval | void;
   syncBlossom: number;
   broadcast: number;
+  findXFollows: { matches: XMatch[]; unchecked: number; following: string[] };
+  followOnNostr: number;
 }
 export type Result<K extends Action> = K extends keyof ActionResults
   ? ActionResults[K]

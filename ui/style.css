@@ -541,6 +541,28 @@ ul:empty {
   font-size: 0.82rem;
   font-weight: 600;
 }
+.xNostr {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.xNostr summary {
+  cursor: pointer;
+  font-weight: 600;
+  width: fit-content;
+}
+.xNostr h4 {
+  margin: 16px 0 4px;
+  font-size: 0.92rem;
+}
+.xMatches {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.xMatches small {
+  color: var(--muted);
+}
 .sourceCount {
   padding-top: 12px;
   border-top: 1px solid var(--line);
@@ -614,6 +636,11 @@ ul:empty {
   color: var(--brand);
   font-weight: 600;
   text-decoration: none;
+}
+.setupLinks small {
+  display: block;
+  margin: 4px 2px 0;
+  color: var(--muted);
 }
 .setupLinks a:hover {
   background: var(--soft);

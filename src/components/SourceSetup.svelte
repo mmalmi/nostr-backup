@@ -72,6 +72,13 @@
           >
         </li>
       {/each}
+      {#if clean(usernames.x)}
+        <li>
+          <a href={'https://x.com/' + clean(usernames.x) + '/following'} target="_blank" rel="noopener noreferrer"
+            >Open who you follow on X</a
+          ><small>Scroll it, then find them on Nostr from Sources.</small>
+        </li>
+      {/if}
     </ul>
     <button id="finishSetup" onclick={finish}>Go to your backup</button>
   {/if}

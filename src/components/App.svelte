@@ -47,8 +47,8 @@
     pubkey = next.conf.pubkey;
     if (!pubkey) page.setup = false;
     page.status = next;
-    const { conf, unlocked, x, social, localX } = next;
-    sources.show({ conf, unlocked, x, social, localX }, changed ? 'replace' : initial ? 'sync' : 'none');
+    const { conf, unlocked, x, social, localX, xLink, xFollows } = next;
+    sources.show({ conf, unlocked, x, social, localX, xLink, xFollows }, changed ? 'replace' : initial ? 'sync' : 'none');
     if (initial || changed) loadForm(conf);
     if (pubkey && changed && !location.hash) {
       history.replaceState(null, '', '#archive');

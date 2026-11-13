@@ -101,14 +101,18 @@ class Wire extends EventTarget {
       subscriptions.push(filter);
       dest?.reads?.push(filter);
       if (dest?.readLimit) return receive(['CLOSED', id, ...dest.readLimit]);
+      // Tag filters such as #i match any listed value, as on real relays.
+      const tagsMatch = (e: NostrEvent) => Object.entries(filter).every(([key, values]) =>
+        !key.startsWith('#') || e.tags.some(([name, value]) => name === key.slice(1) && (values as string[]).includes(value)));
       const matches = (dest ? [...dest.stored.values()] : [native]).filter(
         (e) =>
           e.id !== dest?.withheld &&
-          e.created_at <= filter.until &&
+          e.created_at <= (filter.until ?? Infinity) &&
           e.created_at >= (filter.since ?? 0) &&
           (!filter.ids || filter.ids.includes(e.id)) &&
-          filter.authors.includes(e.pubkey) &&
-          (!filter.kinds || filter.kinds.includes(e.kind)),
+          (!filter.authors || filter.authors.includes(e.pubkey)) &&
+          (!filter.kinds || filter.kinds.includes(e.kind)) &&
+          tagsMatch(e),
       );
       matches.sort((a, b) => b.created_at - a.created_at);
       for (const e of matches.slice(0, filter.limit)) receive(['EVENT', id, e]);
@@ -1483,6 +1487,53 @@ test('sources save switches at once but keep a typed username unsaved until Save
     assert.equal((await conf()).handle, 'alice');
     assert.equal(id('handle').value, 'not valid!');
     assert.ok(page.document.querySelector('.unsaved'));
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('X linking, follow lookup and following on Nostr are separate and keep existing follows', async (t) => {
+  const { proofTweet } = await import('../src/x-identity.ts');
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const bob = generateSecretKey(), impostor = generateSecretKey(), friend = getPublicKey(generateSecretKey());
+  const url = 'wss://identity.example/';
+  const relay = fixtureRelay(url);
+  const store = (event: NostrEvent) => relay.stored.set(event.id, event);
+  // Bob proved his X account; someone else copied his proof tweet ID.
+  for (const key of [bob, impostor])
+    store(finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:bob', '77']] }, key));
+  store(finalizeEvent({ kind: 3, created_at: 9, content: '', tags: [['p', friend]] }, secret));
+  const tweets: Record<string, string> = {
+    '501': proofTweet(owner),
+    '77': 'Verifying my account on nostr My Public Key: ' + getPublicKey(bob),
+  };
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) =>
+    publicTweet(input, tweets[String(input).split('/').pop()!] ?? 'Hello'));
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
+    // Publishing your own proof happens only when you post a verification tweet.
+    await success('capture', { posts: [{ author: 'alice', id: '500', time: 1700000000, text: 'My nostr is ' + npubEncode(owner) }] }, x);
+    await idle();
+    assert.equal((await success('status')).xLink, undefined);
+    await success('capture', { posts: [{ author: 'alice', id: '501', time: 1700000001, text: proofTweet(owner) }] }, x);
+    await until(() => relay.sent.some((e) => e.kind === 10011));
+    assert.deepEqual(relay.sent.find((e) => e.kind === 10011)!.tags, [['i', 'twitter:alice', '501'], ['client', 'Social Backup']]);
+    assert.deepEqual((await success('status')).xLink, { handle: 'alice', proof: '501' });
+    // Your following list is read only from your own following page.
+    const following = { ...x, url: 'https://x.com/alice/following', tab: { id: 1, url: 'https://x.com/alice/following' } };
+    assert.equal((await call('xFollows', { handles: ['bob'] }, x)).ok, false);
+    await success('xFollows', { handles: ['bob', 'carol'] }, following);
+    assert.equal((await success('status')).xFollows, 2);
+    // Looking people up checks each proof: the impostor fails.
+    const found = await success('findXFollows');
+    assert.deepEqual(found.matches.map((m) => m.pubkey), [getPublicKey(bob)]);
+    assert.equal(found.unchecked, 0);
+    assert.deepEqual(found.following, []);
+    await success('followOnNostr', { pubkeys: [getPublicKey(bob)] });
+    await until(() => relay.sent.some((e) => e.kind === 3));
+    assert.deepEqual(relay.sent.find((e) => e.kind === 3)!.tags, [['p', friend], ['p', getPublicKey(bob)]]);
   } finally {
     await idle();
     await success('logout', { pubkey: owner });

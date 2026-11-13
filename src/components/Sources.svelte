@@ -2,6 +2,7 @@
   import type { SocialNetwork } from '../types.ts';
   import type { SourceSettings, SourcesView } from './views.ts';
   import XStats from './XStats.svelte';
+  import XOnNostr from './XOnNostr.svelte';
 
   // Switches save as they change. A username saves only when the user chooses Save or presses
   // Enter, because a partial username would back up someone else's profile.
@@ -143,6 +144,7 @@
     posts already on Nostr</label
   >
   <XStats x={view?.x} localX={view?.localX} />
+  <XOnNostr {view} />
 </section>
 
 {#each networks as network (network.id)}

@@ -78,6 +78,7 @@ export class ArchiveEventBus implements EventBus {
         source: entry.source,
         posters: entry.posters?.slice(),
         targets: source.kind === 'local-index' ? [...(entry.targets ?? this.relays)] : [],
+        announce: entry.announce,
       };
     });
     for (;;) {
@@ -128,12 +129,13 @@ async function commit(
   }
   for (const [key, bytes] of blocks) tx.objectStore('blocks').put(bytes, key);
   if (root) tx.objectStore('meta').put(root, 'root');
+  const announced = new Set(entries.filter((entry) => entry.announce).map((entry) => entry.event.id));
   for (const [id, event] of fresh) {
     tx.objectStore('events').put(JSON.parse(JSON.stringify(event)), id);
-    if (!PUBLIC_POST_KINDS.includes(event.kind))
+    if (!PUBLIC_POST_KINDS.includes(event.kind) && !announced.has(id))
       tx.objectStore('heldEvents').put('local-only kind', id);
   }
-  for (const { event, source, targets, posters } of entries) {
+  for (const { event, source, targets, posters, announce } of entries) {
     if (fresh.has(event.id)) {
       for (const ref of mediaReferences(event, posters)) {
         if (source && ref.expected && !ref.invalidHash && await tx.objectStore('mediaFiles').getKey(ref.expected)) {
@@ -150,7 +152,7 @@ async function commit(
       tx.objectStore('sources').put(event.id, source);
       tx.objectStore('drafts').delete(source);
     }
-    if (!PUBLIC_POST_KINDS.includes(event.kind)) continue;
+    if (!PUBLIC_POST_KINDS.includes(event.kind) && !announce) continue;
     const outbox = tx.objectStore('outbox');
     await enqueueRelayPublication(
       event,
