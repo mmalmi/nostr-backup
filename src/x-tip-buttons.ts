@@ -1,12 +1,14 @@
 import type { Message, TipTarget } from './types.ts';
 import { profileHandle, xPermalink } from './x.ts';
 import { fiatLabel, localCurrency } from './rates.ts';
+import qrcode from 'qrcode-generator';
 
 // Adds a quiet ⚡ button to X posts and profiles of people with a verified Nostr profile
 // that can receive tips. Paying happens in the user's own wallet via a lightning: link.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
-const AMOUNTS = [21, 100, 1000];
+// The same presets as Iris.
+const AMOUNTS: [number, string][] = [[21, '👍'], [100, '💯'], [1000, '🔥']];
 const MARK = 'data-social-backup-tip';
 
 function author(article: Element) {
@@ -87,6 +89,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
       button,a{flex:1;font:600 13px system-ui;border-radius:8px;padding:7px 0;cursor:pointer;
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
       button.alt{background:none;color:inherit;border-color:#dce2ec}
+      .qr{width:176px;height:176px;margin:4px auto 12px;background:#fff;border-radius:8px;padding:6px}
+      .qr svg{width:100%;height:100%;display:block}
+      .address{display:flex;align-items:center;gap:6px} .address button{flex:0;padding:2px 8px;font-weight:400}
     </style><div class="box" role="dialog" aria-label="Tip"></div>`;
     const box = root.querySelector('.box')!;
     const show = (html: string) => (box.innerHTML = html);
@@ -96,7 +101,10 @@ export function createTipButtons(send: Send, doc: Document = document) {
       text.textContent = 'Tips for your posts go to ' + target.lightning + '.';
       box.append(text);
     } else {
-      show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small>');
+      show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small><small class="address"><span></span><button class="alt">Copy</button></small>');
+      // Paying the lightning address directly also works, without the zap.
+      box.querySelector('.address span')!.textContent = target.lightning;
+      box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(target.lightning));
       const row = box.querySelector('.row')!;
       // Look for this post's Nostr copy now, not while scrolling, so relays only learn about posts you tip.
       if (post)
@@ -113,9 +121,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
       rate ??= send({ type: 'tipRate', currency })
         .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
         .catch(() => null);
-      for (const sats of AMOUNTS) {
+      for (const [sats, emoji] of AMOUNTS) {
         const choice = doc.createElement('button');
-        choice.textContent = sats.toLocaleString() + ' sats';
+        choice.textContent = emoji + ' ' + sats.toLocaleString();
         void rate.then((perBitcoin) => {
           if (!perBitcoin) return;
           const estimate = doc.createElement('small');
@@ -133,7 +141,14 @@ export function createTipButtons(send: Send, doc: Document = document) {
             return;
           }
           const invoice = reply.value;
-          show('<p>Pay ' + sats.toLocaleString() + ' sats in your wallet.</p><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
+          if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
+          // Scan with a phone wallet, or open the wallet on this computer.
+          const qr = qrcode(0, 'M');
+          qr.addData('lightning:' + invoice);
+          qr.make();
+          show('<p>Pay ' + sats.toLocaleString() + ' sats in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
+            qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
+            '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
           box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
           box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
         });

@@ -76,6 +76,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     await new Promise((resolve) => setTimeout(resolve, 10));
     // Amounts show a fiat estimate from the page's currency.
     assert.match(box().querySelector('button small')!.textContent!, /^(≈|<) /);
+    assert.match(box().querySelector('.address')!.textContent!, /alice@wallet\.example/);
     // Opening the popover looks for this post's Nostr copy, with its time and opening text.
     const lookup = sent.find((m) => m.type === 'tipPost')!;
     assert.equal(lookup.post, '9');
@@ -86,6 +87,8 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 21, post: '9' });
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
+    // A QR code lets a phone wallet pay the same invoice.
+    assert.ok(box().querySelector('.qr svg'));
     // Your own posts show where tips go instead of amounts.
     (buttons[1] as HTMLElement).click();
     assert.match(box().textContent!, /me@wallet\.example/);

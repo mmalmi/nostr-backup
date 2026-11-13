@@ -48,6 +48,9 @@ importers:
       nostr-tools:
         specifier: 2.25.2
         version: 2.25.2(typescript@5.9.3)
+      qrcode-generator:
+        specifier: 2.0.4
+        version: 2.0.4
       svelte:
         specifier: 5.57.3
         version: 5.57.3
@@ -527,6 +530,9 @@ packages:
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
+
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
@@ -969,6 +975,8 @@ snapshots:
       boolbase: 2.0.0
 
   picocolors@1.1.1: {}
+
+  qrcode-generator@2.0.4: {}
 
   readdirp@4.1.2: {}
 
