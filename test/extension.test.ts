@@ -47,6 +47,7 @@ interface FixtureRelay {
   readLimit?: string[];
   publishLimit?: string[];
   holdPublish?: Promise<void>;
+  holdRead?: Promise<void>;
 }
 const broadcastRelays = new Map<string, FixtureRelay>();
 const wireOpens: string[] = [];
@@ -73,6 +74,7 @@ class Wire extends EventTarget {
         this.onmessage?.(message);
       }, 0);
     const dest = this.destination;
+    if (type === 'NEG-OPEN' || type === 'REQ') await dest?.holdRead;
     if (type === 'NEG-OPEN' || type === 'NEG-MSG') {
       if (type === 'NEG-OPEN') {
         dest?.filters.push(filter);
@@ -886,7 +888,9 @@ test('archive button reconciles each relay, falls back and retries with capture 
   assert.equal(status.pending, 1);
   await configure([capable]);
   await idle();
-  assert.equal((await success('status')).pending, 1);
+  // A removed relay keeps its queued copy for later, but it no longer counts as waiting.
+  assert.equal((await success('status')).pending, 0);
+  assert.equal(await db.count('outbox'), 1);
   fallback.reject = undefined;
   await configure(relays);
   await idle();
@@ -1334,6 +1338,55 @@ test('X captures sign locally even while the previous delivery has no reply', as
   } finally {
     held.resolve();
     await until(async () => !(await success('status')).running);
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('new X captures reach a relay before its history import finishes', async (t) => {
+  t.mock.method(globalThis, 'fetch', (url: URL) =>
+    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const url = 'wss://slow-history.example/';
+  const relay = fixtureRelay(url);
+  const reads = Promise.withResolvers<void>();
+  relay.holdRead = reads.promise;
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: true, relays: url });
+    await success('capture', { posts: [{ author: 'alice', id: '1', time: 1700000000, text: 'Post 1' }] }, x);
+    await until(() => relay.sent.some(event => event.content === 'Post 1'));
+    assert.equal((await success('status')).pending, 0);
+  } finally {
+    reads.resolve();
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
+  t.mock.method(globalThis, 'fetch', (url: URL) =>
+    publicEmbed(url, 'Post ' + new URL(String(url)).searchParams.get('url')!.split('/').pop()));
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const a = 'wss://count-a.example/', b = 'wss://count-b.example/', gone = 'wss://count-gone.example/';
+  const relays = [a, b, gone].map(url => fixtureRelay(url));
+  const held = Promise.withResolvers<void>();
+  for (const relay of relays) relay.holdPublish = held.promise;
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    const settings = (urls: string[]) =>
+      success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: urls.join('\n') });
+    await settings([a, b, gone]);
+    const post = (id: string) => ({ author: 'alice', id, time: 1700000000, text: 'Post ' + id });
+    await success('capture', { posts: [post('1'), post('2')] }, x);
+    await until(() => relays.every(relay => relay.sent.length === 1));
+    assert.equal((await success('status')).pending, 2);
+    await settings([a, b]);
+    const status = await success('status');
+    assert.equal(status.pending, 2);
+    assert.deepEqual(status.relays.map(relay => relay.pending), [2, 2]);
+  } finally {
+    held.resolve();
+    await idle();
     await success('logout', { pubkey: owner });
   }
 });

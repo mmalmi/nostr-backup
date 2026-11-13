@@ -421,12 +421,28 @@ async function run() {
         },
       };
       const rows = pending.filter((row) => row.relay === url);
+      // New captures go out first. Only copies of imported history need the import's inventory.
+      const fresh = rows.filter((row) => !row.broadcast),
+        copies = rows.filter((row) => row.broadcast);
       const importing = imports.has(url) && (await importOptions.enabled());
       if (importing) await schedulePoll(url, Date.now() + day);
       const publishingIndex = pointer?.pending.includes(url);
       if (importing || rows.length || publishingIndex) {
         progress.phase = 'connecting';
         await pool.ensureRelay(url, { connectionTimeout: 7000 });
+      }
+      let delivered = { sent: 0, present: 0, failed: 0 };
+      const track = (state: { sent: number; present: number; failed: number; error?: string }) => {
+        progress.sent = delivered.sent + state.sent;
+        progress.present = delivered.present + state.present;
+        progress.failed = delivered.failed + state.failed;
+        if (state.error) progress.detail = state.error;
+      };
+      if (fresh.length) {
+        progress.phase = 'broadcasting';
+        const report = await deliverPending(db, url, fresh, settings, conf.pubkey, undefined, track);
+        if (report) messages.push(report);
+        delivered = { sent: progress.sent, present: progress.present, failed: progress.failed };
       }
       let imported: ImportResult | undefined;
       if (importing) {
@@ -449,23 +465,12 @@ async function run() {
       )
         await schedulePoll(url, Date.now() + 300000);
       if (imported?.report) messages.push(imported.report);
-      if (rows.length) progress.phase = 'broadcasting';
-      const importFailed = progress.failed;
-      const report = await deliverPending(
-        db,
-        url,
-        rows,
-        settings,
-        conf.pubkey,
-        imported,
-        (state) => {
-          progress.sent = state.sent;
-          progress.present = state.present;
-          progress.failed = importFailed + state.failed;
-          if (state.error) progress.detail = state.error;
-        },
-      );
-      if (report) messages.push(report);
+      if (copies.length) {
+        progress.phase = 'broadcasting';
+        delivered = { sent: progress.sent, present: progress.present, failed: progress.failed };
+        const report = await deliverPending(db, url, copies, settings, conf.pubkey, imported, track);
+        if (report) messages.push(report);
+      }
       if (!changing && (await settings()).relays.includes(url)) {
         if (publishingIndex) progress.phase = 'index';
         const receipt = await deliverIndexPointer(db, url, publish);
@@ -766,7 +771,11 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const storedRun = (await api.storage.local.get('lastRun')).lastRun;
         const lastRun: LastRun | null | undefined =
           storedRun?.pubkey && storedRun.pubkey !== conf.pubkey ? undefined : storedRun;
-        const pending = await db.getAll('outbox');
+        // Rows for removed relays, paused capture or local-only events are kept but will not send now.
+        const heldIds = new Set(await db.getAllKeys('heldEvents'));
+        const pending = (await db.getAll('outbox')).filter(
+          (row) => conf.relays.includes(row.relay) && canDeliverCapture(row, conf) && !heldIds.has(row.id),
+        );
         const stats = db.transaction(['sources', 'drafts', 'xMatches', 'xMedia', 'localCaptures', 'heldEvents']);
         const local = stats.objectStore('localCaptures');
         const prefix = (name: string) => IDBKeyRange.bound(name + ':', name + ';', false, true);
@@ -833,7 +842,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           localX: localX + held.filter(source => source.startsWith('x:')).length,
           x: { captured: mapped + xDrafts.length + localX, signed: mapped - matched, matched, drafts: xDrafts.length - imagePosts.length,
             ...(imagePosts.length ? {media: imagePosts.length, mediaError} : {}) },
-          pending: pending.length,
+          pending: new Set(pending.map((row) => row.id)).size,
           relays,
           running: !!running,
           preparingIndex: !!preparing,
