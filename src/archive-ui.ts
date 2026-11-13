@@ -2,10 +2,9 @@ import { errorMessage, type Profile } from './types.ts';
 import { mediaServers, publicMediaURL } from './media-refs.ts';
 import { settings } from './accounts.ts';
 import { resetOnboarding, setupOnboarding } from './onboarding.ts';
-import { npubEncode } from 'nostr-tools/nip19';
 import { showRelayStatus } from './relay-status-ui.ts';
 import { DEFAULT_RELAYS } from './default-relays.ts';
-import { relayList, secretKey } from './model.ts';
+import { relayList } from './model.ts';
 import { indexName } from './index-pointer.ts';
 import { showStorage } from './storage-ui.ts';
 import { api, el, send, notice, on } from './ui.ts';
@@ -16,6 +15,8 @@ import { mount } from 'svelte';
 import Sources from './components/Sources.svelte';
 import ProfileSlot from './components/ProfileSlot.svelte';
 import type { SourcesPanel } from './components/views.ts';
+import Account from './components/Account.svelte';
+import { app, page } from './components/page.svelte.ts';
 
 const header = mount(ProfileSlot, { target: el('profileSlot') }) as {
   show(pubkey: string, profile: Profile | undefined, readOnly: boolean): void;
@@ -30,10 +31,10 @@ const sources = mount(Sources, {
       }),
   },
 }) as SourcesPanel;
+mount(Account, { target: el('accountPanel') });
+app.refresh = (initial) => refresh(initial);
 
-let permissionState = '';
 let archiveName: string | undefined,
-  confirmingDelete: string | undefined,
   publishing = false,
   refreshId = 0;
 let shownRelays = '';
@@ -55,11 +56,6 @@ function showRelays(relays: string[]) {
     }),
   );
 }
-function cancelDelete() {
-  confirmingDelete = undefined;
-  el('deleteConfirm').hidden = true;
-  el('deleteStart').hidden = false;
-}
 function selectSection() {
   if (location.hash === '#settings') history.replaceState(null, '', '#account');
   if (location.hash === '#x' || location.hash === '#profiles') history.replaceState(null, '', '#sources');
@@ -71,10 +67,7 @@ function selectSection() {
   }
   for (const panel of document.querySelectorAll<HTMLElement>('[data-panel]'))
     panel.hidden = '#' + panel.dataset.panel !== current.hash;
-  if (current.hash !== '#account') {
-    cancelDelete();
-    el('secret').value = '';
-  }
+  page.section = current.hash.slice(1);
 }
 window.addEventListener('hashchange', () => {
   selectSection();
@@ -82,11 +75,11 @@ window.addEventListener('hashchange', () => {
 });
 let pubkey = '',
   queuingBroadcast = false,
-  unlocking = false,
   syncing = false,
   lastRefresh = 0;
 async function refresh(initial = false) {
   const request = ++refreshId;
+  const status = await send('status');
   const {
     conf,
     profile,
@@ -102,16 +95,13 @@ async function refresh(initial = false) {
     indexHash,
     pointer,
     preparingIndex,
-  } = await send('status');
+  } = status;
   if (request !== refreshId) return;
   syncing = running;
   lastRefresh = Date.now();
   const changed = pubkey !== conf.pubkey;
-  if (changed) {
-    resetOnboarding();
-    cancelDelete();
-    el('secret').value = '';
-  }
+  if (changed) resetOnboarding();
+  page.status = status;
   archiveName = conf.archiveName;
   pubkey = conf.pubkey;
   header.show(pubkey, profile, !unlocked);
@@ -148,11 +138,6 @@ async function refresh(initial = false) {
     el('relaySync').checked = conf.relaySync;
   }
   el('backupSettings').hidden = !pubkey;
-  el('manageArchive').hidden = !pubkey;
-  el('logout').hidden = !pubkey;
-  el('currentIdentity').hidden = !pubkey;
-  const npub = pubkey ? npubEncode(pubkey) : '';
-  el('accountNpub').value = npub;
   el('download').disabled = !pubkey;
   el('pointerSection').hidden = !pubkey;
   el('indexAddress').value = pubkey ? 'htree://' + indexName(pubkey) : '';
@@ -184,32 +169,6 @@ async function refresh(initial = false) {
     (needs.length ? ' Publishing requires ' + needs.join(', ') + '.' : '');
   for (const [k, n] of Object.entries({ events, drafts, pending }))
     el(k).textContent = String(n);
-  el('lockState').hidden = unlocked;
-  if (pubkey && location.hash === '#account') {
-    const owner = pubkey;
-    const rules = await send('listPermissions', { account: owner });
-    if (request !== refreshId) return;
-    const state = JSON.stringify([owner, rules]);
-    if (state !== permissionState) {
-      permissionState = state;
-      const origins = [...new Set(rules.map(rule => rule.origin))];
-      el('permissionList').replaceChildren(...origins.map(origin => {
-        const li = document.createElement('li');
-        const button = document.createElement('button');
-        button.textContent = 'Revoke';
-        button.className = 'secondary';
-        button.onclick = () => send('forgetPermissions', { account: owner, origin })
-          .then(() => refresh()).catch(error => notice(error.message));
-        li.append(origin + ' · ' + rules.filter(rule => rule.origin === origin)
-          .map(rule => rule.kind === -1 ? 'login' : rule.kind === 1 ? 'posts' : 'reactions').join(', ') + ' ', button);
-        return li;
-      }));
-      el('sitePermissions').hidden = !rules.length;
-    }
-  }
-  el('unlock').hidden = unlocked;
-  el('lock').hidden = !unlocked;
-  el('copyPrivateKey').hidden = !unlocked;
   el('sync').disabled = running || !pubkey;
   el('rescan').disabled = running || !pubkey;
   el('broadcast').textContent = conf.relaySync
@@ -266,62 +225,7 @@ on('addRelay', 'click', () => {
   el('backupSettings').requestSubmit();
 });
 on('relaySync', 'change', () => el('backupSettings').requestSubmit());
-async function unlockSigner() {
-  if (unlocking) return;
-  const key = el('secret').value;
-  secretKey(key);
-  unlocking = true;
-  el('secret').disabled = true;
-  el('secret').value = '';
-  try {
-    await send('login', { key, account: pubkey });
-    await refresh(true);
-    notice('');
-  } finally {
-    unlocking = false;
-    el('secret').disabled = false;
-  }
-}
-on('unlock', 'submit', unlockSigner);
-on('secret', 'input', () => {
-  try {
-    secretKey(el('secret').value);
-  } catch {
-    return;
-  }
-  return unlockSigner();
-});
-on('lock', 'click', async () => {
-  await send('lock', { account: pubkey });
-  await refresh();
-  notice('Account locked.');
-});
 setupOnboarding(() => refresh(true));
-on('logout', 'click', async () => {
-  await send('logout', { pubkey });
-  await refresh(true);
-  notice('Logged out. Your archive is saved on this device.');
-});
-on('deleteStart', 'click', () => {
-  confirmingDelete = pubkey;
-  el('deleteStart').hidden = true;
-  el('deleteConfirm').hidden = false;
-  el('cancelDelete').focus();
-});
-on('cancelDelete', 'click', cancelDelete);
-on('deleteAccount', 'click', async () => {
-  if (!confirmingDelete || confirmingDelete !== pubkey)
-    throw Error('Confirm which archive to delete.');
-  await send('deleteAccount', { pubkey: confirmingDelete, confirmed: true });
-  cancelDelete();
-  await refresh(true);
-  notice('Local archive deleted.');
-});
-on('copyPrivateKey', 'click', async () => {
-  const key = await send('exportPrivateKey', { account: pubkey });
-  await navigator.clipboard.writeText(key);
-  notice('Secret key copied.');
-});
 on('copyIndex', 'click', async () => {
   await navigator.clipboard.writeText(el('indexAddress').value);
   notice('Hashtree address copied.');

@@ -199,54 +199,7 @@
             </div>
             <button class="secondary" id="refreshStats">Refresh statistics</button>
           </div>
-          <div data-panel="account" hidden>
-            <h2>Account</h2>
-            <section>
-              <h3>Profile</h3>
-              <p id="lockState" hidden>You can view this backup. Enter your secret key to back up new posts or approve website requests.</p>
-              <label id="currentIdentity" hidden
-                >User ID<input id="accountNpub" readonly spellcheck="false"
-              /></label>
-              <p class="hint">Your user ID is safe to share. Keep a copy of your secret key somewhere private. Anyone with it can use your account.</p>
-              <form id="unlock">
-                <label
-                  >Secret key<input
-                    id="secret"
-                    type="password"
-                    required
-                    placeholder="Paste your secret key"
-                    autocomplete="off"
-                    spellcheck="false"
-                /></label>
-              </form>
-              <div class="actions">
-                <button id="copyPrivateKey" class="secondary" hidden>Copy secret key</button>
-                <button id="lock" class="secondary" hidden>Lock account</button>
-                <button id="logout" class="secondary" hidden>Log out</button>
-              </div>
-            </section>
-
-            <section id="sitePermissions" hidden>
-              <h3>Website permissions</h3>
-              <ul id="permissionList"></ul>
-            </section>
-            <section id="manageArchive" hidden>
-              <h3>Local data</h3>
-              <p><a href="#storage">See what’s saved on this device</a></p>
-              <button id="deleteStart" class="secondary">Delete local archive…</button>
-              <div id="deleteConfirm" hidden>
-                <p>
-                  Delete the posts, drafts, media, settings and queued deliveries saved in
-                  this browser for this profile? Remote copies and downloaded ZIPs are
-                  kept.
-                </p>
-                <div class="actions">
-                  <button id="deleteAccount" class="danger">Delete local archive</button>
-                  <button id="cancelDelete" class="secondary">Cancel</button>
-                </div>
-              </div>
-            </section>
-          </div>
+          <div data-panel="account" id="accountPanel" hidden></div>
         </div>
       </div>
       <form id="backupSettings"><textarea id="relays" hidden></textarea></form>

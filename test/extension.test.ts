@@ -295,8 +295,9 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
     ext + 'archive.html#media',
   );
   const id = pageElements(page);
+  // Input and change events bubble in browsers. Svelte listens for them at the page root.
   const dispatch = (name: string, event: string) =>
-    page.document.getElementById(name)!.dispatchEvent(new page.Event(event));
+    page.document.getElementById(name)!.dispatchEvent(new page.Event(event, { bubbles: true }));
   await until(() => !id('onboarding').hidden);
   assert.equal(id('workspace').hidden, true);
   assert.equal(page.document.activeElement?.id, 'profileName');
@@ -1309,10 +1310,11 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   page.dispatchEvent(new page.Event('hashchange'));
   await until(() => id('accountNpub').value === npubEncode(owner));
   id('deleteStart').click();
-  assert.equal(id('deleteConfirm').hidden, false);
+  await until(() => !id('deleteConfirm').hidden);
   id('cancelDelete').click();
-  assert.equal(id('deleteConfirm').hidden, true);
+  await until(() => id('deleteConfirm').hidden);
   id('deleteStart').click();
+  await until(() => !id('deleteConfirm').hidden);
   id('deleteAccount').click();
   await until(() => id('notice').textContent.includes('Local archive deleted.'));
   assert.equal((await success('status')).conf.pubkey, '');
