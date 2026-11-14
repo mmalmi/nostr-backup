@@ -17,6 +17,8 @@
   let instagramProfile: NewProfile | undefined;
   const edited = new Set<keyof Usernames>();
   let profile = $state<NewProfile>({ name: '' });
+  // Profile details you typed or removed are never replaced by ones that arrive later.
+  const touched = new Set<keyof NewProfile>();
   let filledFrom = '';
   let loading = $state(false);
   let signingIn = false;
@@ -37,6 +39,7 @@
     instagramProfile = undefined;
     filledFrom = '';
     edited.clear();
+    touched.clear();
   }
   export function focus() {
     (step === 'signin' ? keyField : step === 'profile' ? nameField : xField?.querySelector('input'))?.focus();
@@ -94,21 +97,27 @@
     });
     page.accounts = { ...usernames };
     // The public profile of the X account, with the signed-in Instagram account filling what X lacks.
+    // The profile screen opens at once and fills in as the X profile arrives.
     const instagram = detected.instagram && clean(usernames.instagram) === detected.instagram ? instagramProfile : undefined;
     const source = handle + ' ' + (instagram ? detected.instagram : '');
-    if (source.trim() && source !== filledFrom) {
-      loading = true;
-      try {
-        const fromX = handle ? await send('xProfile', { handle }).catch(() => null) : null;
-        if (fromX || instagram) {
-          profile = { ...instagram, ...fromX } as NewProfile;
-          filledFrom = source;
-        }
-      } finally {
-        loading = false;
-      }
-    }
     await show('profile');
+    if (!source.trim() || source === filledFrom) return;
+    filledFrom = source;
+    if (instagram) fill(instagram);
+    loading = !!handle;
+    if (!handle) return;
+    const fromX = await send('xProfile', { handle }).catch(() => null);
+    if (filledFrom !== source) return;
+    loading = false;
+    if (fromX) fill({ ...instagram, ...fromX });
+  }
+  function fill(next: Partial<NewProfile>) {
+    for (const field of ['name', 'about', 'picture', 'banner', 'website'] as const)
+      if (!touched.has(field) && (field !== 'name' || next.name)) profile[field] = next[field] as string;
+  }
+  function remove(field: 'picture' | 'banner' | 'website') {
+    touched.add(field);
+    profile[field] = undefined;
   }
   async function skip() {
     page.accounts = { x: '', facebook: '', instagram: '' };
@@ -190,7 +199,7 @@
   </div>
   <div class="setupActions">
     <button type="button" class="quiet" id="skipAccounts" onclick={run(skip)}>Skip</button>
-    <button type="submit" id="accountsNext" disabled={loading}>{loading ? 'Loading…' : 'Continue'}</button>
+    <button type="submit" id="accountsNext">Continue</button>
   </div>
 </form>
 
@@ -201,7 +210,7 @@
       <div class="previewBanner">
         <img src={profile.banner} alt="" />
         <button type="button" class="remove" id="removeBanner" aria-label="Remove banner" title="Remove banner"
-          onclick={() => (profile.banner = undefined)}>×</button
+          onclick={() => remove('banner')}>×</button
         >
       </div>
     {/if}
@@ -210,7 +219,7 @@
         {#if profile.picture}
           <img src={profile.picture} alt="" />
           <button type="button" class="remove" id="removePicture" aria-label="Remove picture" title="Remove picture"
-            onclick={() => (profile.picture = undefined)}>×</button
+            onclick={() => remove('picture')}>×</button
           >
         {:else}{profile.name.trim().slice(0, 1).toUpperCase()}{/if}
       </span>
@@ -218,20 +227,23 @@
         id="profileName"
         bind:this={nameField}
         bind:value={profile.name}
-        oninput={run(usePastedKey)}
+        oninput={(event) => {
+          touched.add('name');
+          run(usePastedKey)(event);
+        }}
         aria-label="Your name"
-        placeholder="What's your name?"
+        placeholder={loading ? 'Loading your X profile…' : "What's your name?"}
         autocomplete="off"
         maxlength="100"
         required
       />
     </div>
-    <textarea id="profileAbout" bind:value={profile.about} aria-label="About you" placeholder="About you (optional)" rows="4"
+    <textarea id="profileAbout" bind:value={profile.about} oninput={() => touched.add('about')} aria-label="About you" placeholder="About you (optional)" rows="4"
       maxlength="1000"></textarea>
     {#if profile.website}
       <p class="previewWebsite">
         <span>{profile.website}</span><button type="button" class="remove" id="removeWebsite" aria-label="Remove website"
-          title="Remove website" onclick={() => (profile.website = undefined)}>×</button
+          title="Remove website" onclick={() => remove('website')}>×</button
         >
       </p>
     {/if}

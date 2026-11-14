@@ -1,5 +1,5 @@
 import type { NewProfile, Settings } from './types.ts';
-import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure';
 import { deleteDB } from 'idb';
 import { DexieStore } from '@hashtree/dexie';
 import { archiveRouter, localArchive } from './archive-event-bus.ts';
@@ -86,10 +86,12 @@ export function profileContent(profile: NewProfile) {
   return content;
 }
 
+/** Signs in with a secret key. With a profile, creates the account and returns its published profile event. */
 export async function login(value: string, profile?: NewProfile) {
   const key = secretKey(value);
   const pubkey = getPublicKey(key);
   const conf = await accountSettings(pubkey);
+  let published: Event | undefined;
   if (profile !== undefined) {
     const content = profileContent(profile);
     const db = await openArchive(conf.archiveName);
@@ -107,12 +109,14 @@ export async function login(value: string, profile?: NewProfile) {
       );
       const receipt = await archiveRouter(db, pubkey, conf.relays).publish(event, localArchive);
       if (!receipt.accepted) throw Error(receipt.reason ?? 'Could not save the profile.');
+      published = event;
     } finally {
       db.close();
     }
   }
   await saveSettings(conf);
   await saveKey(hex(key));
+  return published;
 }
 
 export async function eraseAccount(conf: Settings) {

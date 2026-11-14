@@ -15,16 +15,16 @@ import type {
   TipTarget,
   XLink,
 } from './types.ts';
-import type { EventTemplate } from 'nostr-tools/pure';
+import type { EventTemplate, Event as NostrEvent } from 'nostr-tools/pure';
 import { normalizeURL } from 'nostr-tools/utils';
 import type { Sender } from './platform.d.ts';
 import type { ImportOptions, ImportResult } from './relays.ts';
-import { errorMessage } from './types.ts';
+import { errorMessage, type NewProfile } from './types.ts';
 import { imageDataURL, resolveImage } from './helper-images.ts';
 import { readCooldown, readPointer, readRoot } from './archive.ts';
 import { nsecEncode } from 'nostr-tools/nip19';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
-import { ArchiveEventBus, archiveRouter } from './archive-event-bus.ts';
+import { ArchiveEventBus, archiveRouter, localArchive } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
 import { contactsTemplate, xClaims, XRateLimited, identityTemplate, IDENTITY_KIND, isProofPost } from './x-identity.ts';
 import { directoryAuthors, directoryClaims, saveDirectory, verifiedTarget } from './x-directory.ts';
@@ -833,6 +833,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     trustedPage &&
     (msg.type === 'login' || msg.type === 'unlock' || msg.type === 'createProfile')
   ) {
+    let copying: { key: Uint8Array; profile: NewProfile; published: NostrEvent } | undefined;
     await write(async () => {
       if (msg.type === 'createProfile' && (await settings()).pubkey)
         throw Error('Log out before creating a profile.');
@@ -840,11 +841,15 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         throw Error('Enter a profile name.');
       if (msg.type === 'createProfile') {
         const { name, about, picture, banner, website } = msg;
-        const key = generateSecretKey();
-        profileContent({ name, about, picture, banner, website });
-        await login(hex(key), await withCopiedImages({ name, about, picture, banner, website }, key, defaults.blossomServer!));
+        const profile = { name, about, picture, banner, website }, key = generateSecretKey();
+        profileContent(profile);
+        // Sign-up never waits on the network. Expiring pictures join the profile once copied.
+        const lasting = (value?: string) => (value && !expiringImage(value) ? value : undefined);
+        const published = await login(hex(key), { ...profile, picture: lasting(picture), banner: lasting(banner) });
+        if (published && (picture || banner)) copying = { key, profile, published };
       } else await login(msg.key);
     });
+    if (copying) void copyProfileImages(copying.key, copying.profile, copying.published).catch(() => {});
     void kick();
     return;
   }
@@ -1325,6 +1330,31 @@ async function arm() {
   if (!(await api.alarms.get('backup')))
     await api.alarms.create('backup', { periodInMinutes: 5 });
 }
+// After sign-up, the profile's own copies of its pictures replace the original links, unless the
+// profile changed meanwhile. A copy that fails keeps a lasting link and leaves out an expiring one.
+async function copyProfileImages(key: Uint8Array, profile: NewProfile, published: NostrEvent) {
+  const copied = await withCopiedImages(profile, key, defaults.blossomServer!);
+  const content = profileContent(copied);
+  if (content.picture === JSON.parse(published.content).picture && content.banner === JSON.parse(published.content).banner) return;
+  const conf = await settings();
+  if (changing || conf.pubkey !== published.pubkey) return;
+  const db = await openArchive(conf.archiveName);
+  try {
+    await write(async () => {
+      const latest = (await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [0], limit: 1 }])).events[0]?.event;
+      if (latest?.id !== published.id) return;
+      const event = finalizeEvent({
+        kind: 0, tags: [], content: JSON.stringify(content),
+        created_at: Math.max(Math.floor(Date.now() / 1000), published.created_at + 1),
+      }, key);
+      await archiveRouter(db, conf.pubkey, conf.relays).publish(event, localArchive);
+    });
+  } finally {
+    db.close();
+  }
+  void kick();
+}
+
 // Sign-up reads the signed-in account from tabs that are already open, never opening any.
 async function readOpenTabs<T>(urls: string[], func: () => unknown, accept: (value: unknown) => T | undefined) {
   const tabs = (await api.tabs.query({ url: urls })).filter(tab => tab.id !== undefined);

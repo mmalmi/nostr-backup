@@ -1257,11 +1257,13 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   id('profileName').value = 'Example';
   id('profileName').dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
   profileFetch.mock.restore();
-  // Signing up copies the pictures to the Blossom server, so they outlast the X account.
+  // The pictures are copied to the Blossom server in the background, so they outlast the X account.
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 7]);
+  const uploads = Promise.withResolvers<void>();
   const copies = t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === DEFAULT_BLOSSOM_SERVER + '/upload') {
+      await uploads.promise;
       const hash = (init?.headers as Record<string, string>)['X-SHA-256'];
       return Response.json({ url: DEFAULT_BLOSSOM_SERVER + '/' + hash + '.jpg', sha256: hash, size: jpeg.byteLength });
     }
@@ -1269,8 +1271,23 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
     return new Response(jpeg, { headers: { 'content-type': 'image/jpeg' } });
   });
   id('nameForm').requestSubmit();
-  // Signing up saves the usernames through the Sources settings and links to the profiles.
+  // Signing up saves the usernames through the Sources settings and links to the profiles,
+  // without waiting for the copies.
   await until(() => !!page.document.getElementById('finishSetup'));
+  const latestProfile = async () => {
+    const d = await openArchive((await success('status')).conf.archiveName);
+    try {
+      return (await d.getAll('events')).filter((e) => e.kind === 0).sort((a, b) => b.created_at - a.created_at)[0];
+    } finally {
+      d.close();
+    }
+  };
+  assert.equal(JSON.parse((await latestProfile()).content).picture, 'https://pbs.twimg.com/profile_images/1/face_400x400.jpg');
+  // Nor for relays: one is still holding its receipt.
+  assert.ok((await success('status')).pending >= 1);
+  uploads.resolve();
+  const copy = DEFAULT_BLOSSOM_SERVER + '/' + createHash('sha256').update(jpeg).digest('hex') + '.jpg';
+  await until(async () => JSON.parse((await latestProfile()).content).picture === copy);
   copies.mock.restore();
   assert.equal((await success('status')).conf.social?.instagram?.handle, 'example.ig');
   assert.equal(id('workspace').hidden, true);
@@ -1298,13 +1315,8 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.deepEqual((await success('status')).conf, first.conf);
   await api.storage.local.remove('settings');
   assert.ok(first.conf.archiveName);
-  assert.equal(first.events, 1);
   assert.equal(first.unlocked, true);
-  const d = await openArchive(first.conf.archiveName);
-  const [profile] = await d.getAll('events');
-  d.close();
-  assert.equal(profile.kind, 0);
-  const copy = DEFAULT_BLOSSOM_SERVER + '/' + createHash('sha256').update(jpeg).digest('hex') + '.jpg';
+  const profile = await latestProfile();
   assert.deepEqual(JSON.parse(profile.content), {
     name: 'Example',
     about: 'Potter. Shop: https://shop.example/',
@@ -1312,9 +1324,8 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
     banner: copy,
   });
   assert.ok(verifyEvent(profile));
-  await until(() => destinations.every(relay => relay.sent.some(event => event.id === profile.id)));
-  assert.ok((await success('status')).pending >= 1);
   receipt.resolve();
+  await until(() => destinations.every(relay => relay.sent.some(event => event.id === profile.id)));
   await until(async () => (await success('status')).pending === 0);
   const relayUrl = 'wss://index.example/';
   const relay = fixtureRelay(relayUrl);
@@ -1358,7 +1369,8 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.equal(relay.sent.length, 1);
   assert.equal(relay.sent[0].kind, 30064);
   assert.ok(verifyEvent(relay.sent[0]));
-  assert.equal((await success('status')).events, 1);
+  // The first profile and its update with the picture copies.
+  assert.equal((await success('status')).events, 2);
   page.location.hash = '#storage';
   page.dispatchEvent(new page.Event('hashchange'));
   await until(() => id('kindList').textContent.includes('Profile'));
@@ -1390,7 +1402,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.equal((await call('deleteAccount', { pubkey: otherPub })).ok, false);
   await success('logout', { pubkey: otherPub });
   await success('watch', { pubkey: npubEncode(owner) });
-  assert.equal((await success('status')).events, 1);
+  assert.equal((await success('status')).events, 2);
   assert.equal((await success('status')).unlocked, false);
   assert.equal((await call('exportPrivateKey', { account: owner })).ok, false);
   await success('login', { key: nsec });
