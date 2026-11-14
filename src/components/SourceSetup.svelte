@@ -1,30 +1,34 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { page } from './page.svelte.ts';
+  import AccountFields, { type Usernames } from './AccountFields.svelte';
 
-  type Usernames = { x: string; instagram: string; facebook: string };
   // Saves the usernames through the Sources settings. Rejects with the error already shown.
   let { save }: { save: (usernames: Usernames) => Promise<void> } = $props();
 
+  // Accounts chosen before signing up or in fill the form; blank ones keep this device's saved usernames.
   const conf = page.status?.conf;
+  const chosenFirst = page.accounts;
+  page.accounts = undefined;
   let usernames = $state<Usernames>({
-    x: conf?.handle ?? '',
-    instagram: conf?.social?.instagram?.handle ?? '',
-    facebook: conf?.social?.facebook?.handle ?? '',
+    x: chosenFirst?.x || conf?.handle || '',
+    instagram: chosenFirst?.instagram || conf?.social?.instagram?.handle || '',
+    facebook: chosenFirst?.facebook || conf?.social?.facebook?.handle || '',
   });
   let done = $state(false);
   let saving = $state(false);
 
   const accounts = [
-    { id: 'x', label: 'X', placeholder: '@yourname', url: (u: string) => 'https://x.com/' + u },
-    { id: 'facebook', label: 'Facebook', placeholder: 'username or profile ID', url: (u: string) => 'https://www.facebook.com/' + u },
-    { id: 'instagram', label: 'Instagram', placeholder: '@yourname', url: (u: string) => 'https://www.instagram.com/' + u + '/' },
+    { id: 'x', label: 'X', url: (u: string) => 'https://x.com/' + u },
+    { id: 'facebook', label: 'Facebook', url: (u: string) => 'https://www.facebook.com/' + u },
+    { id: 'instagram', label: 'Instagram', url: (u: string) => 'https://www.instagram.com/' + u + '/' },
   ] as const;
   // Matches how settings store a username.
   const clean = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
   const chosen = $derived(accounts.filter((account) => clean(usernames[account.id])));
 
-  async function next(event: SubmitEvent) {
-    event.preventDefault();
+  async function next(event?: SubmitEvent) {
+    event?.preventDefault();
     if (saving) return;
     saving = true;
     try {
@@ -38,6 +42,10 @@
     }
   }
   const finish = () => (page.setup = false);
+  // Accounts already chosen during sign-up are saved at once, so the next screen is "You're set".
+  onMount(() => {
+    if (chosenFirst) void next();
+  });
 </script>
 
 <section class="setup" aria-labelledby="setupTitle">
@@ -45,17 +53,7 @@
     <form onsubmit={next}>
       <h2 id="setupTitle">Which accounts should we back up?</h2>
       <p class="hint">Add your usernames. Posts are saved as you scroll your own profile.</p>
-      {#each accounts as account (account.id)}
-        <label
-          >{account.label}<input
-            id={'setup-' + account.id}
-            bind:value={usernames[account.id]}
-            placeholder={account.placeholder}
-            autocomplete="off"
-            spellcheck="false"
-          /></label
-        >
-      {/each}
+      <AccountFields bind:usernames />
       <div class="setupActions">
         <button type="button" class="quiet" id="skipSetup" onclick={finish}>Skip</button>
         <button type="submit" id="saveSetup" disabled={saving}>Continue</button>

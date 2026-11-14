@@ -650,11 +650,7 @@ ul:empty {
 }
 #nameForm {
   display: grid;
-  justify-items: center;
   gap: 14px;
-}
-#nameForm button[type='submit'] {
-  width: 100%;
 }
 #existingLogin {
   text-align: center;
@@ -662,7 +658,7 @@ ul:empty {
 #loginForm {
   margin-bottom: 20px;
 }
-#onboarding input:not([type='checkbox']) {
+#loginKey {
   text-align: center;
 }
 #nameForm h2,
@@ -816,4 +812,114 @@ ul:empty {
 .popup .nostrCardMeta a {
   color: var(--brand);
   font-weight: 600;
+}
+
+/* Sign-up: accounts first, then the profile to publish */
+.onboardingStep h2 {
+  text-align: center;
+}
+#accountsForm > .hint {
+  text-align: center;
+  margin-bottom: 18px;
+}
+#onboarding .detected {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+  color: var(--muted);
+}
+#onboarding .existingProfile {
+  margin-top: 20px;
+}
+.profilePreview {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+.previewBanner {
+  position: relative;
+  aspect-ratio: 3 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--soft);
+}
+.previewBanner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.previewIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.withBanner .previewIdentity {
+  margin-top: -40px;
+  padding-left: 12px;
+  align-items: flex-end;
+}
+.avatar.previewAvatar {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  font-size: 1.6rem;
+  overflow: visible;
+  border: 3px solid var(--card);
+}
+.previewAvatar img {
+  border-radius: 50%;
+}
+#onboarding .previewIdentity input {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+#profileAbout {
+  width: 100%;
+  resize: vertical;
+}
+.previewWebsite {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+.previewWebsite span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profilePreview .remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.previewBanner .remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.previewAvatar .remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}
+.previewWebsite .remove {
+  background: var(--soft);
+  color: var(--ink);
+}
+#nameForm .hint {
+  text-align: center;
+  margin: 14px 0 0;
 }

@@ -1,4 +1,4 @@
-import type { Settings } from './types.ts';
+import type { NewProfile, Settings } from './types.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { deleteDB } from 'idb';
 import { DexieStore } from '@hashtree/dexie';
@@ -59,19 +59,39 @@ export function saveSettings(conf: Settings) {
   return writeAccountRecords({ settings: conf, [accountKey(conf.pubkey)]: conf });
 }
 
-export async function login(value: string, profileName?: string) {
+const secretLike = /nsec1|[a-f\d]{64}/i;
+const address = (value: unknown, protocols: string[]) => {
+  try {
+    const url = new URL(String(value));
+    if (protocols.includes(url.protocol) && !url.username && !url.password && url.href.length <= 500) return url.href;
+  } catch { /* Checked below. */ }
+};
+
+/** The kind 0 content for a new profile. Every field is public, so none may hold a secret key. */
+export function profileContent(profile: NewProfile) {
+  const name = typeof profile?.name === 'string' ? profile.name.trim() : '';
+  if (!name || name.length > 100) throw Error('Enter a profile name of up to 100 characters.');
+  if (secretLike.test(name)) throw Error('A profile name is public. Enter a name without a secret key.');
+  const about = typeof profile.about === 'string' ? profile.about.trim() : '';
+  if (about.length > 1000) throw Error('Shorten your description to 1,000 characters.');
+  if (secretLike.test(about)) throw Error('Your description is public. Remove the secret key.');
+  const content: Record<string, string> = { name };
+  if (about) content.about = about;
+  for (const field of ['picture', 'banner', 'website'] as const) {
+    if (profile[field] === undefined || profile[field] === '') continue;
+    const href = address(profile[field], field === 'website' ? ['https:', 'http:'] : ['https:']);
+    if (!href) throw Error('Check the ' + field + ' address.');
+    content[field] = href;
+  }
+  return content;
+}
+
+export async function login(value: string, profile?: NewProfile) {
   const key = secretKey(value);
   const pubkey = getPublicKey(key);
   const conf = await accountSettings(pubkey);
-  if (profileName !== undefined) {
-    if (
-      typeof profileName !== 'string' ||
-      !profileName.trim() ||
-      profileName.trim().length > 100
-    )
-      throw Error('Enter a profile name of up to 100 characters.');
-    if (/nsec1|[a-f\d]{64}/i.test(profileName))
-      throw Error('A profile name is public. Enter a name without a secret key.');
+  if (profile !== undefined) {
+    const content = profileContent(profile);
     const db = await openArchive(conf.archiveName);
     try {
       if (await db.count('events'))
@@ -81,7 +101,7 @@ export async function login(value: string, profileName?: string) {
           kind: 0,
           created_at: Math.floor(Date.now() / 1000),
           tags: [],
-          content: JSON.stringify({ name: profileName.trim() }),
+          content: JSON.stringify(content),
         },
         key,
       );

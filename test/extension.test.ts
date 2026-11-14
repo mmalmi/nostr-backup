@@ -25,7 +25,7 @@ import { relayRetryDeadline as retryDeadline } from 'nostr-pubsub';
 import { build } from 'esbuild';
 import { svelte } from '../scripts/svelte.ts';
 import { Window } from 'happy-dom';
-import { publicTweetHTML } from './fixtures.ts';
+import { publicProfileHTML, publicTweetHTML } from './fixtures.ts';
 import { DEFAULT_RELAYS } from '../src/default-relays.ts';
 
 const key = generateSecretKey(),
@@ -304,7 +304,8 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
     page.document.getElementById(name)!.dispatchEvent(new page.Event(event, { bubbles: true }));
   await until(() => !id('onboarding').hidden);
   assert.equal(id('workspace').hidden, true);
-  assert.equal(page.document.activeElement?.id, 'profileName');
+  // Sign-up starts with the accounts to back up.
+  assert.equal(page.document.activeElement?.id, 'setup-x');
   id('existingProfileLink').click();
   assert.equal(page.document.querySelector('#keyChoice'), null);
   assert.equal(page.document.querySelector('#loginForm button'), null);
@@ -385,16 +386,18 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   id('logout').click();
   await until(() => !id('onboarding').hidden);
   assert.equal(popupPath, '');
-  assert.equal(id('nameForm').hidden, false);
+  assert.equal(id('accountsForm').hidden, false);
+  assert.equal(id('nameForm').hidden, true);
   assert.equal(id('profileName').value, '');
   assert.equal(id('signedInProfile').hidden, true);
   assert.equal(id('signedInProfile').hasAttribute('href'), false);
+  // Skipping the accounts leaves the name to type. A pasted secret key signs in instead.
+  id('skipAccounts').click();
+  await until(() => !id('nameForm').hidden);
   id('profileName').value = nsecEncode(secret);
   dispatch('profileName', 'input');
   assert.equal(id('profileName').value, '');
-  // Signing in with a secret key asks which accounts to back up. This one skips it.
-  await until(() => !!page.document.getElementById('skipSetup'));
-  id('skipSetup').click();
+  // No accounts were chosen, so the backup opens without another setup screen.
   await until(() => !id('workspace').hidden);
   assert.equal((await success('status')).unlocked, true);
   assert.equal(id('profileMode').hidden, true);
@@ -1204,16 +1207,43 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const receipt = Promise.withResolvers<void>();
   destinations[0].holdPublish = receipt.promise;
   t.after(() => receipt.resolve());
+  // The X account signed in on an open X tab fills the first screen.
+  t.mock.method(api.tabs, 'query', async () => [{ id: 7, url: 'https://x.com/home' }]);
+  t.mock.method(api.scripting, 'executeScript', async () => [{ result: '/Example' }]);
+  const profilePage = publicProfileHTML('Example', {
+    name: 'Example Person', bio: 'Potter. Shop: https://t.co/shop', links: [['https://t.co/shop', 'https://shop.example/']],
+    avatar: 'https://pbs.twimg.com/profile_images/1/face_normal.jpg', banner: 'https://pbs.twimg.com/profile_banners/9/100',
+    website: 'https://example.com/',
+  });
+  const profileFetch = t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    assert.equal(String(input), 'https://x.com/example');
+    assert.equal(init?.credentials, 'omit');
+    const response = new Response(profilePage, { headers: { 'content-type': 'text/html' } });
+    Object.defineProperty(response, 'url', { value: 'https://x.com/Example' });
+    return response;
+  });
+  const setupX = () => page.document.getElementById('setup-x') as unknown as HTMLInputElement;
+  assert.equal(setupX().value, '');
+  // Coming back to the page after opening X looks again.
+  page.dispatchEvent(new page.Event('focus'));
+  await until(() => setupX().value === 'example');
+  assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
+  id('accountsForm').requestSubmit();
+  // The next screen previews the public profile from X, each detail removable.
+  await until(() => !id('nameForm').hidden);
+  assert.equal(id('profileName').value, 'Example Person');
+  assert.equal(id('profileAbout').value, 'Potter. Shop: https://shop.example/');
+  assert.equal(page.document.querySelector('.previewAvatar img')?.getAttribute('src'), 'https://pbs.twimg.com/profile_images/1/face_400x400.jpg');
+  assert.equal(page.document.querySelector('.previewBanner img')?.getAttribute('src'), 'https://pbs.twimg.com/profile_banners/9/100/1500x500');
+  id('removeWebsite').click();
+  await until(() => !page.document.getElementById('removeWebsite'));
   id('profileName').value = 'Example';
+  id('profileName').dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
+  profileFetch.mock.restore();
   id('nameForm').requestSubmit();
-  // The setup step saves the X username through the Sources settings and links to the profile.
-  await until(() => !!page.document.getElementById('setup-x'));
-  assert.equal(id('workspace').hidden, true);
-  const setupX = page.document.getElementById('setup-x') as unknown as HTMLInputElement;
-  setupX.value = '@Example';
-  setupX.dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
-  id('saveSetup').click();
+  // Signing up saves the X username through the Sources settings and links to the profile.
   await until(() => !!page.document.getElementById('finishSetup'));
+  assert.equal(id('workspace').hidden, true);
   assert.equal((await success('status')).conf.handle, 'example');
   assert.equal(page.document.querySelector('.setupLinks a')?.getAttribute('href'), 'https://x.com/example');
   id('finishSetup').click();
@@ -1244,7 +1274,12 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const [profile] = await d.getAll('events');
   d.close();
   assert.equal(profile.kind, 0);
-  assert.equal(JSON.parse(profile.content).name, 'Example');
+  assert.deepEqual(JSON.parse(profile.content), {
+    name: 'Example',
+    about: 'Potter. Shop: https://shop.example/',
+    picture: 'https://pbs.twimg.com/profile_images/1/face_400x400.jpg',
+    banner: 'https://pbs.twimg.com/profile_banners/9/100/1500x500',
+  });
   assert.ok(verifyEvent(profile));
   await until(() => destinations.every(relay => relay.sent.some(event => event.id === profile.id)));
   assert.ok((await success('status')).pending >= 1);

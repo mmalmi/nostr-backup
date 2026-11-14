@@ -42,7 +42,7 @@ import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemp
 import { instagramPermalink } from './instagram.ts';
 import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
 import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
-import { readPublicXOriginal } from './x-audience.ts';
+import { readPublicXOriginal, readPublicXProfile } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
 import { identity, hex, unhex, handlePattern, isOwnEvent, parseRelayKinds, relayKindScope, relayList, xTemplate } from './model.ts';
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
@@ -835,11 +835,20 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         throw Error('Log out before creating a profile.');
       if (msg.type === 'createProfile' && typeof msg.name !== 'string')
         throw Error('Enter a profile name.');
-      if (msg.type === 'createProfile') await login(hex(generateSecretKey()), msg.name);
-      else await login(msg.key);
+      if (msg.type === 'createProfile') {
+        const { name, about, picture, banner, website } = msg;
+        await login(hex(generateSecretKey()), { name, about, picture, banner, website });
+      } else await login(msg.key);
     });
     void kick();
     return;
+  }
+  // Sign-up details: the X account signed in on an open X tab, and its public profile.
+  if (trustedPage && msg.type === 'detectAccounts') return { x: await signedInXHandle() };
+  if (trustedPage && msg.type === 'xProfile') {
+    const handle = typeof msg.handle === 'string' ? msg.handle.trim().replace(/^@/, '').toLowerCase() : '';
+    if (!handlePattern.test(handle)) throw Error('Enter your X username.');
+    return (await readPublicXProfile(handle).catch(() => undefined)) ?? null;
   }
   if (trustedPage && msg.type === 'watch') {
     mediaController?.abort();
@@ -1307,6 +1316,20 @@ async function arm() {
     await api.alarms.create('x-directory', { delayInMinutes: 1, periodInMinutes: 5 });
   if (!(await api.alarms.get('backup')))
     await api.alarms.create('backup', { periodInMinutes: 5 });
+}
+// X's sidebar links to the signed-in account's profile. Only already open X tabs are read.
+async function signedInXHandle() {
+  const tabs = (await api.tabs.query({ url: 'https://x.com/*' })).filter(tab => tab.id !== undefined);
+  for (const tab of tabs.slice(0, 5)) {
+    try {
+      const [result] = await api.scripting.executeScript({
+        target: { tabId: tab.id! },
+        func: () => document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href') ?? null,
+      });
+      const handle = profileHandle(typeof result?.result === 'string' ? 'https://x.com' + result.result : undefined);
+      if (handle) return handle;
+    } catch { /* A tab that is loading or closing has nothing to read. */ }
+  }
 }
 async function attachOpenProfileTabs() {
   const tabs = await api.tabs.query({ url: [...captureSites] });

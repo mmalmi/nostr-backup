@@ -165,6 +165,14 @@ export interface Profile {
   about?: string;
   lightning?: string;
 }
+/** The public profile a new account publishes: a name, and details such as those of its X profile. */
+export interface NewProfile {
+  name: string;
+  about?: string;
+  picture?: string;
+  banner?: string;
+  website?: string;
+}
 /** An X account's verified Nostr profile, for the toolbar popup. */
 export interface NostrCard {
   handle: string;
@@ -230,7 +238,9 @@ export interface Payloads {
   watch: { pubkey: string };
   unlock: { key: string };
   login: { key: string };
-  createProfile: { name: string };
+  createProfile: NewProfile;
+  detectAccounts: {};
+  xProfile: { handle: string };
   exportPrivateKey: {};
   listPermissions: {};
   forgetPermissions: { origin: string };
@@ -280,6 +290,8 @@ interface ActionResults {
   tipProfile: { pubkey: string; lightning: string };
   nostrLink: { pubkey: string };
   nostrCard: NostrCard | null;
+  detectAccounts: { x?: string };
+  xProfile: Omit<NewProfile, 'name'> & { name: string } | null;
   tipInvoice: string;
   /** The post's Nostr copy by the verified author, and the tips it has received. */
   tipPost: { note?: string; sats: number; tips: number };

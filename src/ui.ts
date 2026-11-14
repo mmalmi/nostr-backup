@@ -43,9 +43,9 @@ export function el(
     | 'deleteAccount'
     | 'cancelDelete',
 ): HTMLElementTagNameMap['button'];
-export function el(id: 'relays' | 'blossomServer'): HTMLElementTagNameMap['textarea'];
+export function el(id: 'relays' | 'blossomServer' | 'profileAbout'): HTMLElementTagNameMap['textarea'];
 export function el(
-  id: 'nameForm' | 'loginForm' | 'backupSettings' | 'unlock',
+  id: 'nameForm' | 'accountsForm' | 'loginForm' | 'backupSettings' | 'unlock',
 ): HTMLFormElement;
 export function el(id: string): HTMLElement;
 export function el(id: string): HTMLElement {

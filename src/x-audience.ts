@@ -97,6 +97,59 @@ function extractedPost(html: string, author: string, id: string): Capture | unde
   };
 }
 
+export interface PublicProfile {
+  name: string;
+  about?: string;
+  picture?: string;
+  banner?: string;
+  website?: string;
+}
+
+const webAddress = (value: unknown) => {
+  try {
+    const url = new URL(String(value));
+    if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password && url.href.length <= 300) return url.href;
+  } catch { /* Not a web address. */ }
+};
+
+/** Name, bio, avatar, banner and website from the profile result embedded in X's signed-out profile page. */
+export function publicXProfile(html: string, handle: string): PublicProfile | undefined {
+  for (const [literal] of html.matchAll(/"\{\\"data\\":\{\\"user_result_by_screen_name\\":(?:[^"\\]|\\.)*"/g)) {
+    let user;
+    try {
+      user = JSON.parse(JSON.parse(literal))?.data?.user_result_by_screen_name?.result;
+    } catch {
+      continue;
+    }
+    // The page also embeds partial results for the same account; the full one has its avatar.
+    if (user?.__typename !== 'User' || user.core?.screen_name?.toLowerCase() !== handle ||
+        typeof user.core.name !== 'string' || !user.avatar) continue;
+    const text = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+    let about = text(user.profile_bio?.description, 1000);
+    for (const link of user.profile_bio?.entities?.description?.urls ?? [])
+      if (typeof link?.url === 'string' && typeof link.expanded_url === 'string')
+        about = about.split(link.url).join(link.expanded_url);
+    const avatar = text(user.avatar.image_url, 300), banner = text(user.banner?.image_url, 300);
+    const website = webAddress(user.profile_bio?.entities?.url?.urls?.[0]?.expanded_url);
+    return {
+      name: text(user.core.name, 100),
+      ...(about ? { about } : {}),
+      // X's default avatar lives elsewhere, so it is left out.
+      ...(/^https:\/\/pbs\.twimg\.com\/profile_images\/[\w/.-]+$/.test(avatar)
+        ? { picture: avatar.replace(/_normal(\.\w+)$/, '_400x400$1') } : {}),
+      ...(/^https:\/\/pbs\.twimg\.com\/profile_banners\/\d+\/\d+$/.test(banner) ? { banner: banner + '/1500x500' } : {}),
+      ...(website ? { website } : {}),
+    };
+  }
+}
+
+export async function readPublicXProfile(handle: string, fetcher = fetch, signal = AbortSignal.timeout(8000)) {
+  const url = 'https://x.com/' + handle;
+  const response = await fetcher(url, { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal });
+  if (response.url.toLowerCase() !== url) return;
+  return publicXProfile(await readPublicPage(response), handle);
+}
+
 export async function readPublicXOriginal(
   author: string,
   id: string,
