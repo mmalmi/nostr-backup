@@ -22,6 +22,8 @@ function inPage<T>(html: string, read: () => T) {
 test('the signed-in X and Instagram accounts are read from their own page data', () => {
   assert.equal(inPage('<nav><a data-testid="AppTabBar_Profile_Link" href="/Alice">Profile</a></nav>', xProfileLink), '/Alice');
   assert.equal(inPage('<a href="/bob">Bob</a>', xProfileLink), null);
+  // Without the profile link, the account switcher's avatar still names the signed-in account.
+  assert.equal(inPage('<div data-testid="SideNav_AccountSwitcher_Button"><div data-testid="UserAvatar-Container-Alice"></div></div>', xProfileLink), '/Alice');
   // Instagram nests the viewer deep inside its page data.
   const data = { require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { define: [['PolarisViewer', [], {
     data: { username: 'alice.ig', full_name: 'Alice', biography: 'Hi', external_url: 'https://alice.example/',

@@ -1,5 +1,5 @@
 import type { Message, TipTarget } from './types.ts';
-import { profileHandle, xPermalink } from './x.ts';
+import { postArticles, profileHandle, xPermalink } from './x.ts';
 import { formatFiat, tipCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 import { npubEncode } from 'nostr-tools/nip19';
@@ -38,6 +38,9 @@ function author(article: Element) {
     const handle = profileHandle(href) ?? xPermalink(href)?.author;
     if (handle) return handle;
   }
+  // Without X's name header, the post's own timestamp permalink still names its author.
+  const time = Array.from(article.querySelectorAll('a[href] time')).find((t) => t.closest('article') === article);
+  return xPermalink(time?.closest('a')?.getAttribute('href') ?? '')?.author;
 }
 // The post's ID, time and opening text, used to find its Nostr copy when a tip popover opens.
 interface Post {
@@ -270,7 +273,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
 
   /** Adds buttons for known targets and asks about new handles. `own` is the user's X handle. */
   function scan(own = '') {
-    const articles = Array.from(doc.querySelectorAll('article[data-testid="tweet"]'));
+    const articles = postArticles(doc);
     // Paths like /home look like profiles; a profile page also shows the profile name header.
     const name = doc.querySelector('[data-testid="UserName"]');
     const profile = name ? profileHandle(doc.location?.href) : undefined;
@@ -300,8 +303,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
     for (const article of articles) {
       const handle = author(article);
       if (!handle || !targets.get(handle) || article.querySelector(`[${MARK}]`)) continue;
+      // In the action bar, or at the end of the post if X's page no longer has one.
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
-      bar?.append(button(handle, postInfo(article), handle === own, 'post'));
+      (bar ?? article).append(button(handle, postInfo(article), handle === own, 'post'));
     }
     // On the name row, after the name and badges, rather than on a line of its own.
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`)) {

@@ -175,6 +175,28 @@ test('tip amounts use the currency chosen in the Tips settings', async () => {
   }
 });
 
+test('tip buttons still appear if X drops its test IDs and action bar', async () => {
+  const { Window } = await import('happy-dom');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/home' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<article><a href="/alice/status/9"><time datetime="2024-01-02T03:04:05Z">Jan 2</time></a><p>Hi</p></article>';
+  const asked: unknown[] = [];
+  const tips = createTipButtons(async (message) => {
+    asked.push(message);
+    return message.type === 'tipTargets' ? { ok: true, value: { alice: { pubkey: getPublicKey(secret), proof: '1' } } } : { ok: false, error: 'no' };
+  }, doc);
+  try {
+    tips.scan('me');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(asked[0], { type: 'tipTargets', handles: ['alice'] });
+    // With no action bar, the button goes at the end of the post.
+    assert.equal(doc.querySelector('article > button[data-social-backup-tip]')?.getAttribute('data-social-backup-tip'), 'alice');
+  } finally {
+    await window.happyDOM.abort();
+  }
+});
+
 test('a post matches its tagged Nostr copy, or one from the same minute with the same opening text', () => {
   const url = 'https://x.com/alice/status/9';
   const note = (content: string, created_at: number, tags: string[][] = []) =>

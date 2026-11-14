@@ -217,3 +217,13 @@ test('your own verification post is found on any X page, such as the home timeli
     await window.happyDOM.abort();
   }
 });
+
+test('if X changes its page, posts are still found by their permalink and filled from the public original', () => {
+  // No test IDs at all: a plain article with a timestamp permalink and text in an unknown element.
+  const changed = '<article><div><a href="/alice/status/77"><time datetime="2024-01-02T03:04:05Z">Jan 2</time></a></div><div>Hello</div></article>';
+  assert.deepEqual(capture(changed), [{
+    id: '77', author: 'alice', time: 1704164645, truncated: true, text: 'https://x.com/alice/status/77',
+  }]);
+  // A tagged post whose text has not mounted yet waits for its public original the same way.
+  assert.equal(capture(article('alice', '78', null))[0].truncated, true);
+});

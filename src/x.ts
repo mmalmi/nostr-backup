@@ -3,6 +3,25 @@ import type { Capture } from './types.ts';
 const profile = /^\/([a-z\d_]{1,15})(?:\/(?:with_replies|media))?\/?$/i;
 const status = /^\/([a-z\d_]{1,15})\/status\/(\d{1,20})\/?$/i;
 const tweet = 'article[data-testid="tweet"]';
+/**
+ * Posts on the page. X's test IDs have been stable for years but can change, so any article with a post
+ * permalink also counts when none is tagged.
+ */
+export function postArticles(doc: ParentNode) {
+  const tagged = Array.from(doc.querySelectorAll(tweet));
+  return tagged.length ? tagged : Array.from(doc.querySelectorAll('article')).filter((a) => a.querySelector('a[href*="/status/"] time'));
+}
+/** An element of this post, not of a post quoted or embedded in it. */
+function own(article: Element, selector: string) {
+  return Array.from(article.querySelectorAll(selector)).find(
+    (node) => node.closest('article') === article && !node.closest('[role="link"]:not(a),[data-testid="quoteTweet"]'),
+  );
+}
+/** The post's own timestamp link: in its name header, or else its first permalink outside quotes. */
+function ownTime(article: Element) {
+  return own(article, '[data-testid="User-Name"]')?.querySelector<HTMLTimeElement>('a[href] time[datetime]') ??
+    (own(article, 'a[href*="/status/"] time[datetime]') as HTMLTimeElement | undefined);
+}
 function xPath(value?: string | null) {
   try {
     if (!value) return '';
@@ -45,34 +64,24 @@ function bodyText(node: Node): string {
 /** IDs of the account's own posts on any X page whose text passes `isProof`, such as the home timeline right after posting. */
 export function proofPostIds(doc: Document, handle: string, isProof: (text: string) => boolean) {
   const ids: string[] = [];
-  for (const article of doc.querySelectorAll(tweet)) {
-    if (article.parentElement?.closest(tweet)) continue;
-    const primary = (selector: string) =>
-      Array.from(article.querySelectorAll(selector)).find(
-        (node) => node.closest(tweet) === article && !node.closest('[role="link"],[data-testid="quoteTweet"]'),
-      );
-    const time = primary('[data-testid="User-Name"]')?.querySelector('a[href] time[datetime]');
-    const match = status.exec(xPath(time?.closest('a')?.getAttribute('href')));
-    const text = primary('[data-testid="tweetText"]');
-    if (match && match[1].toLowerCase() === handle && text && isProof(bodyText(text))) ids.push(match[2]);
+  for (const article of postArticles(doc)) {
+    if (article.parentElement?.closest('article')) continue;
+    const match = status.exec(xPath(ownTime(article)?.closest('a')?.getAttribute('href')));
+    // Without X's text block, the whole post's text still names the key.
+    const text = own(article, '[data-testid="tweetText"]') ?? article;
+    if (match && match[1].toLowerCase() === handle && isProof(bodyText(text))) ids.push(match[2]);
   }
   return ids;
 }
 export function capturePosts(doc: Document, url: string, handle?: string): Capture[] {
   if (!handle || profileHandle(url) !== handle) return [];
   const posts = [];
-  for (const article of doc.querySelectorAll(tweet)) {
-    if (article.parentElement?.closest(tweet)) continue;
+  for (const article of postArticles(doc)) {
+    if (article.parentElement?.closest('article')) continue;
     const truncated = !!article.querySelector('[data-testid="tweet-text-show-more-link"]');
     // Quote cards can have their own name, timestamp and text inside a link container.
-    const primary = (selector: string) =>
-      Array.from(article.querySelectorAll(selector)).find(
-        (node) =>
-          node.closest(tweet) === article &&
-          !node.closest('[role="link"],[data-testid="quoteTweet"]'),
-      );
-    const header = primary('[data-testid="User-Name"]');
-    const time = header?.querySelector<HTMLTimeElement>('a[href] time[datetime]');
+    const primary = (selector: string) => own(article, selector);
+    const time = ownTime(article);
     const match = status.exec(xPath(time?.closest('a')?.getAttribute('href')));
     if (!time || !match || match[1].toLowerCase() !== handle) continue;
     const audience = article.querySelector(
@@ -87,14 +96,14 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
     const attachments = [],
       posters = [];
     const photos = Array.from(article.querySelectorAll('[data-testid="tweetPhoto"]')).filter(
-      node => node.closest(tweet) === article && !node.closest('[role="link"]:not(a),[data-testid="quoteTweet"]'),
+      node => node.closest('article') === article && !node.closest('[role="link"]:not(a),[data-testid="quoteTweet"]'),
     );
     const readyPhotos = new Set<Element>();
     for (const img of article.querySelectorAll<HTMLImageElement | HTMLVideoElement>(
       '[data-testid="tweetPhoto"] img,video',
     )) {
       if (
-        img.closest(tweet) !== article ||
+        img.closest('article') !== article ||
         img.closest('[role="link"]:not(a),[data-testid="quoteTweet"]')
       )
         continue;
@@ -137,12 +146,16 @@ export function capturePosts(doc: Document, url: string, handle?: string): Captu
         el.querySelector('[data-testid="User-Name"], [data-testid="tweetText"], a[href*="/status/"], time'));
     const quote = card && Array.from(card.querySelectorAll('a[href]')).map(a => xPermalink(a.getAttribute('href')!)).find(Boolean);
     if (quote && quote.id !== match[2] && !content?.includes(quote.url)) parts.push(quote.url);
-    if (parts.length && Number.isFinite(timestamp))
+    // Nothing readable means X's page changed or the post is still loading. Its permalink stands in, marked
+    // truncated, so the background takes the public original's text or leaves the post out.
+    const unreadable = !text && !parts.length;
+    if (unreadable) parts.push('https://x.com/' + handle + '/status/' + match[2]);
+    if (Number.isFinite(timestamp))
       posts.push({
         id: match[2],
         author: handle,
         ...(card ? {hasQuoteCard:true} : {}),
-        ...(truncated ? {truncated:true} : {}),
+        ...(truncated || unreadable ? {truncated:true} : {}),
         ...(audience ? { visibility: 'private' as const } : {}),
         time: timestamp,
         ...(millis % 1000 ? { timeMs: millis } : {}),

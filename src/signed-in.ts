@@ -1,9 +1,14 @@
 // Run inside open X and Instagram tabs with scripting.executeScript, so each is self-contained.
 // They read only the signed-in account's own public profile.
 
-/** The signed-in X account, from X's sidebar link to its profile. */
+/** The signed-in X account, from X's sidebar link to its profile, or else its account switcher's avatar. */
 export function xProfileLink() {
-  return document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href') ?? null;
+  const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href');
+  if (link) return link;
+  const avatar = document
+    .querySelector('[data-testid="SideNav_AccountSwitcher_Button"] [data-testid^="UserAvatar-Container-"]')
+    ?.getAttribute('data-testid');
+  return avatar ? '/' + avatar.slice('UserAvatar-Container-'.length) : null;
 }
 
 /** The signed-in Instagram account's username and public profile, from the page's viewer data. */
