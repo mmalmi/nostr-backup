@@ -77,6 +77,7 @@ for (const target of ['chrome', 'firefox', 'safari']) {
     }),
   };
   const files: Record<string, Uint8Array> = {
+    'LICENSE.txt': await readFile('LICENSE'),
     'manifest.json': new TextEncoder().encode(JSON.stringify(manifest, null, 2) + '\n'),
   };
   for (const name of assets) files[name] = await readFile('ui/' + name);
