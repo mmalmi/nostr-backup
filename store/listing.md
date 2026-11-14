@@ -22,6 +22,7 @@ You can use the same Nostr profile to approve sign-ins and signatures on website
 - Homepage: https://socialbackup.org/
 - Support: https://github.com/mmalmi/nostr-backup/issues
 - Privacy policy: https://socialbackup.org/privacy.html (deploy the prepared policy and verify this exact URL before submission)
+- Terms of use: https://socialbackup.org/terms.html (optional; Firefox can attach it as the license agreement)
 - Requires payment for functionality: No
 - Screenshot caption: A local backup with saved posts, sync status and a ZIP download.
 - Icon: icon-128.png. Screenshot: archive.png. Chrome small promotional tile: promo.png.
