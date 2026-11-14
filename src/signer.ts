@@ -4,7 +4,7 @@ import type { Sender } from './platform.d.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { unhex } from './model.ts';
 
-import { forgetPermissions, hasPermission, permissionLabel, savePermission } from './signer-storage.ts';
+import { forgetPermissions, permissionDecision, permissionLabel, savePermission } from './signer-storage.ts';
 
 type SessionKey = () => Promise<string | undefined>;
 interface PendingSignature extends Approval {
@@ -85,7 +85,9 @@ export async function handleSignerRequest(
   if (!(await sessionKey())) throw Error('Your account is locked.');
   if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('This type of request is not supported.');
   const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
-  if ((!event && grant.loginPubkey === pubkey) || await hasPermission(pubkey, grant.origin, event?.kind ?? -1)) {
+  const remembered = await permissionDecision(pubkey, grant.origin, event?.kind ?? -1);
+  if (remembered === false) throw Error('Request declined.');
+  if ((!event && grant.loginPubkey === pubkey) || remembered === true) {
     const tab = await api.tabs.get(tabId);
     const current = (await api.storage.session.get(key))[key];
     const secret = await sessionKey();
@@ -127,7 +129,11 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
   if (msg.decision === undefined)
     return { origin: request.origin, event: request.event, pubkey: request.pubkey };
   if (msg.decision !== true) {
+    // A remembered decline stops this website asking for this kind again.
+    const declined = request.event?.kind ?? -1;
+    requests.delete(msg.id);
     request.finish(Error('Request declined.'));
+    if (msg.remember && permissionLabel(declined)) await savePermission(request.pubkey, request.origin, declined, false);
     return;
   }
   const key = await sessionKey();

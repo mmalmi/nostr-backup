@@ -1015,3 +1015,18 @@ ul:empty {
   border-radius: 4px;
   background: var(--brand);
 }
+
+.readOnlyWarning {
+  text-align: left;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.readOnlyWarning p {
+  margin: 0;
+}
+.readOnlyWarning .setupActions {
+  margin-top: 12px;
+}

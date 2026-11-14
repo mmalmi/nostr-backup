@@ -36,7 +36,7 @@
   async function decide(allow: boolean) {
     deciding = true;
     try {
-      await send('approval', { id, decision: allow, remember: allow && remember });
+      await send('approval', { id, decision: allow, remember });
       window.close();
     } catch (e) {
       deciding = false;
@@ -63,7 +63,7 @@
 </details>
 <label class="check" id="rememberOption" hidden={!permission}
   ><input type="checkbox" id="remember" bind:checked={remember} />
-  <span id="rememberLabel">{permission ? 'Always allow ' + permission + ' on ' + request?.origin : ''}</span></label
+  <span id="rememberLabel">{permission ? 'Remember my choice for ' + permission + ' on ' + request?.origin : ''}</span></label
 >
 <div class="actions">
   <button id="deny" class="secondary" disabled={deciding} onclick={() => decide(false)}>Decline</button

@@ -24,6 +24,8 @@
   let loading = $state(false);
   let signingIn = false;
   let keyDisabled = $state(false);
+  // A pasted user ID waits here until you choose read-only mode or your secret key instead.
+  let readOnlyKey = $state('');
   let xField: HTMLElement;
   let nameField: HTMLInputElement;
   let keyField: HTMLInputElement;
@@ -130,6 +132,8 @@
   async function signIn(submitted = false) {
     if (signingIn) return;
     const value = keyField.value.trim();
+    // A user ID already waiting for a choice was cleared from the field on paste.
+    if (!value && readOnlyKey) return;
     let parsed: ReturnType<typeof loginKey>;
     try {
       parsed = loginKey(value);
@@ -137,23 +141,37 @@
       notice(submitted || value.length >= 63 ? 'Check your secret key or user ID and try again.' : '');
       return;
     }
+    keyField.value = '';
+    if (parsed.type === 'watch') {
+      readOnlyKey = parsed.key;
+      notice('');
+      return;
+    }
+    await finishSignIn(() => send('login', { key: parsed.key, account: '' }).then(() => void (page.setup = true)));
+  }
+  async function finishSignIn(action: () => Promise<unknown>) {
     signingIn = true;
     keyDisabled = true;
-    keyField.value = '';
     page.flow = 'signin';
     notice('Signing in…');
     try {
-      if (parsed.type === 'watch') await send('watch', { pubkey: parsed.key, account: '' });
-      else {
-        await send('login', { key: parsed.key, account: '' });
-        page.setup = true;
-      }
+      await action();
       await app.refresh(true);
       notice('');
     } finally {
       signingIn = false;
       keyDisabled = false;
     }
+  }
+  const readOnly = () => {
+    const pubkey = readOnlyKey;
+    readOnlyKey = '';
+    return finishSignIn(() => send('watch', { pubkey, account: '' }));
+  };
+  async function useSecretKey() {
+    readOnlyKey = '';
+    await tick();
+    keyField.focus();
   }
   // Keys pasted into the name field must never become public profile metadata.
   async function usePastedKey() {
@@ -274,9 +292,23 @@
   <WizardSteps flow={page.flow ?? 'signin'} current="signin" {chosen} />
   <h2>Sign in</h2>
   <p id="loginHelp" class="hint">
-    Use your secret key to sign in. Your Nostr profile stays as it is. To view a backup without making changes, use your user ID instead. Your relays receive the public key to find your posts.
+    Paste your secret key to sign in. Your Nostr profile stays as it is, and your relays receive your public key to find
+    your posts.
   </p>
-  <form id="loginForm" onsubmit={run(() => signIn(true))}>
+  {#if readOnlyKey}
+    <div id="readOnlyWarning" class="readOnlyWarning" role="alert">
+      <p>
+        <strong>That's a user ID, not a secret key.</strong> With it, Social Backup can only keep a copy of what this Nostr
+        profile has already published. It can't back up your X, Facebook or Instagram posts, share posts or sign in to
+        websites.
+      </p>
+      <div class="setupActions">
+        <button type="button" class="secondary" id="watchConfirm" onclick={run(readOnly)}>Continue read-only</button>
+        <button type="button" id="useSecretKey" onclick={run(useSecretKey)}>Use my secret key</button>
+      </div>
+    </div>
+  {/if}
+  <form id="loginForm" hidden={!!readOnlyKey} onsubmit={run(() => signIn(true))}>
     <input
       id="loginKey"
       bind:this={keyField}

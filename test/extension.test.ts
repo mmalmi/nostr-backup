@@ -341,7 +341,11 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   id('loginKey').value = '  ' + npubEncode(owner) + '\n';
   dispatch('loginKey', 'input');
   dispatch('loginKey', 'change');
-  id('loginForm').requestSubmit();
+  // A user ID only gives read-only mode, so it asks first.
+  await until(() => !!page.document.getElementById('watchConfirm'));
+  assert.match(id('readOnlyWarning').textContent, /can only keep a copy/);
+  assert.equal(id('notice').textContent, '');
+  id('watchConfirm').click();
   await until(() => !id('workspace').hidden);
   assert.equal(id('onboarding').hidden, true);
   assert.equal(popupPath, 'popup.html');
@@ -704,7 +708,7 @@ test('signer binds public-key access and approvals to the authorized website', a
   const second = await req('signEvent', { ...post, content: 'Next post' });
   assert.ok(second.ok && typeof second.value === 'object' && verifyEvent(second.value));
   assert.equal(winURL, undefined);
-  assert.deepEqual(await success('listPermissions', { account: pubkey }), [{ origin, kind: 1 }]);
+  assert.deepEqual(await success('listPermissions', { account: pubkey }), [{ origin, kind: 1, allow: true, label: 'posts' }]);
   for (const denied of [{ ...sender, origin: 'null' }, { ...sender, frameId: 1 }, { ...sender, origin: 'https://other.example' }])
     assert.equal((await call('nip07', { token, method: 'signEvent', event: post }, denied)).ok, false);
   const sensitive = req('signEvent', event);
@@ -712,6 +716,27 @@ test('signer binds public-key access and approvals to the authorized website', a
   const sensitiveScreen = approvalScreen();
   await success('approval', { id: sensitiveScreen.url.split('#')[1], decision: false }, sensitiveScreen);
   assert.equal((await sensitive).ok, false);
+  // A remembered decline stops the website asking for that kind.
+  const relayAuth = { ...event, kind: 22242, tags: [['relay', 'wss://relay.example/'], ['challenge', 'c']] };
+  winURL = undefined;
+  const declined = req('signEvent', relayAuth);
+  await until(() => !!winURL);
+  const declineScreen = approvalScreen();
+  await success('approval', { id: declineScreen.url.split('#')[1], decision: false, remember: true }, declineScreen);
+  assert.equal((await declined).ok, false);
+  winURL = undefined;
+  assert.equal((await req('signEvent', { ...relayAuth, created_at: 12346 })).ok, false);
+  assert.equal(winURL, undefined);
+  assert.deepEqual((await success('listPermissions', { account: pubkey })).map((rule) => [rule.kind, rule.allow, rule.label]),
+    [[1, true, 'posts'], [22242, false, 'relay sign-ins']]);
+  // Profile changes always ask.
+  winURL = undefined;
+  const profileChange = req('signEvent', { ...event, kind: 0, tags: [] });
+  await until(() => !!winURL);
+  const profileScreen = approvalScreen();
+  assert.equal((await call('approval', { id: profileScreen.url.split('#')[1], decision: true, remember: true }, profileScreen)).ok, false);
+  await success('approval', { id: profileScreen.url.split('#')[1], decision: false }, profileScreen);
+  assert.equal((await profileChange).ok, false);
   winURL = undefined;
   const cancelled = req('signEvent', event);
   await until(() => !!winURL);

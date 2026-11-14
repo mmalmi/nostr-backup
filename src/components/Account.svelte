@@ -33,11 +33,12 @@
   });
 
   const origins = $derived([...new Set(rules.map((rule) => rule.origin))]);
-  const kinds = (origin: string) =>
-    rules
-      .filter((rule) => rule.origin === origin)
-      .map((rule) => (rule.kind === -1 ? 'login' : rule.kind === 1 ? 'posts' : 'reactions'))
-      .join(', ');
+  // "Allowed: posts, reactions · Declined: app data"
+  const kinds = (origin: string) => {
+    const of = (allow: boolean) =>
+      rules.filter((rule) => rule.origin === origin && rule.allow === allow).map((rule) => rule.label).join(', ');
+    return [of(true) && 'Allowed: ' + of(true), of(false) && 'Declined: ' + of(false)].filter(Boolean).join(' · ');
+  };
 
   async function run(action: () => Promise<unknown>) {
     try {

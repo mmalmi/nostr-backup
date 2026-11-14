@@ -278,7 +278,7 @@ export type Message<K extends Action = Action> = {
 interface ActionResults {
   resolveImage: string;
   exportPrivateKey: string;
-  listPermissions: { origin: string; kind: number }[];
+  listPermissions: { origin: string; kind: number; allow: boolean; label: string }[];
   status: Status;
   captureConfig: CaptureConfig;
   authorizeMediaUpload: Event;
