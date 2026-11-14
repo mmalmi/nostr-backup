@@ -49,4 +49,4 @@ Permission justifications:
 
 ## Firefox fields
 
-Distribution: listed on addons.mozilla.org. Upload the Firefox binary ZIP and the separate matching source ZIP. The manifest declares website content, personally identifying information, personal communications, authentication information and browsing activity for the core flows. Financial/payment data is optional and requested when enabling tips. Attach the privacy policy text from the supplied HTML page. Use the publisher's established license if applicable. The repository has no top-level license file; confirm the intended license and publisher account details before submitting.
+Distribution: listed on addons.mozilla.org. Upload the Firefox binary ZIP and the separate matching source ZIP. The manifest declares website content, personally identifying information, personal communications, authentication information and browsing activity for the core flows. Financial/payment data is optional and requested when enabling tips. Attach the privacy policy text from the supplied HTML page. Select the MIT License.

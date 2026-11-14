@@ -11,7 +11,7 @@ version = json.loads((root / 'package.json').read_text())['version']
 output = root / 'build' / f'store-{version}'
 output.mkdir(parents=True, exist_ok=True)
 sources = check_output([
-    'git', 'ls-files', '-z', '--', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json',
+    'git', 'ls-files', '-z', '--', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json', 'LICENSE',
     'src', 'test', 'scripts/build.ts', 'scripts/svelte.ts', 'ui',
 ], cwd=root).decode().split('\0')
 source_zip = output / 'firefox-source.zip'
