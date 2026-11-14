@@ -468,8 +468,9 @@ async function tipTargets(db: Archive, handles: string[]) {
   return result;
 }
 
-async function paymentProfile(db: Archive, conf: Settings, handle: string) {
-  // Check the current identity list as well as the payment address; an empty list revokes a link.
+// The verified Nostr key for an X handle, checked against its current identity list:
+// an empty or changed list revokes the link.
+async function currentLink(db: Archive, conf: Settings, handle: string) {
   const target = await verifiedTarget(db, handle);
   if (!target) throw Error('This X account has no current verified Nostr link.');
   const pool = new SimplePool();
@@ -478,12 +479,17 @@ async function paymentProfile(db: Archive, conf: Settings, handle: string) {
     await saveDirectory(db, events);
     const claims = await directoryClaims(db, handle);
     if (!claims.some(c => c.pubkey === target.pubkey && c.proof === target.proof))
-      throw Error('The Nostr link changed. Reopen Tip.');
-    const profile = newestProfile(events, target.pubkey);
-    if (!profile || profile.id !== (await db.get('xDirectory', [target.pubkey, 0]))?.id || !lightningAddress(profile))
-      throw Error('No current Lightning address is available for this profile.');
-    return profile;
+      throw Error('The Nostr link changed. Try again.');
+    return { target, events };
   } finally { pool.destroy(); }
+}
+
+async function paymentProfile(db: Archive, conf: Settings, handle: string) {
+  const { target, events } = await currentLink(db, conf, handle);
+  const profile = newestProfile(events, target.pubkey);
+  if (!profile || profile.id !== (await db.get('xDirectory', [target.pubkey, 0]))?.id || !lightningAddress(profile))
+    throw Error('No current Lightning address is available for this profile.');
+  return profile;
 }
 const tipAddresses = new Map<string, string>();
 const tipNotes = new Map<string, string>();
@@ -874,7 +880,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -940,7 +946,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       void kick();
       return;
     }
-    if (msg.type === 'tipProfile' || msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost') {
+    if (msg.type === 'tipProfile' || msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost' || msg.type === 'nostrLink') {
       if (captureNetwork(sender.url) !== 'x' || !sender.tab || (conf.tipButtons !== true || !await paymentConsent())) throw Error('Tips are off.');
       if (msg.type === 'tipRate') {
         // A fiat estimate: saved for 15 minutes, from Snort's signed rate events or Coinbase.
@@ -970,6 +976,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       }
       const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
       if (!handlePattern.test(handle)) throw Error('Invalid handle.');
+      // A link to the verified Nostr profile, from the X profile header.
+      if (msg.type === 'nostrLink') return { pubkey: (await currentLink(db, conf, handle)).target.pubkey };
       if (msg.type === 'tipProfile') {
         const profile = await paymentProfile(db, conf, handle);
         const lightning = lightningAddress(profile)!;

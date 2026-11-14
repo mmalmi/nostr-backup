@@ -240,6 +240,7 @@ export interface Payloads {
   tipTargets: { handles: string[] };
   unlinkX: {};
   tipProfile: { handle: string };
+  nostrLink: { handle: string };
   tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
   tipPost: { handle: string; post: string; time?: number; text?: string };
   tipRate: { currency: string };
@@ -266,6 +267,7 @@ interface ActionResults {
   tipTargets: Record<string, TipTarget | null>;
   unlinkX: void;
   tipProfile: { pubkey: string; lightning: string };
+  nostrLink: { pubkey: string };
   tipInvoice: string;
   /** The post's Nostr copy by the verified author, and the tips it has received. */
   tipPost: { note?: string; sats: number; tips: number };

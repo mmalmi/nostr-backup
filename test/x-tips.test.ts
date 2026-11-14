@@ -108,6 +108,42 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
   }
 });
 
+test('a verified profile links to its Nostr profile once the proof is checked again', async () => {
+  const { Window } = await import('happy-dom');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const { npubEncode } = await import('nostr-tools/nip19');
+  const window = new Window({ url: 'https://x.com/alice' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<div data-testid="UserName"><div><span>Alice</span></div></div>';
+  const pubkey = getPublicKey(secret);
+  let linked = true;
+  const tips = createTipButtons(async (message) => {
+    if (message.type === 'tipTargets') return { ok: true, value: { alice: { pubkey, lightning: 'alice@wallet.example' } } };
+    if (message.type === 'nostrLink') return linked ? { ok: true, value: { pubkey } } : { ok: false, error: 'The Nostr link changed. Try again.' };
+    return { ok: false, error: 'unexpected' };
+  }, doc);
+  try {
+    tips.scan('me');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const pills = Array.from(doc.querySelectorAll('[data-testid="UserName"] button'));
+    assert.deepEqual(pills.map((b) => b.textContent), ['Tip', 'Nostr ↗']);
+    const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    (pills[1] as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const link = box().querySelector('a')!;
+    assert.equal(link.getAttribute('href'), 'https://iris.to/' + npubEncode(pubkey));
+    assert.equal(link.getAttribute('rel'), 'noopener noreferrer');
+    // A revoked or changed link shows why instead of linking.
+    linked = false;
+    (pills[1] as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(box().querySelector('a'), null);
+    assert.match(box().textContent!, /changed/);
+  } finally {
+    await window.happyDOM.abort();
+  }
+});
+
 test('a post matches its tagged Nostr copy, or one from the same minute with the same opening text', () => {
   const url = 'https://x.com/alice/status/9';
   const note = (content: string, created_at: number, tags: string[][] = []) =>

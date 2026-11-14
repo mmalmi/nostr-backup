@@ -2,6 +2,7 @@ import type { Message, TipTarget } from './types.ts';
 import { profileHandle, xPermalink } from './x.ts';
 import { formatFiat, localCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
+import { npubEncode } from 'nostr-tools/nip19';
 
 // Adds a quiet Social Backup flower button to X posts and a "Tip" button to profiles with a local Nostr link claim.
 // Proof and address are checked on click.
@@ -97,10 +98,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
     return node;
   }
 
-  async function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
+  // An empty popover below `anchor`, in its own shadow DOM so X's styles and ours never mix.
+  function popoverAt(anchor: HTMLElement, label: string) {
     close();
-    const target = targets.get(handle);
-    if (!target) return;
     popover = doc.createElement('div');
     const rect = anchor.getBoundingClientRect();
     // Below the button, centred on it, and always inside the window.
@@ -122,12 +122,52 @@ export function createTipButtons(send: Send, doc: Document = document) {
       .qr{width:176px;height:176px;margin:4px auto 12px;background:#fff;border-radius:8px;padding:6px}
       .qr svg{width:100%;height:100%;display:block}
       .address{display:flex;align-items:center;gap:6px} .address button{flex:0;padding:2px 8px;font-weight:400}
-    </style><div class="box" role="dialog" aria-label="Tip"></div>`;
+    </style><div class="box" role="dialog"></div>`;
     const box = root.querySelector('.box')!;
-    const show = (html: string) => (box.innerHTML = html);
-    show('<p>Checking X proof and Lightning address…</p>');
+    box.setAttribute('aria-label', label);
     doc.body.append(popover);
-    const dialog = popover;
+    return { box, dialog: popover, show: (html: string) => (box.innerHTML = html) };
+  }
+
+  // The verified Nostr profile, opened on Iris. The proof is checked first, so a copied claim never links.
+  async function openLink(anchor: HTMLElement, handle: string) {
+    if (!targets.get(handle)) return;
+    const { box, dialog, show } = popoverAt(anchor, 'Nostr profile');
+    show('<p>Checking X proof…</p>');
+    const reply = await send({ type: 'nostrLink', handle }).catch(() => undefined);
+    if (dialog !== popover) return;
+    const pubkey = (reply?.value as { pubkey?: string } | undefined)?.pubkey;
+    if (!reply?.ok || !pubkey || !/^[0-9a-f]{64}$/.test(pubkey)) {
+      box.textContent = reply?.error ?? 'This account has no verified Nostr profile.';
+      return;
+    }
+    show('<p>@' + handle + ' is on Nostr. Their X account proves it.</p><div class="row"><a target="_blank" rel="noopener noreferrer">Open on Iris</a></div>');
+    box.querySelector('a')!.setAttribute('href', 'https://iris.to/' + npubEncode(pubkey));
+  }
+
+  // "Nostr ↗" next to the Tip button on a profile.
+  function nostrButton(handle: string) {
+    const node = doc.createElement('button');
+    node.type = 'button';
+    node.setAttribute(MARK, handle);
+    node.textContent = 'Nostr ↗';
+    node.title = 'Open @' + handle + '’s Nostr profile';
+    node.setAttribute('aria-label', node.title);
+    node.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;color:inherit;white-space:nowrap;background:transparent;' +
+      'border:1px solid currentColor;border-radius:999px;font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px';
+    node.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openLink(node, handle);
+    });
+    return node;
+  }
+
+  async function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
+    const target = targets.get(handle);
+    if (!target) return;
+    const { box, dialog, show } = popoverAt(anchor, 'Tip');
+    show('<p>Checking X proof and Lightning address…</p>');
     const reply = await send({ type: 'tipProfile', handle }).catch(() => undefined);
     if (dialog !== popover) return;
     const recipient = reply?.value as { pubkey: string; lightning: string } | undefined;
@@ -262,8 +302,11 @@ export function createTipButtons(send: Send, doc: Document = document) {
       bar?.append(button(handle, postInfo(article), handle === own, 'post'));
     }
     // On the name row, after the name and badges, rather than on a line of its own.
-    if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`))
-      (name.firstElementChild ?? name).append(button(profile, undefined, profile === own, 'profile'));
+    if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`)) {
+      const row = name.firstElementChild ?? name;
+      row.append(button(profile, undefined, profile === own, 'profile'));
+      if (profile !== own) row.append(nostrButton(profile));
+    }
   }
   function reset() {
     close();
