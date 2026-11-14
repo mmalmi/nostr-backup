@@ -3,13 +3,28 @@ import { profileHandle, xPermalink } from './x.ts';
 import { formatFiat, localCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 
-// Adds a quiet ⚡ button to X posts and profiles with a local Nostr link claim. Proof and address are checked on click.
+// Adds a quiet Social Backup flower button to X posts and a "Tip" button to profiles with a local Nostr link claim.
+// Proof and address are checked on click.
 // Paying happens in the user's own wallet via a lightning: link.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
 // Small, medium and large tips, with Iris's emoji.
 const EMOJI = ['👍', '💯', '🔥'];
 const MARK = 'data-social-backup-tip';
+const POST = 'data-social-backup-post';
+// The Social Backup forget-me-not (ui/icon.svg), with IDs that cannot clash with X's page.
+const FLOWER =
+  // 18.75px like X's own action icons; an inline size so page styles cannot change it.
+  '<svg viewBox="0 0 512 512" aria-hidden="true" style="flex:none;width:18.75px;height:18.75px;display:block">' +
+  '<defs><linearGradient id="sb-tip-petal" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">' +
+  '<stop offset="0" stop-color="#9ad8ff"/><stop offset="1" stop-color="#4f7dff"/></linearGradient>' +
+  '<mask id="sb-tip-cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/>' +
+  '<path fill="none" stroke="#000" stroke-linecap="round" stroke-width="10" d="M256 256l77.6-106.8M256 256l125.5 40.8M256 256v132M256 256l-125.5 40.8M256 256l-77.6-106.8"/>' +
+  '<circle cx="256" cy="256" r="56"/></mask></defs>' +
+  '<g transform="translate(256 256) scale(1.44) translate(-256 -246.5)"><g fill="url(#sb-tip-petal)" mask="url(#sb-tip-cuts)">' +
+  '<circle cx="256" cy="156" r="76"/><circle cx="351.1" cy="225.1" r="76"/><circle cx="314.8" cy="336.9" r="76"/>' +
+  '<circle cx="197.2" cy="336.9" r="76"/><circle cx="160.9" cy="225.1" r="76"/></g>' +
+  '<circle cx="256" cy="256" r="38" fill="#ffd66e"/></g></svg>';
 
 function author(article: Element) {
   for (const link of article.querySelectorAll('[data-testid="User-Name"] a[href]')) {
@@ -49,6 +64,12 @@ export function createTipButtons(send: Send, doc: Document = document) {
   // One fiat rate per page, for showing tip amounts in the user's currency.
   const currency = localCurrency(navigator.languages ?? []);
   let rate: Promise<number | null> | undefined;
+  // Tips found for a post after its popover was opened, shown on its button for the rest of the visit.
+  const totals = new Map<string, string>();
+  const showTotal = (handle: string, post: string, label: string) => {
+    totals.set(handle + ':' + post, label);
+    for (const node of doc.querySelectorAll(`[${MARK}="${handle}"][${POST}="${post}"] span`)) node.textContent = label;
+  };
 
   function close() {
     popover?.remove();
@@ -58,13 +79,16 @@ export function createTipButtons(send: Send, doc: Document = document) {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
-    node.textContent = placement === 'profile' ? '⚡ Tip' : '⚡';
+    if (post) node.setAttribute(POST, post.id);
+    node.innerHTML = FLOWER + '<span></span>';
+    // Like X's own action bar, posts show the icon and a number only once there is one; profiles say "Tip".
+    node.querySelector('span')!.textContent = (post && totals.get(handle + ':' + post.id)) || (placement === 'profile' ? 'Tip' : '');
     node.title = own ? 'People with Social Backup can tip you here' : 'Tip @' + handle + ' with Bitcoin';
     node.setAttribute('aria-label', node.title);
-    node.style.cssText = placement === 'profile'
-      ? 'background:transparent;border:1px solid currentColor;border-radius:999px;color:inherit;cursor:pointer;' +
-        'font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px;white-space:nowrap'
-      : 'background:none;border:0;cursor:pointer;font-size:16px;line-height:1;padding:0 10px;color:inherit;opacity:.75';
+    node.style.cssText = 'display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:inherit;white-space:nowrap;' +
+      (placement === 'profile'
+        ? 'background:transparent;border:1px solid currentColor;border-radius:999px;font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px'
+        : 'background:none;border:0;font:13px/1 system-ui;padding:0 10px');
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -125,6 +149,8 @@ export function createTipButtons(send: Send, doc: Document = document) {
       const currentRate = rate ??= send({ type: 'tipRate', currency })
         .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
         .catch(() => null);
+      // How many tips the post had when the popover opened, to notice a new one arriving.
+      let tipped: number | undefined;
       // Only a click looks for the author's Nostr copy. The X URL stays local.
       if (post)
         void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
@@ -132,10 +158,12 @@ export function createTipButtons(send: Send, doc: Document = document) {
             const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
             const line = box.querySelector('.onNostr');
             if (!found?.note || !line) return;
+            tipped = found.tips;
             const show = (perBitcoin: number | null) => {
               line.textContent = found.tips
                 ? 'On Nostr · ' + (perBitcoin ? formatFiat(found.sats * perBitcoin / 1e8, currency) + ' from ' : '') + found.tips + (found.tips === 1 ? ' tip' : ' tips')
                 : 'This post is on Nostr.';
+              if (found.tips && perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
             };
             void currentRate.then(show);
           })
@@ -172,6 +200,22 @@ export function createTipButtons(send: Send, doc: Document = document) {
             box.querySelector('b')!.textContent = label;
             box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
             box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
+            // While the invoice is open, check this post's tips every few seconds to notice the payment.
+            if (post) void (async () => {
+              for (let i = 0; i < 24 && dialog === popover; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+                if (dialog !== popover) return;
+                const reply = await send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) }).catch(() => undefined);
+                const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
+                if (!found || dialog !== popover) continue;
+                if (tipped === undefined) tipped = found.tips;
+                if (found.tips <= tipped) continue;
+                show('<p>Thanks! Your tip arrived.</p>');
+                const perBitcoin = await currentRate;
+                if (perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
+                return;
+              }
+            })();
           });
           row.append(choice);
         });

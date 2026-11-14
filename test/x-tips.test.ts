@@ -66,6 +66,10 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     await new Promise((resolve) => setTimeout(resolve, 10));
     const buttons = Array.from(doc.querySelectorAll('[data-social-backup-tip]'));
     assert.deepEqual(buttons.map((b) => b.getAttribute('data-social-backup-tip')), ['alice', 'me']);
+    // Like X's action bar: the Social Backup flower alone, named by its tooltip.
+    assert.deepEqual(buttons.map((b) => b.textContent), ['', '']);
+    assert.ok(buttons[0].querySelector('svg'));
+    assert.equal(buttons[0].getAttribute('title'), 'Tip @alice with Bitcoin');
     assert.deepEqual(sent[0], { type: 'tipTargets', handles: ['alice', 'bob', 'me'] });
     // Scanning again adds nothing and asks about nothing new.
     tips.scan('me');
@@ -84,6 +88,8 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     assert.equal(lookup.text, 'Great post');
     assert.equal(lookup.time, Math.floor(Date.parse('2024-01-02T03:04:05Z') / 1000));
     assert.match(box().querySelector('.onNostr')!.textContent!, /^On Nostr · \D?1[.,]23\D* from 3 tips$/);
+    // Once the popover found the post's tips, its button shows their total.
+    assert.match(buttons[0].textContent!, /^\D?1[.,]23\D*$/);
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', ...target, sats: 100, post: '9' });
