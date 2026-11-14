@@ -8,6 +8,8 @@ export const page = $state<{
   section: string;
   setup: boolean;
   accounts?: { x: string; instagram: string; facebook: string };
+  /** Set when sign-up created a new key, so setup ends by offering to save it. */
+  created?: boolean;
 }>({ section: 'archive', setup: false });
 
 // Set by the page script. Panels call it after an action changes settings or the account.

@@ -972,3 +972,13 @@ ul:empty {
   margin: 6px 0 4px;
   max-width: 320px;
 }
+
+.keyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.keyActions button {
+  flex: 1;
+}

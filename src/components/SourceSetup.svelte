@@ -4,6 +4,7 @@
   import AccountFields, { type Usernames } from './AccountFields.svelte';
   import XLinkPost from './XLinkPost.svelte';
   import XFollowMatches from './XFollowMatches.svelte';
+  import SaveKey from './SaveKey.svelte';
 
   // Saves the usernames through the Sources settings. Rejects with the error already shown.
   let { save }: { save: (usernames: Usernames) => Promise<void> } = $props();
@@ -12,13 +13,16 @@
   const conf = page.status?.conf;
   const chosenFirst = page.accounts;
   page.accounts = undefined;
+  // A new account ends setup by offering to save its secret key.
+  const created = !!page.created;
+  page.created = false;
   let usernames = $state<Usernames>({
     x: chosenFirst?.x || conf?.handle || '',
     instagram: chosenFirst?.instagram || conf?.social?.instagram?.handle || '',
     facebook: chosenFirst?.facebook || conf?.social?.facebook?.handle || '',
   });
   // With an X account, linking it and finding the people you follow come before "You're set".
-  let stage = $state<'accounts' | 'nostr' | 'done'>('accounts');
+  let stage = $state<'accounts' | 'nostr' | 'done' | 'key'>('accounts');
   let saving = $state(false);
 
   const accounts = [
@@ -38,6 +42,7 @@
       await save(usernames);
       if (clean(usernames.x)) stage = 'nostr';
       else if (chosen.length) stage = 'done';
+      else if (created) stage = 'key';
       else page.setup = false;
     } catch {
       // The page shows the error; the user can fix the username.
@@ -71,7 +76,7 @@
     <h3>People you follow on X</h3>
     <XFollowMatches handle={clean(usernames.x)} read={page.status?.xFollows} unlocked={page.status?.unlocked} />
     <button id="nostrNext" class="setupNext" onclick={() => (stage = 'done')}>Continue</button>
-  {:else}
+  {:else if stage === 'done'}
     <h2 id="setupTitle">You're set</h2>
     <p class="hint">Open each profile and scroll down. Social Backup saves your posts as they appear.</p>
     <ul class="setupLinks">
@@ -83,6 +88,10 @@
         </li>
       {/each}
     </ul>
-    <button id="finishSetup" onclick={finish}>Go to your backup</button>
+    <button id="finishSetup" onclick={() => (created ? (stage = 'key') : finish())}
+      >{created ? 'Continue' : 'Go to your backup'}</button
+    >
+  {:else}
+    <SaveKey pubkey={page.status?.conf.pubkey ?? ''} ondone={finish} />
   {/if}
 </section>

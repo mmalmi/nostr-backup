@@ -178,6 +178,7 @@
     signingIn = true;
     try {
       await send('createProfile', { ...$state.snapshot(profile), account: '' });
+      page.created = true;
       page.setup = true;
       await app.refresh(true);
     } finally {

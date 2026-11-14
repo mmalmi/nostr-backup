@@ -1297,15 +1297,26 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   assert.equal(id('workspace').hidden, true);
   assert.equal((await success('status')).conf.handle, 'example');
   assert.equal(page.document.querySelector('.setupLinks a')?.getAttribute('href'), 'https://x.com/example');
+  let nsec = '';
+  Object.defineProperty(page.navigator, 'clipboard', { value: { writeText: async (text: string) => { nsec = text; } } });
+  // A new account ends setup by offering to save its secret key, which can be skipped.
   id('finishSetup').click();
+  await until(() => !!page.document.getElementById('saveKeyFile'));
+  assert.match(page.document.querySelector('.setup .hint')?.textContent ?? '', /read\s+your Nostr private messages/);
+  assert.equal(id('keyDone').textContent, 'Skip for now');
+  id('copyKey').click();
+  await until(() => !!nsec && id('keyDone').textContent === 'Go to your backup');
+  assert.equal(page.document.body.textContent.includes(nsec), false);
+  id('keyDone').click();
   await until(() => !id('workspace').hidden);
   assert.equal(id('handle').value, 'example');
   assert.equal(page.document.getElementById('recoveryKey'), null);
   const owner = (await success('status')).conf.pubkey;
-  let nsec = '';
-  Object.defineProperty(page.navigator, 'clipboard', { value: { writeText: async (text: string) => { nsec = text; } } });
+  const fromSetup = nsec;
+  nsec = '';
   id('copyPrivateKey').click();
   await until(() => !!nsec);
+  assert.equal(nsec, fromSetup);
   const decoded = decode(nsec);
   assert.equal(decoded.type, 'nsec');
   assert.equal(getPublicKey(decoded.data), owner);

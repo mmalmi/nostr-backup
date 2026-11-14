@@ -60,7 +60,7 @@
     }
   }
 
-  async function save() {
+  async function save(quiet = false) {
     try {
       await send('settings', {
         pubkey,
@@ -77,14 +77,14 @@
       throw error;
     }
     await refresh(true);
-    notice('Saved.');
+    if (!quiet) notice('Saved.');
   }
 
   // The setup step saves usernames through the Sources settings, so validation is shared.
   async function saveUsernames(usernames: { x: string; instagram: string; facebook: string }) {
     sources.useUsernames(usernames);
     try {
-      await save();
+      await save(true);
     } catch (error) {
       await refresh(true);
       throw error;
