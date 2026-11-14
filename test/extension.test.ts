@@ -1630,6 +1630,31 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
   }
 });
 
+test('signing in with an existing key keeps its published X link and profile', async (t) => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  // A new device starts with the default relays, where the existing account published.
+  const url = DEFAULT_RELAYS[0];
+  const relay = fixtureRelay(url);
+  const profile = finalizeEvent({ kind: 0, created_at: 3, content: JSON.stringify({ name: 'Existing' }), tags: [] }, secret);
+  for (const event of [
+    finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'github:existing', 'gist'], ['i', 'twitter:existing', '321']] }, secret),
+    profile,
+  ]) relay.stored.set(event.id, event);
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) =>
+    publicTweet(input, 'Verifying that I control the following Nostr public key: ' + npubEncode(owner)));
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'existing', capture: true, relaySync: false, relays: url });
+    // The proof is checked on X, then kept as this account's link without publishing anything.
+    await until(async () => (await success('status')).xLink?.proof === '321');
+    assert.deepEqual((await success('status')).xLink, { handle: 'existing', proof: '321' });
+    assert.equal(relay.sent.filter((event) => event.kind === 0 || event.kind === 10011).length, 0);
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('tips on X go to verified Nostr profiles with a lightning address and can be turned off', async (t) => {
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const carol = generateSecretKey(), carolKey = getPublicKey(carol);

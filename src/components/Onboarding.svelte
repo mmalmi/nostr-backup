@@ -119,6 +119,12 @@
     touched.add(field);
     profile[field] = undefined;
   }
+  // Signing in with an existing key keeps its Nostr profile. Usernames on the first screen still
+  // carry over, so setup links your accounts the same way.
+  async function signInInstead() {
+    if (step === 'accounts' && Object.values(usernames).some((value) => value.trim())) page.accounts = { ...usernames };
+    await show('signin');
+  }
   async function skip() {
     page.accounts = { x: '', facebook: '', instagram: '' };
     await show('profile');
@@ -186,8 +192,8 @@
 
 {#snippet signInLink()}
   <div class="existingProfile">
-    <a href="#signin" id="existingProfileLink" onclick={run(() => show('signin'))}>Already have an account?</a>
-    <button type="button" class="secondary" id="existingProfile" onclick={run(() => show('signin'))}>Sign in</button>
+    <a href="#signin" id="existingProfileLink" onclick={run(signInInstead)}>Already on Nostr?</a>
+    <button type="button" class="secondary" id="existingProfile" onclick={run(signInInstead)}>Sign in with your key</button>
   </div>
 {/snippet}
 
@@ -259,7 +265,7 @@
 <div id="existingLogin" hidden={step !== 'signin'}>
   <h2>Sign in</h2>
   <p id="loginHelp" class="hint">
-    Use your secret key to sign in. To view a backup without making changes, use your user ID instead. Your relays receive the public key to find your posts.
+    Use your secret key to sign in. Your Nostr profile stays as it is. To view a backup without making changes, use your user ID instead. Your relays receive the public key to find your posts.
   </p>
   <form id="loginForm" onsubmit={run(() => signIn(true))}>
     <input

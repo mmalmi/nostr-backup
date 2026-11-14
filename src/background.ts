@@ -26,7 +26,7 @@ import { nsecEncode } from 'nostr-tools/nip19';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { ArchiveEventBus, archiveRouter, localArchive } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
-import { contactsTemplate, xClaims, XRateLimited, identityTemplate, IDENTITY_KIND, isProofPost } from './x-identity.ts';
+import { checkXProof, contactsTemplate, xClaims, XRateLimited, identityTemplate, IDENTITY_KIND, isProofPost } from './x-identity.ts';
 import { directoryAuthors, directoryClaims, saveDirectory, verifiedTarget } from './x-directory.ts';
 import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice, zapTotal } from './x-tips.ts';
@@ -879,6 +879,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       } else await login(msg.key);
     });
     if (copying) void copyProfileImages(copying.key, copying.profile, copying.published).catch(() => {});
+    if (msg.type === 'login') void keepPublishedXLink().catch(() => {});
     void kick();
     return;
   }
@@ -1366,6 +1367,32 @@ async function arm() {
   if (!(await api.alarms.get('backup')))
     await api.alarms.create('backup', { periodInMinutes: 5 });
 }
+// Signing in with an existing key keeps the X link it already published, once X still shows the
+// proof. Nothing is republished; the link shows when the X username in Sources matches it.
+async function keepPublishedXLink() {
+  const conf = await settings();
+  if (changing || !conf.pubkey) return;
+  const db = await openArchive(conf.archiveName);
+  try {
+    const list = await latestOwn(db, conf, IDENTITY_KIND);
+    if (!list) return;
+    await saveDirectory(db, [list]);
+    const [claim] = xClaims(list).sort((a, b) => (BigInt(b.proof) > BigInt(a.proof) ? 1 : -1));
+    if (!claim || (await db.get('meta', 'xLink')) || !(await checkXProof(claim))) return;
+    if (changing || (await settings()).pubkey !== conf.pubkey) return;
+    const floorKey = ['xProofThrough', claim.handle];
+    const tx = db.transaction('meta', 'readwrite');
+    const floor = ((await tx.store.get(floorKey)) as string[] | undefined)?.[0] ?? '0';
+    if (BigInt(claim.proof) >= BigInt(floor)) {
+      await tx.store.put({ handle: claim.handle, proof: claim.proof }, 'xLink');
+      await tx.store.put([claim.proof], floorKey);
+    }
+    await tx.done;
+  } finally {
+    db.close();
+  }
+}
+
 // After sign-up, the profile's own copies of its pictures replace the original links, unless the
 // profile changed meanwhile. A copy that fails keeps a lasting link and leaves out an expiring one.
 async function copyProfileImages(key: Uint8Array, profile: NewProfile, published: NostrEvent) {
