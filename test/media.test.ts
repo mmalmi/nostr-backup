@@ -90,7 +90,7 @@ test('a failed original falls back to Blossom, survives reopen and restores a mu
   };
   await assert.rejects(
     putBlossom(server, digest, body, 'image/png', await authorize(digest,server), async () => Response.json({ sha256: 'wrong' })),
-    /descriptor/,
+    /mismatched file/,
   );
   assert.deepEqual((await db.get('mediaFiles', digest))?.copies, []);
   const uploaded = await putBlossom(server, digest, body, 'image/png', await authorize(digest,server), async (url, init) => {

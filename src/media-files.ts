@@ -293,6 +293,6 @@ export async function putBlossom(
     descriptor.sha256 !== hash ||
     descriptor.size !== bytes.byteLength
   )
-    throw Error('Blossom returned a mismatched file descriptor.');
+    throw Error('The media backup server returned a mismatched file.');
   return location.href;
 }

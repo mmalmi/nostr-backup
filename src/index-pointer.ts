@@ -57,7 +57,7 @@ export async function queueIndexPointer(
 ) {
   const server = conf.blossomServer;
   if (!server || !publicMediaURL(server) || !conf.relays.length)
-    throw Error('Save a public Blossom server and at least one relay first.');
+    throw Error('Save a public media backup server and at least one relay first.');
   const snapshot = db.transaction(['meta', 'heldEvents', 'events']);
   const localRoot = await snapshot.objectStore('meta').get('root') as CID | undefined;
   if (!localRoot) throw Error('The event index is empty.');

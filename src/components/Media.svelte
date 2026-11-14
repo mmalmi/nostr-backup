@@ -191,7 +191,7 @@
     /></label
   >
   <label
-    >Blossom servers <small>(one per line)</small>
+    >Media backup servers <small>(one per line)</small>
     <textarea
       id="blossomServer"
       rows="3"
@@ -201,7 +201,10 @@
       onchange={saveField}
     ></textarea></label
   >
-  <p class="hint">Files are saved on this device. These servers store extra copies of public files.</p>
+  <p class="hint">
+    Files are saved on this device. These servers store extra copies of public files.
+    <small>They use the <a href="https://github.com/hzrd149/blossom" target="_blank" rel="noopener noreferrer">Blossom standard</a>.</small>
+  </p>
 </section>
 
 <section>
@@ -218,7 +221,7 @@
 <section>
   <h3>Copies on other servers</h3>
   <p id="uploadHint">Check saved public files and restore missing copies.</p>
-  <ul id="blossomStatus" aria-label="Blossom server status">
+  <ul id="blossomStatus" aria-label="Media backup server status">
     {#each serverRows as row, i (i)}<li>{row}</li>{/each}
   </ul>
   <button

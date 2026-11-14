@@ -31,7 +31,7 @@ export function blossomOrigin(value: string) {
   const url = new URL(value);
   if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url))) ||
       url.username || url.password || url.pathname !== '/' || url.search || url.hash)
-    throw Error('Use an HTTPS Blossom server, or HTTP on localhost.');
+    throw Error('Use an HTTPS media backup server, or HTTP on localhost.');
   return url.origin;
 }
 

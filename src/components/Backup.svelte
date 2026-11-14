@@ -42,7 +42,7 @@
     [
       !status?.indexHash && 'a saved item',
       !status?.unlocked && 'an unlocked account',
-      conf && !mediaServers(conf).some(publicMediaURL) && 'a public Blossom server',
+      conf && !mediaServers(conf).some(publicMediaURL) && 'a public media backup server',
       !conf?.relays.length && 'a saved relay',
     ].filter(Boolean),
   );

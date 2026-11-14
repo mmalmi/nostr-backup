@@ -91,7 +91,7 @@ export async function deliverBlossom(
         options.signal.throwIfAborted();
         url = await putBlossom(server, hash, bytes, file.mime, auth, options.fetcher);
         if (publicMediaURL(server) && !publicImageURL(url))
-          throw Error('Blossom returned an unusable public URL.');
+          throw Error('The media backup server returned an unusable public link.');
       }
     } catch (error) {
       options.signal.throwIfAborted();

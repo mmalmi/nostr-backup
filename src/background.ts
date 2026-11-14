@@ -1141,7 +1141,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const uploads = pendingImages.size ? await db.getAll('blossomOutbox') : [];
         const mediaError = receipts.find(row => row?.error)?.error ??
           uploads.find(row => pendingImages.has(row.hash) && mediaServers(conf).includes(row.server) && row.error)?.error ??
-          (imagePosts.length && !mediaServers(conf).some(publicMediaURL) ? 'Set a public Blossom server for shareable image links.' : undefined);
+          (imagePosts.length && !mediaServers(conf).some(publicMediaURL) ? 'Set a public media backup server for shareable image links.' : undefined);
         const queued = new Map<string, number>();
         for (const row of pending) queued.set(row.relay, (queued.get(row.relay) ?? 0) + 1);
         const connections = pool.listConnectionStatus();
@@ -1312,7 +1312,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           !mediaServers(conf).includes(msg.server) ||
           !(await db.getKey('mediaFiles', msg.hash))
         )
-          throw Error('Choose a saved file and the configured Blossom server.');
+          throw Error('Choose a saved file and the configured media backup server.');
         const key = await sessionKey();
         if (!key || getPublicKey(unhex(key)) !== conf.pubkey)
           throw Error('Unlock your account first.');
