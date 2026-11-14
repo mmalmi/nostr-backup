@@ -1228,6 +1228,14 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   page.dispatchEvent(new page.Event('focus'));
   await until(() => setupX().value === 'example');
   assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
+  // A cleared field stays empty when the page looks again; the username can be typed back.
+  id('clear-x').click();
+  await until(() => setupX().value === '' && !page.document.getElementById('clear-x'));
+  page.dispatchEvent(new page.Event('focus'));
+  await delay(50);
+  assert.equal(setupX().value, '');
+  setupX().value = 'Example';
+  setupX().dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
   id('accountsForm').requestSubmit();
   // The next screen previews the public profile from X, each detail removable.
   await until(() => !id('nameForm').hidden);
