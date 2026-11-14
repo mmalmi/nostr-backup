@@ -2,5 +2,8 @@
   "name": "nostr-backup-site",
   "compatibility_date": "2026-04-29",
   "assets": { "directory": "./dist" },
-  "routes": [{ "pattern": "backup.iris.to", "custom_domain": true }]
+  "routes": [
+    { "pattern": "socialbackup.org", "custom_domain": true },
+    { "pattern": "backup.iris.to", "custom_domain": true }
+  ]
 }
