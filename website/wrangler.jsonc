@@ -1,7 +1,8 @@
 {
   "name": "nostr-backup-site",
   "compatibility_date": "2026-04-29",
-  "assets": { "directory": "./dist" },
+  "main": "./worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": true },
   "routes": [
     { "pattern": "socialbackup.org", "custom_domain": true },
     { "pattern": "backup.iris.to", "custom_domain": true }
