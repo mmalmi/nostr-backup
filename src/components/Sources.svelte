@@ -9,10 +9,10 @@
   let { save }: { save: () => Promise<void> } = $props();
 
   type Source = 'x' | SocialNetwork;
-  const sources = ['x', 'instagram', 'facebook'] as const;
+  const sources = ['x', 'facebook', 'instagram'] as const;
   const networks: { id: SocialNetwork; label: string; field: string; placeholder: string }[] = [
-    { id: 'instagram', label: 'Instagram', field: 'Username', placeholder: '@yourname' },
     { id: 'facebook', label: 'Facebook', field: 'Username or numeric profile ID', placeholder: 'yourname' },
+    { id: 'instagram', label: 'Instagram', field: 'Username', placeholder: '@yourname' },
   ];
 
   let view = $state<SourcesView>();

@@ -1,8 +1,8 @@
 # Social Backup
 
-Save your own posts from X, Instagram, Facebook and Nostr in a local archive. Export posts and media as a ZIP or share confirmed public posts through Nostr.
+Save your own posts from X, Facebook, Instagram and Nostr in a local archive. Export posts and media as a ZIP or share confirmed public posts through Nostr.
 
-[Download and installation instructions](https://backup.iris.to/) · [Privacy policy](website/public/privacy.html) · [MIT license](LICENSE)
+[Download and installation instructions](https://socialbackup.org/) · [Privacy policy](website/public/privacy.html) · [MIT license](LICENSE)
 
 ## First backup
 

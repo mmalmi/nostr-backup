@@ -2,7 +2,7 @@
 
 ## Short description
 
-Save your posts from X, Instagram, Facebook and Nostr. Download a copy with photos and videos, or share public posts on Nostr.
+Save your posts from X, Facebook, Instagram and Nostr. Download a copy with photos and videos, or share public posts on Nostr.
 
 ## Store description
 
@@ -19,9 +19,9 @@ You can use the same Nostr profile to approve sign-ins and signatures on website
 - Chrome category: Tools (Productivity)
 - Firefox category: Other
 - Platforms: Desktop Firefox 140+, desktop Chrome. Select desktop only for this submission.
-- Homepage: https://backup.iris.to/
+- Homepage: https://socialbackup.org/
 - Support: https://github.com/mmalmi/nostr-backup/issues
-- Privacy policy: https://backup.iris.to/privacy.html (deploy the prepared policy and verify this exact URL before submission)
+- Privacy policy: https://socialbackup.org/privacy.html (deploy the prepared policy and verify this exact URL before submission)
 - Requires payment for functionality: No
 - Screenshot caption: A local backup with saved posts, sync status and a ZIP download.
 - Icon: icon-128.png. Screenshot: archive.png. Chrome small promotional tile: promo.png.

@@ -13,7 +13,7 @@ const common = {
   name: 'Social Backup',
   version: pkg.version,
   homepage_url: pkg.homepage,
-  description: 'Save your posts from X, Instagram, Facebook and Nostr. Download a copy with photos and videos, or share public posts on Nostr.',
+  description: 'Save your posts from X, Facebook, Instagram and Nostr. Download a copy with photos and videos, or share public posts on Nostr.',
   permissions: ['storage', 'alarms', 'scripting', 'unlimitedStorage'],
   host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
   icons,

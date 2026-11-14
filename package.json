@@ -1,7 +1,7 @@
 {
   "name": "social-backup",
-  "version": "0.2.3",
-  "homepage": "https://backup.iris.to/",
+  "version": "0.2.4",
+  "homepage": "https://socialbackup.org/",
   "private": true,
   "license": "MIT",
   "type": "module",

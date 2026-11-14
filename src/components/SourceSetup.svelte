@@ -16,8 +16,8 @@
 
   const accounts = [
     { id: 'x', label: 'X', placeholder: '@yourname', url: (u: string) => 'https://x.com/' + u },
-    { id: 'instagram', label: 'Instagram', placeholder: '@yourname', url: (u: string) => 'https://www.instagram.com/' + u + '/' },
     { id: 'facebook', label: 'Facebook', placeholder: 'username or profile ID', url: (u: string) => 'https://www.facebook.com/' + u },
+    { id: 'instagram', label: 'Instagram', placeholder: '@yourname', url: (u: string) => 'https://www.instagram.com/' + u + '/' },
   ] as const;
   // Matches how settings store a username.
   const clean = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
