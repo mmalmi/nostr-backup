@@ -146,6 +146,35 @@ test('a verified profile links to its Nostr profile once the proof is checked ag
   }
 });
 
+test('tip amounts use the currency chosen in the Tips settings', async () => {
+  const { Window } = await import('happy-dom');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/alice' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<div data-testid="UserName"><div><span>Alice</span></div></div>';
+  const target = { pubkey: getPublicKey(secret), lightning: 'alice@wallet.example' };
+  const rates: string[] = [];
+  const tips = createTipButtons(async (message) => {
+    if (message.type === 'tipTargets') return { ok: true, value: { alice: target } };
+    if (message.type === 'tipProfile') return { ok: true, value: target };
+    if (message.type === 'tipRate') return (rates.push(message.currency as string), { ok: true, value: 10000000 });
+    return { ok: false, error: 'unexpected' };
+  }, doc);
+  try {
+    tips.useCurrency('JPY');
+    tips.scan('me');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    (doc.querySelector('[data-testid="UserName"] button') as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const box = doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    // Yen presets are scaled: about ¥10, ¥100 and ¥500.
+    assert.match(box.querySelector('.row button')!.textContent!, /¥\s?10\b/);
+    assert.deepEqual(rates, ['JPY']);
+  } finally {
+    await window.happyDOM.abort();
+  }
+});
+
 test('a post matches its tagged Nostr copy, or one from the same minute with the same opening text', () => {
   const url = 'https://x.com/alice/status/9';
   const note = (content: string, created_at: number, tags: string[][] = []) =>

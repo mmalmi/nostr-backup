@@ -3,6 +3,7 @@
   import type { SourceSettings, SourcesView } from './views.ts';
   import XStats from './XStats.svelte';
   import XOnNostr from './XOnNostr.svelte';
+  import Tips from './Tips.svelte';
 
   // Switches save as they change. A username saves only when the user chooses Save or presses
   // Enter, because a partial username would back up someone else's profile.
@@ -22,6 +23,7 @@
   let capture = $state<Record<Source, boolean>>({ x: true, instagram: true, facebook: true });
   let skipCrossposts = $state(true);
   let tipButtons = $state(false);
+  let tipCurrency = $state('');
   let saving = $state<Source>();
 
   // Matches how settings store a username.
@@ -53,6 +55,7 @@
     };
     skipCrossposts = conf.skipCrossposts !== false;
     tipButtons = conf.tipButtons === true;
+    tipCurrency = conf.tipCurrency ?? '';
   }
 
   /** Stages usernames from the setup step as saved; the caller then saves settings. */
@@ -72,6 +75,7 @@
       capture: capture.x,
       skipCrossposts,
       tipButtons,
+      tipCurrency,
       social: {
         instagram: { handle: saved.instagram, capture: capture.instagram },
         facebook: { handle: saved.facebook, capture: capture.facebook },
@@ -147,7 +151,7 @@
     posts already on Nostr</label
   >
   <XStats x={view?.x} localX={view?.localX} />
-  <XOnNostr {view} bind:tipButtons onchange={toggle} />
+  <XOnNostr {view} />
 </section>
 
 {#each networks as network (network.id)}
@@ -171,3 +175,5 @@
     </p>
   </section>
 {/each}
+
+<Tips bind:enabled={tipButtons} bind:currency={tipCurrency} lightning={view?.lightning} onchange={toggle} />

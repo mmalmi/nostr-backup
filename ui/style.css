@@ -968,3 +968,7 @@ ul:empty {
   text-align: left;
   margin-bottom: 10px;
 }
+#tipCurrency {
+  margin: 6px 0 4px;
+  max-width: 320px;
+}

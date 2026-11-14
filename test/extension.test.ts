@@ -1666,6 +1666,14 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
     assert.equal((await success('captureConfig', {}, page)).tips, false);
     await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipButtons: true });
     assert.equal((await success('captureConfig', {}, page)).tips, true);
+    // Amounts follow the browser's region until a currency is chosen.
+    assert.equal((await success('captureConfig', {}, page)).tipCurrency, undefined);
+    assert.equal((await call('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipCurrency: 'XYZ' })).ok, false);
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipCurrency: 'JPY' });
+    assert.equal((await success('captureConfig', {}, page)).tipCurrency, 'JPY');
+    assert.equal((await success('status')).conf.tipButtons, true);
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipCurrency: '' });
+    assert.equal((await success('captureConfig', {}, page)).tipCurrency, undefined);
     api.alarms.onAlarm.list[0]({ name: 'x-directory' });
     await until(() => relay.reads.some(filter => filter.kinds?.includes(10011) && filter.authors?.includes(carolKey)));
     await idle();

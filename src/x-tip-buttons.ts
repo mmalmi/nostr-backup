@@ -1,6 +1,6 @@
 import type { Message, TipTarget } from './types.ts';
 import { profileHandle, xPermalink } from './x.ts';
-import { formatFiat, localCurrency, tipPresets } from './rates.ts';
+import { formatFiat, tipCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 import { npubEncode } from 'nostr-tools/nip19';
 
@@ -65,8 +65,8 @@ export function createTipButtons(send: Send, doc: Document = document) {
   const retryAt = new Map<string, number>();
   let generation = 0;
   let popover: HTMLElement | undefined;
-  // One fiat rate per page, for showing tip amounts in the user's currency.
-  const currency = localCurrency(navigator.languages ?? []);
+  // One fiat rate per page, for showing tip amounts in the chosen currency or the browser's region's.
+  let currency = tipCurrency(undefined, navigator.languages ?? []);
   let rate: Promise<number | null> | undefined;
   // Tips found for a post after its popover was opened, shown on its button for the rest of the visit.
   const totals = new Map<string, string>();
@@ -317,5 +317,13 @@ export function createTipButtons(send: Send, doc: Document = document) {
     for (const node of doc.querySelectorAll('[' + MARK + ']')) node.remove();
     generation++;
   }
-  return { scan, reset };
+  // The currency chosen in the Tips settings; nothing chosen follows the browser's region.
+  function useCurrency(chosen?: string) {
+    const next = tipCurrency(chosen, navigator.languages ?? []);
+    if (next === currency) return;
+    currency = next;
+    rate = undefined;
+    totals.clear();
+  }
+  return { scan, reset, useCurrency };
 }

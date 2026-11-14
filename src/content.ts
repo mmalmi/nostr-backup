@@ -132,10 +132,12 @@ function startCapture() {
         !config ||
         config.capture !== next.capture ||
         config.tips !== next.tips ||
+        config.tipCurrency !== next.tipCurrency ||
         config.pubkey !== next.pubkey ||
         config.handle !== next.handle
       ) {
         tips?.reset();
+        tips?.useCurrency(next.tipCurrency);
         pending.clear();
         seen.clear();
         collector?.stop();

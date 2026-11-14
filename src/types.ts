@@ -23,6 +23,8 @@ export interface Settings {
   skipCrossposts?: boolean;
   /** Show tip buttons on X for people with a verified Nostr profile. Off until enabled. */
   tipButtons?: boolean;
+  /** The currency tip amounts are shown in. Empty or missing follows the browser's region. */
+  tipCurrency?: string;
   relaySync: boolean;
   relayKinds?: RelayKindFilter;
   relays: string[];
@@ -212,6 +214,7 @@ export interface CaptureConfig {
   capture: boolean;
   pubkey?: string;
   tips?: boolean;
+  tipCurrency?: string;
 }
 /** A Nostr key and the X proof post claimed for it. */
 export interface TipTarget {

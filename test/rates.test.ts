@@ -41,3 +41,10 @@ test('tip presets are a dime, a coin and a note in the local currency, sized per
   assert.deepEqual(tipPresets('JPY', 15000000).map((p) => p.fiat), [10, 100, 500]);
   assert.equal(tipPresets('USD', 1e12)[0].sats, 1);
 });
+
+test('a chosen tip currency wins over the browser region, if it is one tips support', async () => {
+  const { tipCurrency } = await import('../src/rates.ts');
+  assert.equal(tipCurrency('JPY', ['en-US']), 'JPY');
+  assert.equal(tipCurrency('', ['fi-FI']), 'EUR');
+  assert.equal(tipCurrency('XYZ', ['en-GB']), 'GBP');
+});

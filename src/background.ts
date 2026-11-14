@@ -31,7 +31,7 @@ import { directoryAuthors, directoryClaims, saveDirectory, verifiedTarget } from
 import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice, zapTotal } from './x-tips.ts';
 import { paymentConsent } from './tip-consent.ts';
-import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES } from './rates.ts';
+import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES, TIP_CURRENCIES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
 import { relaySource, RelayRateLimitError, retryRelayOutbox } from 'nostr-pubsub';
@@ -451,6 +451,12 @@ async function refreshDirectory(db: Archive, conf: Settings) {
   const next = start + batch.length;
   await db.put('meta', next >= authors.length ? ['0', String(Date.now() + 86400000)] : [String(next), '0'], stateKey);
 }
+function validTipCurrency(value: unknown) {
+  if (value === '') return undefined;
+  if (typeof value !== 'string' || !TIP_CURRENCIES.includes(value)) throw Error('Choose a currency for tips.');
+  return value;
+}
+
 // A whole directory pass in the background, rather than one batch per alarm, once you look for
 // the people you follow. Each batch uses the current settings and stops if the account changes.
 let warming: Promise<void> | undefined;
@@ -769,6 +775,7 @@ async function configure(msg: Message<'settings'>) {
     social,
     skipCrossposts: msg.skipCrossposts ?? prev.skipCrossposts ?? true,
     tipButtons: msg.tipButtons ?? prev.tipButtons ?? false,
+    tipCurrency: msg.tipCurrency === undefined ? prev.tipCurrency : validTipCurrency(msg.tipCurrency),
     relaySync: !!msg.relaySync,
     relayKinds,
     blossomServer,
@@ -949,6 +956,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           capture: !!selected?.capture && !!(await sessionKey()),
           pubkey: conf.pubkey,
           tips: network === 'x' && conf.tipButtons === true && await paymentConsent(),
+          ...(conf.tipCurrency ? { tipCurrency: conf.tipCurrency } : {}),
         };
       const handle = selected?.handle;
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
@@ -1009,17 +1017,18 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const key = ['rate', msg.currency], now = Date.now() / 1000;
         const saved = (await db.get('meta', key)) as { value: number; at: number } | undefined;
         if (saved && now - saved.at < FRESH_SECONDS) return saved.value;
+        // Both sources at once; the first usable rate wins, so no relay is waited on.
         const relays = new SimplePool();
-        let value: number | undefined;
-        try {
-          const events = conf.relays.length
-            ? await relays.querySync(conf.relays, { kinds: [SNORT_RATES.kind], authors: [SNORT_RATES.pubkey], '#d': ['BTC' + msg.currency] }, { maxWait: 2500 })
-            : [];
-          value = events.sort((a, b) => b.created_at - a.created_at).map((e) => snortRate(e, msg.currency)).find(Boolean);
-        } finally {
-          relays.destroy();
-        }
-        value ??= await coinbaseRate(msg.currency).catch(() => undefined);
+        const fromSnort = (async () => {
+          if (!conf.relays.length) throw Error('No relays.');
+          const events = await relays.querySync(conf.relays, { kinds: [SNORT_RATES.kind], authors: [SNORT_RATES.pubkey], '#d': ['BTC' + msg.currency] }, { maxWait: 2500 });
+          const found = events.sort((a, b) => b.created_at - a.created_at).map((e) => snortRate(e, msg.currency)).find(Boolean);
+          if (!found) throw Error('No signed rate.');
+          return found;
+        })();
+        const fromCoinbase = coinbaseRate(msg.currency).then((found) => found ?? Promise.reject(Error('No rate.')));
+        const value = await Promise.any([fromSnort, fromCoinbase]).catch(() => undefined);
+        void fromSnort.catch(() => {}).finally(() => relays.destroy());
         if (value) await db.put('meta', { value, at: now }, key);
         return value ?? (saved && now - saved.at < 4 * 3600 ? saved.value : null);
       }

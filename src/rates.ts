@@ -16,6 +16,14 @@ const byCountry: Record<string, string> = {
 for (const country of 'AT BE BG CY DE EE ES FI FR GR HR IE IT LT LU LV MT NL PT SI SK AD MC SM VA'.split(' '))
   byCountry[country] = 'EUR';
 
+/** Currencies tip amounts can be shown in. */
+export const TIP_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'CHF', 'JPY', 'CNY', 'INR', 'SEK', 'NOK', 'DKK'];
+
+/** The chosen tip currency, or the one for the browser's region. */
+export function tipCurrency(chosen: string | undefined, locales: readonly string[]) {
+  return chosen && TIP_CURRENCIES.includes(chosen) ? chosen : localCurrency(locales);
+}
+
 /** The currency for the browser's region, or USD. */
 export function localCurrency(locales: readonly string[]) {
   for (const locale of locales) {
