@@ -1241,6 +1241,9 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await until(() => setupX().value === 'example');
   assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
   assert.equal((page.document.getElementById('setup-instagram') as unknown as HTMLInputElement).value, 'example.ig');
+  // Progress dots count the slides that apply: accounts, profile, Nostr, "You're set" and the key.
+  const stepLabel = (selector: string) => page.document.querySelector(selector + ' .wizardSteps')?.getAttribute('aria-label');
+  assert.equal(stepLabel('#accountsForm'), 'Step 1 of 5');
   // A cleared field stays empty when the page looks again; the username can be typed back.
   id('clear-x').click();
   await until(() => setupX().value === '' && !page.document.getElementById('clear-x'));
@@ -1278,6 +1281,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   // Signing up saves the usernames through the Sources settings, without waiting for the copies.
   // With an X account, the next step links it to Nostr and finds the people you follow.
   await until(() => !!page.document.getElementById('nostrNext'));
+  assert.equal(stepLabel('.setup'), 'Step 3 of 5');
   assert.match(page.document.getElementById('linkX')?.getAttribute('href') ?? '', /^https:\/\/x\.com\/intent\/post\?text=Verifying/);
   assert.equal(page.document.querySelector('#findXFollows')?.hasAttribute('disabled'), true);
   id('nostrNext').click();
@@ -1306,6 +1310,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   // A new account ends setup by offering to save its secret key, which can be skipped.
   id('finishSetup').click();
   await until(() => !!page.document.getElementById('saveKeyFile'));
+  assert.equal(stepLabel('.setup'), 'Step 5 of 5');
   assert.match(page.document.querySelector('.setup .hint')?.textContent ?? '', /read\s+your Nostr private messages/);
   assert.equal(id('keyDone').textContent, 'Skip for now');
   id('copyKey').click();

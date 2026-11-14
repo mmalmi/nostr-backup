@@ -992,3 +992,26 @@ ul:empty {
   width: 100%;
   margin-top: 6px;
 }
+/* Sign-up and sign-in progress */
+.wizardSteps {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+.wizardSteps li {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.wizardSteps li.past {
+  background: color-mix(in srgb, var(--brand) 45%, var(--line));
+}
+.wizardSteps li.current {
+  width: 20px;
+  border-radius: 4px;
+  background: var(--brand);
+}

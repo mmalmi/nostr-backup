@@ -6,6 +6,7 @@
   import XLinkPost from './XLinkPost.svelte';
   import XFollowMatches from './XFollowMatches.svelte';
   import SaveKey from './SaveKey.svelte';
+  import WizardSteps from './WizardSteps.svelte';
 
   // Saves the usernames through the Sources settings. Rejects with the error already shown.
   let { save }: { save: (usernames: Usernames) => Promise<void> } = $props();
@@ -23,7 +24,8 @@
     facebook: chosenFirst?.facebook || conf?.social?.facebook?.handle || '',
   });
   // With an X account, linking it and finding the people you follow come before "You're set".
-  let stage = $state<'accounts' | 'nostr' | 'done' | 'key'>('accounts');
+  // Accounts chosen before signing up or in save at once; the form shows only if that fails.
+  let stage = $state<'saving' | 'accounts' | 'nostr' | 'done' | 'key'>(chosenFirst ? 'saving' : 'accounts');
   let saving = $state(false);
   // After signing in with a key, accounts signed in on open tabs fill the empty fields.
   let detected = $state<Partial<Usernames>>({});
@@ -36,6 +38,8 @@
   // Matches how settings store a username.
   const clean = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
   const chosen = $derived(accounts.filter((account) => clean(usernames[account.id])));
+  const flow = page.flow ?? (created ? 'signup' : 'signin');
+  const picked = $derived({ x: !!clean(usernames.x), any: chosen.length > 0 });
 
   async function next(event?: SubmitEvent) {
     event?.preventDefault();
@@ -49,6 +53,7 @@
       else page.setup = false;
     } catch {
       // The page shows the error; the user can fix the username.
+      stage = 'accounts';
     } finally {
       saving = false;
     }
@@ -65,6 +70,7 @@
 </script>
 
 <section class="setup" aria-labelledby="setupTitle">
+  {#if stage !== 'saving'}<WizardSteps {flow} current={stage} chosen={picked} />{/if}
   {#if stage === 'accounts'}
     <form onsubmit={next}>
       <h2 id="setupTitle">Which accounts should we back up?</h2>
@@ -98,7 +104,7 @@
     <button id="finishSetup" onclick={() => (created ? (stage = 'key') : finish())}
       >{created ? 'Continue' : 'Go to your backup'}</button
     >
-  {:else}
+  {:else if stage === 'key'}
     <SaveKey pubkey={page.status?.conf.pubkey ?? ''} ondone={finish} />
   {/if}
 </section>

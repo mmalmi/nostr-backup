@@ -5,6 +5,7 @@
   import type { NewProfile } from '../types.ts';
   import { notice, send } from '../ui.ts';
   import AccountFields, { type Usernames } from './AccountFields.svelte';
+  import WizardSteps from './WizardSteps.svelte';
   import { app, page } from './page.svelte.ts';
 
   // A new user signs up: which accounts to back up, then the profile it will publish, prefilled
@@ -29,6 +30,7 @@
   let startButton: HTMLButtonElement;
 
   const clean = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
+  const chosen = $derived({ x: !!clean(usernames.x), any: Object.values(usernames).some((value) => !!clean(value)) });
 
   // Fields are read and cleared directly so a pasted key leaves the page at once.
   export function reset() {
@@ -138,6 +140,7 @@
     signingIn = true;
     keyDisabled = true;
     keyField.value = '';
+    page.flow = 'signin';
     notice('Signing in…');
     try {
       if (parsed.type === 'watch') await send('watch', { pubkey: parsed.key, account: '' });
@@ -189,15 +192,20 @@
 <div id="welcome" class="onboardingStep" hidden={step !== 'welcome'}>
   <h2>Back up your posts</h2>
   <p class="hint">Keep a copy of your X, Facebook and Instagram posts, and share the public ones on Nostr.</p>
-  <button id="startSignUp" class="setupNext" bind:this={startButton} onclick={run(() => show('accounts'))}>Sign up</button>
+  <button id="startSignUp" class="setupNext" bind:this={startButton} onclick={run(() => ((page.flow = 'signup'), show('accounts')))}
+    >Sign up</button
+  >
   <!-- Signing in keeps your Nostr profile; setup then links your accounts the same way. -->
   <div class="existingProfile">
     <span>Already on Nostr?</span>
-    <button type="button" class="secondary" id="existingProfile" onclick={run(() => show('signin'))}>Sign in</button>
+    <button type="button" class="secondary" id="existingProfile" onclick={run(() => ((page.flow = 'signin'), show('signin')))}
+      >Sign in</button
+    >
   </div>
 </div>
 
 <form id="accountsForm" class="onboardingStep" hidden={step !== 'accounts'} onsubmit={run(next)}>
+  <WizardSteps flow="signup" current="accounts" {chosen} />
   <h2>Which accounts should we back up?</h2>
   <p class="hint">Posts are saved as you scroll your own profile.</p>
   <div bind:this={xField}>
@@ -210,6 +218,7 @@
 </form>
 
 <form id="nameForm" class="onboardingStep" hidden={step !== 'profile'} onsubmit={run(createProfile)}>
+  <WizardSteps flow="signup" current="profile" {chosen} />
   <h2>Sign up</h2>
   <div class="profilePreview" class:withBanner={!!profile.banner}>
     {#if profile.banner}
@@ -262,6 +271,7 @@
 </form>
 
 <div id="existingLogin" hidden={step !== 'signin'}>
+  <WizardSteps flow={page.flow ?? 'signin'} current="signin" {chosen} />
   <h2>Sign in</h2>
   <p id="loginHelp" class="hint">
     Use your secret key to sign in. Your Nostr profile stays as it is. To view a backup without making changes, use your user ID instead. Your relays receive the public key to find your posts.
@@ -283,7 +293,9 @@
     />
   </form>
   <div class="existingProfile">
-    <a href="#signup" id="signupLink" onclick={run(() => show(previous))}>Don't have an account?</a>
-    <button type="button" class="secondary" id="cancelLogin" onclick={run(() => show(previous))}>Sign up</button>
+    <a href="#signup" id="signupLink" onclick={run(() => ((page.flow = 'signup'), show('accounts')))}>Don't have an account?</a>
+    <button type="button" class="secondary" id="cancelLogin" onclick={run(() => ((page.flow = 'signup'), show('accounts')))}
+      >Sign up</button
+    >
   </div>
 </div>
