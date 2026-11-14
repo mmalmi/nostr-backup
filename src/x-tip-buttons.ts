@@ -3,8 +3,8 @@ import { profileHandle, xPermalink } from './x.ts';
 import { formatFiat, localCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 
-// Adds a quiet ⚡ button to X posts and profiles of people with a verified Nostr profile
-// that can receive tips. Paying happens in the user's own wallet via a lightning: link.
+// Adds a quiet ⚡ button to X posts and profiles with a local Nostr link claim. Proof and address are checked on click.
+// Paying happens in the user's own wallet via a lightning: link.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
 // Small, medium and large tips, with Iris's emoji.
@@ -42,8 +42,9 @@ function postInfo(article: Element): Post | undefined {
 export function createTipButtons(send: Send, doc: Document = document) {
   const targets = new Map<string, TipTarget | null>();
   const asking = new Set<string>();
-  // Handles without an answer yet, for example while X limits proof checks, wait before asking again.
+  // A miss can be checked locally again after a directory refresh.
   const retryAt = new Map<string, number>();
+  let generation = 0;
   let popover: HTMLElement | undefined;
   // One fiat rate per page, for showing tip amounts in the user's currency.
   const currency = localCurrency(navigator.languages ?? []);
@@ -70,7 +71,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     return node;
   }
 
-  function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
+  async function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
     close();
     const target = targets.get(handle);
     if (!target) return;
@@ -98,21 +99,31 @@ export function createTipButtons(send: Send, doc: Document = document) {
     </style><div class="box" role="dialog" aria-label="Tip"></div>`;
     const box = root.querySelector('.box')!;
     const show = (html: string) => (box.innerHTML = html);
+    show('<p>Checking X proof and Lightning address…</p>');
+    doc.body.append(popover);
+    const dialog = popover;
+    const reply = await send({ type: 'tipProfile', handle }).catch(() => undefined);
+    if (dialog !== popover) return;
+    const recipient = reply?.value as { pubkey: string; lightning: string } | undefined;
+    if (!reply?.ok || !recipient?.lightning) {
+      box.textContent = reply?.error ?? 'This account has no verified Lightning address.';
+      return;
+    }
     if (own) {
       box.textContent = '';
       const text = doc.createElement('p');
-      text.textContent = 'Tips for your posts go to ' + target.lightning + '.';
+      text.textContent = 'Tips for your posts go to ' + recipient.lightning + '.';
       box.append(text);
     } else {
       show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small><small class="address"><span></span><button class="alt">Copy</button></small>');
       // Paying the lightning address directly also works, without the zap.
-      box.querySelector('.address span')!.textContent = target.lightning;
-      box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(target.lightning));
+      box.querySelector('.address span')!.textContent = recipient.lightning;
+      box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(recipient.lightning));
       const row = box.querySelector('.row')!;
       const currentRate = rate ??= send({ type: 'tipRate', currency })
         .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
         .catch(() => null);
-      // Look for this post's Nostr copy now, not while scrolling, so relays only learn about posts you tip.
+      // Only a click looks for the author's Nostr copy. The X URL stays local.
       if (post)
         void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
           .then((reply) => {
@@ -139,7 +150,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
           choice.textContent = EMOJI[i] + ' ' + label;
           choice.addEventListener('click', async () => {
             show('<p>Getting an invoice…</p>');
-            const reply = await send({ type: 'tipInvoice', handle, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
+            const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
             if (!reply?.ok || typeof reply.value !== 'string') {
               box.textContent = '';
               const error = doc.createElement('p');
@@ -164,7 +175,6 @@ export function createTipButtons(send: Send, doc: Document = document) {
         });
       });
     }
-    doc.body.append(popover);
   }
 
   doc.addEventListener('keydown', (event) => event.key === 'Escape' && close());
@@ -183,18 +193,20 @@ export function createTipButtons(send: Send, doc: Document = document) {
       .slice(0, 50);
     if (unknown.length) {
       for (const handle of unknown) asking.add(handle);
+      const active = generation;
       send({ type: 'tipTargets', handles: unknown })
         .then((reply) => {
+          if (active !== generation) return;
           const found = reply?.ok ? (reply.value as Record<string, TipTarget | null>) : {};
           for (const handle of unknown) {
-            if (handle in found) targets.set(handle, found[handle]);
+            if (Object.hasOwn(found, handle) && found[handle]) targets.set(handle, found[handle]);
             else retryAt.set(handle, Date.now() + 60000);
           }
         })
         .catch(() => {})
         .finally(() => {
           for (const handle of unknown) asking.delete(handle);
-          scan(own);
+          if (active === generation) scan(own);
         });
     }
     for (const article of articles) {
@@ -207,5 +219,12 @@ export function createTipButtons(send: Send, doc: Document = document) {
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`))
       (name.firstElementChild ?? name).append(button(profile, undefined, profile === own));
   }
-  return { scan, targets };
+  function reset() {
+    close();
+    targets.clear();
+    retryAt.clear();
+    for (const node of doc.querySelectorAll('[' + MARK + ']')) node.remove();
+    generation++;
+  }
+  return { scan, reset };
 }

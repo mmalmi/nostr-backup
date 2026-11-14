@@ -44,6 +44,13 @@
       notice((e as Error).message);
     }
   }
+  async function unlink() {
+    try {
+      await send('unlinkX');
+      await app.refresh();
+      notice('Unlinked. Delete the verification post on X to invalidate its proof.');
+    } catch (e) { notice((e as Error).message); }
+  }
   const short = (key: string) => key.slice(0, 8) + '…';
 </script>
 
@@ -54,8 +61,7 @@
     ><input type="checkbox" id="tipButtons" bind:checked={tipButtons} {onchange} /> Show tip buttons on X</label
   >
   <p class="hint">
-    A ⚡ button appears on posts by people who linked a Nostr profile that can receive Bitcoin tips. To find them, the
-    X accounts you see are looked up on your relays.
+    X handles are matched on this device. Click ⚡ to verify the link and check the current Lightning address.
     {#if view && !view.lightning}Add a lightning address to your Nostr profile to receive tips yourself.{/if}
   </p>
   {#if !handle}
@@ -69,6 +75,8 @@
           >proof post</a
         >
       </p>
+      <button class="secondary" disabled={!view.unlocked} onclick={unlink}>Unlink X account</button>
+      <p class="hint">Lost your Nostr key? Delete the proof post on X. To switch keys, post a new proof for your new profile.</p>
     {:else}
       <p class="hint">
         Optional. Post a short verification on X so people can find you here. It links once the post is backed up.
@@ -106,7 +114,7 @@
           >Follow {selected.length} on Nostr</button
         >
       {:else}
-        <p class="hint">None of them have linked their X account to Nostr yet.</p>
+        <p class="hint">No verified matches in your local directory yet.</p>
       {/if}
       {#if found.unchecked}
         <p class="hint">X is limiting checks. Try again later to check {found.unchecked} more.</p>

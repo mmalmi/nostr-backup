@@ -27,7 +27,8 @@ export const proofTweet = (pubkey: string) => proofText(pubkey) + '\n\nBacked up
 
 /** A tweet the user posted on purpose to prove their key: verification wording plus the key. */
 export function isProofPost(text: string, pubkey: string) {
-  return /verifying/i.test(text) && namesKey(text, pubkey);
+  const keys = text.toLowerCase().match(/\b(?:npub1[023456789acdefghjklmnpqrstuvwxyz]{58}|[a-f0-9]{64})\b/g) ?? [];
+  return /\bverifying\b/i.test(text) && keys.length === 1 && namesKey(keys[0], pubkey);
 }
 
 /** Whether a tweet names this key. NIP-39 and older nostr.directory proofs use the npub or the hex key. */
@@ -55,19 +56,19 @@ export async function checkXProof(claim: XClaim, fetcher: typeof fetch = fetch) 
     return response;
   };
   const post = await readPublicXOriginal(claim.handle, claim.proof, limited, AbortSignal.timeout(10000));
-  return !!post && post.author === claim.handle && namesKey(post.text, claim.pubkey);
+  return !!post && post.author === claim.handle && isProofPost(post.text, claim.pubkey);
 }
 
 /** The identity list with this X claim, keeping claims for other platforms. */
-export function identityTemplate(previous: Event | undefined, handle: string, proof: string): EventTemplate {
+export function identityTemplate(previous: Event | undefined, handle?: string, proof?: string): EventTemplate {
   const tags = (previous?.tags ?? []).filter(
     ([name, identity]) => name !== 'client' && !(name === 'i' && identity?.toLowerCase().startsWith('twitter:')),
   );
   return {
     kind: IDENTITY_KIND,
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: Math.max(Math.floor(Date.now() / 1000), (previous?.created_at ?? 0) + 1),
     content: previous?.content ?? '',
-    tags: [...tags, ['i', 'twitter:' + handle, proof], ['client', 'Social Backup']],
+    tags: [...tags, ...(handle && proof ? [['i', 'twitter:' + handle, proof]] : []), ['client', 'Social Backup']],
   };
 }
 
@@ -87,56 +88,4 @@ export interface XMatch {
   handle: string;
   pubkey: string;
   name?: string;
-}
-
-/**
- * Finds verified Nostr keys for X handles. `query` reads claim events from relays. Each proof is
- * checked once and remembered; checks run one at a time and stop if X starts limiting them.
- */
-export async function findXMatches(
-  handles: string[],
-  options: {
-    query: (identities: string[]) => Promise<Event[]>;
-    remembered: (claim: XClaim) => Promise<boolean | undefined>;
-    remember: (claim: XClaim, ok: boolean) => Promise<void>;
-    check?: (claim: XClaim) => Promise<boolean>;
-    pause?: () => Promise<void>;
-  },
-) {
-  const wanted = new Set(handles.map((handle) => handle.toLowerCase()));
-  const newest = new Map<string, Event>();
-  const names = new Map<string, string>();
-  const list = [...wanted];
-  for (let i = 0; i < list.length; i += 100) {
-    for (const event of await options.query(list.slice(i, i + 100).map((handle) => 'twitter:' + handle))) {
-      if (event.kind === 0) {
-        try {
-          const name = JSON.parse(event.content)?.display_name || JSON.parse(event.content)?.name;
-          if (typeof name === 'string') names.set(event.pubkey, name.slice(0, 80));
-        } catch { /* Profiles without JSON have no name. */ }
-      }
-      // A key's newest claim wins, so a removed claim is not used.
-      const current = newest.get(event.pubkey);
-      if (!current || event.created_at > current.created_at || (current.kind === 0 && event.kind === IDENTITY_KIND))
-        newest.set(event.pubkey, event);
-    }
-  }
-  const claims = [...newest.values()].flatMap(xClaims).filter((claim) => wanted.has(claim.handle));
-  const matches: XMatch[] = [];
-  let unchecked = 0;
-  for (const claim of claims) {
-    let ok = await options.remembered(claim);
-    if (ok === undefined && !unchecked) {
-      try {
-        await options.pause?.();
-        ok = await (options.check ?? checkXProof)(claim);
-        await options.remember(claim, ok);
-      } catch (error) {
-        if (!(error instanceof XRateLimited)) throw error;
-      }
-    }
-    if (ok === undefined) unchecked++;
-    else if (ok) matches.push({ handle: claim.handle, pubkey: claim.pubkey, ...(names.has(claim.pubkey) ? { name: names.get(claim.pubkey) } : {}) });
-  }
-  return { matches, unchecked };
 }

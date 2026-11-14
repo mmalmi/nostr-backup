@@ -1,8 +1,9 @@
+import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { npubEncode } from 'nostr-tools/nip19';
-import { checkXProof, contactsTemplate, findXMatches, identityTemplate, proofText, XRateLimited, xClaims } from '../src/x-identity.ts';
+import { checkXProof, contactsTemplate, identityTemplate, proofText, XRateLimited, xClaims } from '../src/x-identity.ts';
 import { publicTweetHTML } from './fixtures.ts';
 
 const secret = generateSecretKey(), pubkey = getPublicKey(secret);
@@ -52,35 +53,21 @@ test('linking replaces only the X claim and following keeps existing contacts', 
   assert.ok(proofText(pubkey).endsWith(npubEncode(pubkey)));
 });
 
-test('matching checks each claim once, ignores copied proofs and stops when X limits checks', async () => {
-  const keys = [generateSecretKey(), generateSecretKey(), generateSecretKey()];
-  const claim = (key: Uint8Array, kind: number, handle: string, proof: string, created_at = 1) =>
-    finalizeEvent({ kind, created_at, content: kind === 0 ? '{"name":"Real Alice"}' : '', tags: [['i', 'twitter:' + handle, proof]] }, key);
-  const events = [
-    claim(keys[0], 0, 'alice', '1'),
-    claim(keys[1], 10011, 'alice', '1'), // copies Alice's proof
-    claim(keys[2], 10011, 'carol', '3'),
-  ];
-  const remembered = new Map<string, boolean>();
-  const checked: string[] = [];
-  const run = (limitAfter = Infinity) =>
-    findXMatches(['Alice', 'carol'], {
-      query: async (identities) => events.filter((e) => e.tags.some(([, id]) => identities.includes(id))),
-      remembered: async (c) => remembered.get(c.pubkey + c.handle),
-      remember: async (c, ok) => void remembered.set(c.pubkey + c.handle, ok),
-      check: async (c) => {
-        if (checked.length >= limitAfter) throw new XRateLimited();
-        checked.push(c.handle);
-        return c.pubkey === getPublicKey(keys[0]);
-      },
-    });
-  const limited = await run(1);
-  // The first check passes, the second is limited, and the rest wait for the next run.
-  assert.equal(limited.unchecked, 2);
-  const result = await run();
-  assert.deepEqual(result.matches, [{ handle: 'alice', pubkey: getPublicKey(keys[0]), name: 'Real Alice' }]);
-  assert.equal(result.unchecked, 0);
-  assert.deepEqual(checked, ['alice', 'alice', 'carol']);
-  assert.equal((await run()).matches.length, 1);
-  assert.equal(checked.length, 3);
+test('newest verified X post wins across keys, including after the old key re-signs', async () => {
+
+  const { openArchive } = await import('../src/archive.ts');
+  const { verifiedTarget, saveDirectory, directoryClaims } = await import('../src/x-directory.ts');
+  const db = await openArchive('proof-replacement');
+  const replacement = generateSecretKey();
+  const claim = (key: Uint8Array, proof: string, created_at: number, kind = 10011) =>
+    finalizeEvent({ kind, created_at, tags: proof ? [['i', 'twitter:alice', proof]] : [], content: '' }, key);
+  try {
+    await saveDirectory(db, [claim(secret, '99', 100), claim(replacement, '100', 2), claim(secret, '99', 200)]);
+    const verify = async () => true;
+    assert.equal((await verifiedTarget(db, 'alice', verify))?.pubkey, getPublicKey(replacement));
+    assert.equal(await verifiedTarget(db, 'alice', async c => c.proof === '99'), undefined);
+    await saveDirectory(db, [claim(replacement, '', 3), claim(replacement, '100', 4, 0)]);
+    assert.equal((await directoryClaims(db, 'alice')).length, 1);
+    assert.equal(await verifiedTarget(db, 'alice', verify), undefined);
+  } finally { db.close(); }
 });

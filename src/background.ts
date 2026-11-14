@@ -26,7 +26,9 @@ import { nsecEncode } from 'nostr-tools/nip19';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { ArchiveEventBus, archiveRouter } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
-import { contactsTemplate, findXMatches, identityTemplate, IDENTITY_KIND, isProofPost, type XClaim } from './x-identity.ts';
+import { contactsTemplate, xClaims, XRateLimited, identityTemplate, IDENTITY_KIND, isProofPost } from './x-identity.ts';
+import { directoryAuthors, directoryClaims, saveDirectory, verifiedTarget } from './x-directory.ts';
+import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice, zapTotal } from './x-tips.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
@@ -350,7 +352,7 @@ async function latestOwn(db: Archive, conf: Settings, kind: number) {
       : [];
     return [...local.events.map((row) => row.event), ...remote]
       .filter((event) => event.kind === kind && isOwnEvent(event, conf.pubkey))
-      .sort((a, b) => b.created_at - a.created_at)[0];
+      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
   } finally {
     relays.destroy();
   }
@@ -364,59 +366,126 @@ async function publishOwn(db: Archive, conf: Settings, template: EventTemplate) 
   void kick();
 }
 
-// Finds verified Nostr keys for X handles on the user's relays. Proof checks are remembered.
-function lookupXMatches(db: Archive, conf: Settings, relays: SimplePool, handles: string[]) {
-  const proofKey = (claim: XClaim) => ['xProof', claim.pubkey, claim.handle, claim.proof];
-  return findXMatches(handles, {
-    query: (identities) => relays.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], '#i': identities }, { maxWait: 6000 }),
-    remembered: async (claim) => (await db.get('meta', proofKey(claim))) as boolean | undefined,
-    remember: (claim, ok) => db.put('meta', ok, proofKey(claim)).then(() => {}),
-    // One check per second keeps the load on X low.
-    pause: () => new Promise((resolve) => setTimeout(resolve, 1000)),
+// Serialize intentional unlink and proof recapture. A withdrawn or older proof stays withdrawn.
+let linkWriter: Promise<void> = Promise.resolve();
+function updateXLink(db: Archive, conf: Settings, next?: XLink) {
+  const change = linkWriter.then(async () => {
+    const handle = next?.handle ?? conf.handle;
+    const floorKey = ['xProofThrough', handle];
+    const prior = await db.get('meta', 'xLink') as XLink | undefined;
+    const floor = (await db.get('meta', floorKey) as string[] | undefined)?.[0] ?? '0';
+    if (next && (BigInt(next.proof) <= BigInt(floor) || (prior?.handle === handle && BigInt(next.proof) <= BigInt(prior.proof)))) return;
+    const previous = await latestOwn(db, conf, IDENTITY_KIND);
+    const previousProofs = previous ? xClaims(previous).filter(c => c.handle === handle).map(c => c.proof) : [];
+    if (next && previousProofs.some(proof => BigInt(proof) > BigInt(next.proof))) return;
+    const template = identityTemplate(previous, next?.handle, next?.proof);
+    const current = await settings();
+    if (current.pubkey !== conf.pubkey || current.handle !== handle) throw Error('Account settings changed.');
+    const key = await sessionKey();
+    if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+    const event = finalizeEvent(template, unhex(key));
+    await write(async () => {
+      await new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]);
+      await saveDirectory(db, [event]);
+      const tx = db.transaction('meta', 'readwrite');
+      if (next) await tx.store.put(next, 'xLink');
+      else await tx.store.delete('xLink');
+      const latestProof = [floor, next?.proof, prior?.handle === handle ? prior.proof : undefined,
+        ...previousProofs]
+        .filter((v): v is string => !!v).reduce((a, b) => BigInt(a) > BigInt(b) ? a : b);
+      await tx.store.put([latestProof], floorKey);
+      await tx.done;
+    });
+    void kick();
   });
+  linkWriter = change.catch(() => {});
+  return change;
 }
-const newestProfile = <T extends { kind: number; pubkey: string; created_at: number }>(events: T[], pubkey: string) =>
-  events.filter((e) => e.kind === 0 && e.pubkey === pubkey).sort((a, b) => b.created_at - a.created_at)[0] as T | undefined;
 
-// Tip buttons: X handles with a verified Nostr profile that has a lightning address.
-// Lookups run one batch at a time.
-let tipLookups: Promise<unknown> = Promise.resolve();
-// Notes matched when a tip popover opened, so the tip can zap that post.
-const tipNotes = new Map<string, string>();
-function tipTargets(db: Archive, conf: Settings, handles: string[]) {
-  const run = tipLookups.then(async () => {
-    const result: Record<string, TipTarget | null> = {};
-    // Each handle is looked up on relays at most once a week.
-    const fresh = Date.now() - 7 * 86400000;
-    const unknown: string[] = [];
-    for (const handle of handles) {
-      const cached = (await db.get('meta', ['xTip', handle])) as (Partial<TipTarget> & { at: number }) | undefined;
-      if (!cached || cached.at < fresh) unknown.push(handle);
-      else result[handle] = cached.pubkey && cached.lightning ? { pubkey: cached.pubkey, lightning: cached.lightning } : null;
-    }
-    if (!unknown.length || !conf.relays.length) return result;
+// Process one graph-derived batch per alarm. Page visits never schedule or shape these reads.
+async function refreshDirectory(db: Archive, conf: Settings) {
+  if (!conf.relays.length) return;
+  const stateKey = ['xDirectorySchedule', ...conf.relays];
+  const [offset = '0', due = '0'] = (await db.get('meta', stateKey) as string[] | undefined) ?? [];
+  if (Date.now() < Number(due)) return;
+  const graphKey = ['xDirectoryAuthors', ...conf.relays];
+  let authors = Number(offset) ? await db.get('meta', graphKey) as string[] | undefined : undefined;
+  if (!authors?.length) {
+    authors = directoryAuthors(conf.pubkey, await latestOwn(db, conf, 3));
+    await db.put('meta', authors, graphKey);
+  }
+  const start = Number(offset) < authors.length ? Number(offset) : 0;
+  const batch = authors.slice(start, start + 128);
+  const rows = (await Promise.all(batch.flatMap(key => [0, IDENTITY_KIND].map(kind =>
+    db.get('xDirectory', [key, kind]))))).filter(row => row !== undefined);
+  const until = Math.floor(Date.now() / 1000);
+  const filter = { kinds: [0, IDENTITY_KIND], authors: batch, since: 0, until };
+  await Promise.all(conf.relays.map(async url => {
+    if ((await readCooldown(db, url) ?? 0) > Date.now()) return;
     const relays = new SimplePool();
     try {
-      const { matches, unchecked } = await lookupXMatches(db, conf, relays, unknown);
-      const keys = [...new Set(matches.map((match) => match.pubkey))];
-      const profiles = keys.length ? await relays.querySync(conf.relays, { kinds: [0], authors: keys }, { maxWait: 5000 }) : [];
-      for (const handle of unknown) {
-        const match = matches.find((m) => m.handle === handle);
-        // A handle X did not let us check yet is asked about again next time.
-        if (!match && unchecked) continue;
-        const lightning = match && lightningAddress(newestProfile(profiles, match.pubkey));
-        const target = match && lightning ? { pubkey: match.pubkey, lightning } : null;
-        await db.put('meta', { at: Date.now(), ...target }, ['xTip', handle]);
-        result[handle] = target;
+      let ids: string[] | undefined;
+      if (rows.length) {
+        try { ids = [...(await compareEvents(url, filter, rows, true)).need]; }
+        catch (error) {
+          if (error instanceof RelayRateLimitError) return;
+          // Relays without NIP-77 can serve the same bounded batch directly.
+        }
       }
-    } finally {
-      relays.destroy();
-    }
-    return result;
-  });
-  tipLookups = run.catch(() => {});
-  return run;
+      // A new key may sit outside the graph. Sample recent public links once per pass,
+      // independently of which X accounts have been seen.
+      if (start === 0) {
+        const recent = await relays.querySync([url], { kinds: [IDENTITY_KIND], limit: 128, until }, { maxWait: 4000 });
+        await saveDirectory(db, recent);
+      }
+      if (ids && !ids.length) return;
+      const events = await relays.querySync([url], { ...filter, ...(ids && { ids: ids.slice(0, 256) }), limit: 256 }, { maxWait: 4000 });
+      await saveDirectory(db, events.filter(e => batch.includes(e.pubkey)));
+    } finally { relays.destroy(); }
+  }));
+  const next = start + batch.length;
+  await db.put('meta', next >= authors.length ? ['0', String(Date.now() + 86400000)] : [String(next), '0'], stateKey);
 }
+const directoryJobs = new Map<string, Promise<void>>();
+function updateDirectory(db: Archive, conf: Settings) {
+  const current = directoryJobs.get(db.name);
+  if (current) return current;
+  const job = refreshDirectory(db, conf).finally(() => directoryJobs.delete(db.name));
+  directoryJobs.set(db.name, job);
+  return job;
+}
+
+const newestProfile = <T extends { kind: number; id: string; pubkey: string; created_at: number }>(events: T[], pubkey: string) =>
+  events.filter(e => e.kind === 0 && e.pubkey === pubkey).sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0] as T | undefined;
+
+async function tipTargets(db: Archive, handles: string[]) {
+  const result: Record<string, TipTarget | null> = Object.create(null);
+  for (const handle of handles) {
+    const claim = (await directoryClaims(db, handle))[0];
+    result[handle] = claim ? { pubkey: claim.pubkey, proof: claim.proof } : null;
+  }
+  return result;
+}
+
+async function paymentProfile(db: Archive, conf: Settings, handle: string) {
+  // Check the current identity list as well as the payment address; an empty list revokes a link.
+  const target = await verifiedTarget(db, handle);
+  if (!target) throw Error('This X account has no current verified Nostr link.');
+  const pool = new SimplePool();
+  try {
+    const events = await pool.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], authors: [target.pubkey] }, { maxWait: 4000 });
+    await saveDirectory(db, events);
+    const claims = await directoryClaims(db, handle);
+    if (!claims.some(c => c.pubkey === target.pubkey && c.proof === target.proof))
+      throw Error('The Nostr link changed. Reopen Tip.');
+    const profile = newestProfile(events, target.pubkey);
+    if (!profile || profile.id !== (await db.get('xDirectory', [target.pubkey, 0]))?.id || !lightningAddress(profile))
+      throw Error('No current Lightning address is available for this profile.');
+    return profile;
+  } finally { pool.destroy(); }
+}
+const tipAddresses = new Map<string, string>();
+const tipNotes = new Map<string, string>();
 
 async function run() {
   const importNow = syncRequested;
@@ -691,7 +760,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
     relayOwner = '';
     relayProgress.clear();
     pool.destroy();
-    await Promise.allSettled([running, preparing, mediaJob, quoteJob]);
+    await Promise.allSettled([running, preparing, mediaJob, quoteJob, linkWriter, ...directoryJobs.values()]);
 
     if (deleting) {
       recovery = undefined;
@@ -804,7 +873,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -853,11 +922,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         }
       }
       // Only a verification post the user chose to publish links the X account (a NIP-39 claim).
-      const proof = network === 'x' ? verified.find((post) => post.visibility === 'public' && isProofPost(post.text, conf.pubkey)) : undefined;
-      const linked = (await db.get('meta', 'xLink')) as XLink | undefined;
-      const link = proof && (linked?.handle !== handle || linked.proof !== proof.id)
-        ? identityTemplate(await latestOwn(db, conf, IDENTITY_KIND), handle, proof.id)
-        : undefined;
+      const proof = network === 'x' ? verified.filter(post => post.visibility === 'public' && isProofPost(post.text, conf.pubkey))
+        .sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1)[0] : undefined;
       await write(async () => {
         const current = await settings();
         const active = network === 'x' ? current : current.social?.[network];
@@ -867,16 +933,13 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         else await saveSocialCaptures(db, verified as SocialCapture[]);
         await signDrafts(db);
       });
-      if (link && proof) {
-        await publishOwn(db, conf, link);
-        await db.put('meta', { handle, proof: proof.id }, 'xLink');
-      }
+      if (proof) await updateXLink(db, conf, { handle, proof: proof.id });
       kickQuotes();
       kickMedia();
       void kick();
       return;
     }
-    if (msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost') {
+    if (msg.type === 'tipProfile' || msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost') {
       if (captureNetwork(sender.url) !== 'x' || !sender.tab || conf.tipButtons === false) throw Error('Tips are off.');
       if (msg.type === 'tipRate') {
         // A fiat estimate: saved for 15 minutes, from Snort's signed rate events or Coinbase.
@@ -902,31 +965,39 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (!Array.isArray(msg.handles) || msg.handles.length > 50 || !msg.handles.every((h) => typeof h === 'string' && handlePattern.test(h)))
           throw Error('Invalid handles.');
         // Await before the archive closes when this handler returns.
-        return await tipTargets(db, conf, [...new Set(msg.handles.map((h) => h.toLowerCase()))]);
+        return await tipTargets(db, [...new Set(msg.handles.map((h) => h.toLowerCase()))]);
       }
       const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
-      const target = handlePattern.test(handle) ? (await tipTargets(db, conf, [handle]))[handle] : null;
-      if (!target) throw Error('This account has no verified Nostr profile to tip.');
+      if (!handlePattern.test(handle)) throw Error('Invalid handle.');
+      if (msg.type === 'tipProfile') {
+        const profile = await paymentProfile(db, conf, handle);
+        const lightning = lightningAddress(profile)!;
+        tipAddresses.set(profile.pubkey, lightning);
+        if (tipAddresses.size > 200) tipAddresses.delete(tipAddresses.keys().next().value!);
+        return { pubkey: profile.pubkey, lightning };
+      }
       if (msg.type === 'tipPost') {
         // Only when the user opens a tip popover: find this post's Nostr copy and its tips.
         if (!/^\d{1,20}$/.test(msg.post)) throw Error('Invalid post.');
+        const known = (await db.get('meta', ['xVerifiedProof', handle])) as string[] | undefined;
+        if (!known || !conf.relays.length) return { sats: 0, tips: 0 };
+        const pubkey = known[1];
         const url = 'https://x.com/' + handle + '/status/' + msg.post;
         const time = Number.isSafeInteger(msg.time) ? msg.time : undefined;
         const text = typeof msg.text === 'string' ? msg.text.slice(0, 500) : undefined;
         const relays = new SimplePool();
         try {
-          let notes = await relays.querySync(conf.relays, { kinds: [1], authors: [target.pubkey], '#i': [url] }, { maxWait: 4000 });
-          if (!notes.length && time)
-            notes = await relays.querySync(conf.relays, { kinds: [1], authors: [target.pubkey], since: time - 60, until: time + 60 }, { maxWait: 4000 });
+          const notes = await relays.querySync(conf.relays, {
+            kinds: [1], authors: [pubkey], ...(time !== undefined && { since: time - 60, until: time + 60 }), limit: 100,
+          }, { maxWait: 4000 });
           const note = matchingNote(notes, url, time, text);
           if (!note) return { sats: 0, tips: 0 };
-          tipNotes.set(handle + ':' + msg.post, note.id);
+          tipNotes.set(pubkey + ':' + msg.post, note.id);
           if (tipNotes.size > 200) tipNotes.delete(tipNotes.keys().next().value!);
-          const [receipts, pay] = await Promise.all([
-            relays.querySync(conf.relays, { kinds: [9735], '#e': [note.id] }, { maxWait: 4000 }),
-            payInfo(target.lightning).catch(() => undefined),
-          ]);
-          return { note: note.id, ...(typeof pay?.nostrPubkey === 'string' ? zapTotal(receipts, pay.nostrPubkey) : { sats: 0, tips: 0 }) };
+          const receipts = await relays.querySync(conf.relays, { kinds: [9735], '#e': [note.id] }, { maxWait: 4000 });
+          const address = tipAddresses.get(pubkey);
+          const pay = address && (await payInfo(address).catch(() => undefined))?.nostrPubkey;
+          return { note: note.id, ...(typeof pay === 'string' ? zapTotal(receipts, pay) : { sats: 0, tips: 0 }) };
         } finally {
           relays.destroy();
         }
@@ -934,25 +1005,14 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const key = await sessionKey();
       if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock Social Backup to tip.');
       if (msg.post !== undefined && !/^\d{1,20}$/.test(msg.post)) throw Error('Invalid post.');
-      const relays = new SimplePool();
-      try {
-        const profile = newestProfile(
-          await relays.querySync(conf.relays, { kinds: [0], authors: [target.pubkey] }, { maxWait: 5000 }),
-          target.pubkey,
-        );
-        if (!profile) throw Error('The Nostr profile could not be loaded.');
-        return await tipInvoice({
-          profile,
-          sats: msg.sats,
-          // The post being tipped, so the recipient sees what it was for.
-          comment: msg.post ? 'https://x.com/' + handle + '/status/' + msg.post : undefined,
-          relays: conf.relays,
-          sign: (template) => finalizeEvent(template, unhex(key)),
-          note: msg.post ? tipNotes.get(handle + ':' + msg.post) : undefined,
-        });
-      } finally {
-        relays.destroy();
-      }
+      const profile = await paymentProfile(db, conf, handle);
+      if (profile.pubkey !== msg.pubkey || lightningAddress(profile) !== msg.lightning)
+        throw Error('The recipient changed. Reopen Tip to review the new address.');
+      return await tipInvoice({
+        profile, sats: msg.sats, relays: conf.relays,
+        sign: template => finalizeEvent(template, unhex(key)),
+        note: msg.post ? tipNotes.get(profile.pubkey + ':' + msg.post) : undefined,
+      });
     }
     if (msg.type === 'xFollows') {
       // Handles read from the user's own X following list, to find them on Nostr later.
@@ -1111,18 +1171,27 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (!conf.relays.length) throw Error('Select a relay first.');
         void kick(true);
         return;
+      case 'unlinkX':
+        await updateXLink(db, conf);
+        return;
       case 'findXFollows': {
         const handles = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
-        if (!conf.relays.length) throw Error('Select a relay first.');
-        const relays = new SimplePool();
-        try {
-          const found = await lookupXMatches(db, conf, relays, handles);
-          const contacts = await latestOwn(db, conf, 3);
-          const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
-          return { ...found, following: found.matches.map((match) => match.pubkey).filter((key) => following.has(key)) };
-        } finally {
-          relays.destroy();
+        await updateDirectory(db, conf);
+        const matches = [];
+        let unchecked = 0;
+        for (const handle of handles) {
+          try {
+            const target = await verifiedTarget(db, handle);
+            if (target) matches.push({ handle, pubkey: target.pubkey });
+          } catch (error) {
+            if (!(error instanceof XRateLimited)) throw error;
+            unchecked = handles.length - handles.indexOf(handle);
+            break;
+          }
         }
+        const contacts = await latestOwn(db, conf, 3);
+        const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
+        return { matches, unchecked, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
       }
       case 'followOnNostr': {
         if (!Array.isArray(msg.pubkeys) || !msg.pubkeys.length || !msg.pubkeys.every((key) => /^[0-9a-f]{64}$/.test(key)))
@@ -1194,6 +1263,8 @@ void settings().then((conf) => {
   if (!toolbarSettingsChanged) return setToolbarPopup(conf.pubkey);
 });
 async function arm() {
+  if (!(await api.alarms.get('x-directory')))
+    await api.alarms.create('x-directory', { delayInMinutes: 1, periodInMinutes: 5 });
   if (!(await api.alarms.get('backup')))
     await api.alarms.create('backup', { periodInMinutes: 5 });
 }
@@ -1213,6 +1284,15 @@ api.runtime.onStartup.addListener(() => {
   void kick();
 });
 api.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'x-directory') void scheduledDirectory().catch(() => {});
   if (a.name === 'backup' || a.name.startsWith('relay-retry:')) void kick();
 });
 void arm();
+
+async function scheduledDirectory() {
+  await recover();
+  const conf = await settings();
+  if (changing || !conf.pubkey || conf.tipButtons === false) return;
+  const db = await openArchive(conf.archiveName);
+  try { await updateDirectory(db, conf); } finally { db.close(); }
+}

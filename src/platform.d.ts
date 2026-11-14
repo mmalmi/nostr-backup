@@ -55,7 +55,7 @@ interface ExtensionAPI {
   };
   alarms: {
     get(name: string): Promise<unknown>;
-    create(name: string, when: { when?: number; periodInMinutes?: number }): Promise<void>;
+    create(name: string, when: { when?: number; delayInMinutes?: number; periodInMinutes?: number }): Promise<void>;
     onAlarm: Listener<(a: { name: string }) => void>;
   };
   tabs: {

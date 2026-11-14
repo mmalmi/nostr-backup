@@ -102,6 +102,7 @@ export interface BlossomDelivery {
 }
 export interface ArchiveSchema extends DBSchema {
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
+  xDirectory: { key: [string, number]; value: import('./x-directory.ts').DirectoryRow; indexes: { handles: string } };
   blocks: { key: string; value: Uint8Array };
   meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink | (Partial<TipTarget> & { at: number }) | { value: number; at: number } };
   events: { key: string; value: Event; indexes: { created_at: number } };
@@ -194,10 +195,10 @@ export interface CaptureConfig {
   pubkey?: string;
   tips?: boolean;
 }
-/** A verified Nostr profile with a lightning address, for a tip button on X. */
+/** A Nostr key and the X proof post claimed for it. */
 export interface TipTarget {
   pubkey: string;
-  lightning: string;
+  proof: string;
 }
 export type Sign = (template: EventTemplate) => Promise<Event> | Event;
 export interface Approval {
@@ -237,7 +238,9 @@ export interface Payloads {
   approval: { id: string; decision?: boolean; remember?: boolean };
   xFollows: { handles: string[] };
   tipTargets: { handles: string[] };
-  tipInvoice: { handle: string; sats: number; post?: string };
+  unlinkX: {};
+  tipProfile: { handle: string };
+  tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
   tipPost: { handle: string; post: string; time?: number; text?: string };
   tipRate: { currency: string };
   findXFollows: {};
@@ -261,6 +264,8 @@ interface ActionResults {
   findXFollows: { matches: XMatch[]; unchecked: number; following: string[] };
   followOnNostr: number;
   tipTargets: Record<string, TipTarget | null>;
+  unlinkX: void;
+  tipProfile: { pubkey: string; lightning: string };
   tipInvoice: string;
   /** The post's Nostr copy by the verified author, and the tips it has received. */
   tipPost: { note?: string; sats: number; tips: number };

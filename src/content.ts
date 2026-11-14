@@ -131,9 +131,11 @@ function startCapture() {
       if (
         !config ||
         config.capture !== next.capture ||
+        config.tips !== next.tips ||
         config.pubkey !== next.pubkey ||
         config.handle !== next.handle
       ) {
+        tips?.reset();
         pending.clear();
         seen.clear();
         collector?.stop();

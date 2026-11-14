@@ -1534,6 +1534,11 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     await success('followOnNostr', { pubkeys: [getPublicKey(bob)] });
     await until(() => relay.sent.some((e) => e.kind === 3));
     assert.deepEqual(relay.sent.find((e) => e.kind === 3)!.tags, [['p', friend], ['p', getPublicKey(bob)]]);
+    await success('unlinkX');
+    await until(() => relay.sent.some(e => e.kind === 10011 && !e.tags.some(([t]) => t === 'i')));
+    assert.equal((await success('status')).xLink, undefined);
+    await success('capture', { posts: [{ author: 'alice', id: '501', time: 1700000001, text: proofTweet(owner) }] }, x);
+    assert.equal((await success('status')).xLink, undefined);
   } finally {
     await idle();
     await success('logout', { pubkey: owner });
@@ -1552,12 +1557,14 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   for (const event of [
     finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:carol', '88']] }, carol),
     finalizeEvent({ kind: 0, created_at: 5, content: JSON.stringify({ name: 'Carol', lud16: 'carol@wallet.example' }), tags: [] }, carol),
+    finalizeEvent({ kind: 3, created_at: 4, content: '', tags: [['p', carolKey]] }, secret),
     copy, receipt(provider), receipt(generateSecretKey()),
   ]) relay.stored.set(event.id, event);
+  let proofActive = true;
   const zaps: Record<string, unknown>[] = [];
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
     const target = new URL(String(input));
-    if (target.origin === 'https://x.com') return publicTweet(input, 'Verifying my account on nostr My Public Key: ' + carolKey);
+    if (target.origin === 'https://x.com') return publicTweet(input, proofActive ? 'Verifying my account on nostr My Public Key: ' + carolKey : '');
     if (target.pathname === '/.well-known/lnurlp/carol')
       return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay', minSendable: 1000, maxSendable: 1e9, allowsNostr: true, nostrPubkey: getPublicKey(provider) });
     if (target.pathname === '/pay') {
@@ -1572,16 +1579,40 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   try {
     await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url });
     assert.equal((await success('captureConfig', {}, page)).tips, true);
+    api.alarms.onAlarm.list[0]({ name: 'x-directory' });
+    await until(() => relay.reads.some(filter => filter.kinds?.includes(10011) && filter.authors?.includes(carolKey)));
+    await idle();
+    const dir = await openArchive('nostr-backup-' + owner);
+    await until(async () => !!await dir.get('meta', ['xDirectorySchedule', url]));
+    // A fresh pass compares signed IDs for graph authors, independently of page activity.
+    await dir.delete('meta', ['xDirectorySchedule', url]);
+    api.alarms.onAlarm.list[0]({ name: 'x-directory' });
+    await until(async () => !!await dir.get('meta', ['xDirectorySchedule', url]));
+    assert.ok(relay.filters.some(filter => filter.kinds?.includes(10011) && filter.authors?.includes(carolKey)));
+    dir.close();
+    const reads = relay.reads.length;
     const targets = await success('tipTargets', { handles: ['carol', 'dave'] }, page);
-    assert.deepEqual(targets, { carol: { pubkey: carolKey, lightning: 'carol@wallet.example' }, dave: null });
+    assert.equal(relay.reads.length, reads);
+    assert.deepEqual({ ...targets }, { carol: { pubkey: carolKey, proof: '88' }, dave: null });
+    const recipient = await success('tipProfile', { handle: 'carol' }, page);
+    assert.equal(recipient.lightning, 'carol@wallet.example');
     // Opening the popover finds the post's Nostr copy; only the provider's receipt counts.
     assert.deepEqual(await success('tipPost', { handle: 'carol', post: '42' }, page), { note: copy.id, sats: 21, tips: 1 });
     // 100 sats is 1u in an invoice. The zap goes to the post's note.
-    assert.equal(await success('tipInvoice', { handle: 'carol', sats: 100, post: '42' }, page), 'lnbc1u1p' + 'q'.repeat(60));
+    assert.equal(await success('tipInvoice', { ...recipient, handle: 'carol', sats: 100, post: '42' }, page), 'lnbc1u1p' + 'q'.repeat(60));
     assert.equal(zaps[0].pubkey, owner);
     assert.deepEqual((zaps[0].tags as string[][]).find(([t]) => t === 'e'), ['e', copy.id]);
-    assert.equal(zaps[0].content, 'https://x.com/carol/status/42');
-    assert.equal((await call('tipInvoice', { handle: 'dave', sats: 100 }, page)).ok, false);
+    assert.equal(zaps[0].content, '');
+    const updated = finalizeEvent({ kind: 0, created_at: 6, content: '{"lud16":"other@wallet.example"}', tags: [] }, carol);
+    relay.stored.set(updated.id, updated);
+    const changed = await call('tipInvoice', { ...recipient, handle: 'carol', sats: 100 }, page);
+    assert.ok(!changed.ok && /recipient changed/.test(changed.error));
+    proofActive = false;
+    assert.equal((await call('tipProfile', { handle: 'carol' }, page)).ok, false);
+    assert.equal((await call('tipInvoice', { ...recipient, handle: 'carol', sats: 100 }, page)).ok, false);
+    assert.equal(zaps.length, 1);
+    assert.doesNotMatch(JSON.stringify([relay.filters, relay.reads, zaps]), /twitter:|x\.com|carol|dave/i);
+    assert.equal((await call('tipInvoice', { ...recipient, handle: 'dave', sats: 100 }, page)).ok, false);
     assert.equal(await success('tipRate', { currency: 'EUR' }, page), 90000);
     await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipButtons: false });
     assert.equal((await success('captureConfig', {}, page)).tips, false);

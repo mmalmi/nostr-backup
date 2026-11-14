@@ -19,11 +19,13 @@ export const readCooldown = (db: Archive, url: string) =>
   db.get('meta', ['retryAfter', url]) as Promise<number | undefined>;
 
 export function openArchive(name = 'nostr-backup-v1') {
-  const opened = openDB<ArchiveSchema>(name, 9, {
+  const opened = openDB<ArchiveSchema>(name, 10, {
     blocking() {
       void opened.then((db) => db.close());
     },
     upgrade(db, oldVersion, _newVersion, tx) {
+      if (oldVersion < 10) db.createObjectStore('xDirectory', { keyPath: ['pubkey', 'kind'] })
+        .createIndex('handles', 'handles', { multiEntry: true });
       if (oldVersion < 1) {
         for (const store of [
           'blocks',

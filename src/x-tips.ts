@@ -33,7 +33,6 @@ export function payInfo(address: string, fetcher: typeof fetch = fetch) {
 export async function tipInvoice(options: {
   profile: Event;
   sats: number;
-  comment?: string;
   relays: string[];
   sign: (template: EventTemplate) => Event;
   fetcher?: typeof fetch;
@@ -51,12 +50,10 @@ export async function tipInvoice(options: {
   const callback = new URL(pay.callback);
   callback.searchParams.set('amount', String(msats));
   if (pay.allowsNostr && pay.nostrPubkey) {
-    const template = makeZapRequest({ pubkey: options.profile.pubkey, amount: msats, comment: options.comment, relays: options.relays });
+    const template = makeZapRequest({ pubkey: options.profile.pubkey, amount: msats, comment: '', relays: options.relays });
     if (options.note) template.tags.push(['e', options.note], ['k', '1']);
     const request = options.sign(template);
     callback.searchParams.set('nostr', JSON.stringify(request));
-  } else if (options.comment && (pay.commentAllowed ?? 0) >= options.comment.length) {
-    callback.searchParams.set('comment', options.comment);
   }
   const { pr } = await getJSON(callback.href, fetcher);
   if (typeof pr !== 'string' || getSatoshisAmountFromBolt11(pr) !== options.sats)

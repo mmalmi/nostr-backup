@@ -25,14 +25,13 @@ test('a tip zaps the recipient with a signed request and checks the invoice amou
     const zap = JSON.parse(url.searchParams.get('nostr')!);
     assert.equal(url.searchParams.get('amount'), '21000');
     assert.deepEqual(zap.tags.find(([t]: string[]) => t === 'p'), ['p', getPublicKey(secret)]);
-    assert.equal(zap.content, 'https://x.com/alice/status/9');
+    assert.equal(zap.content, '');
     assert.equal(zap.pubkey, getPublicKey(tipper));
     return Response.json({ pr: invoice(url.searchParams.get('lie') ? '1000n' : '210n') });
   };
   const options = {
     profile: profile({ lud16: 'alice@wallet.example' }),
     sats: 21,
-    comment: 'https://x.com/alice/status/9',
     relays: ['wss://relay.example/'],
     sign: (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, tipper),
     fetcher,
@@ -57,6 +56,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
   const tips = createTipButtons(async (message) => {
     sent.push(message as Record<string, unknown>);
     if (message.type === 'tipTargets') return { ok: true, value: { alice: target, bob: null, me: { ...target, lightning: 'me@wallet.example' } } };
+    if (message.type === 'tipProfile') return { ok: true, value: { ...target, lightning: message.handle === 'me' ? 'me@wallet.example' : target.lightning } };
     if (message.type === 'tipRate') return { ok: true, value: 100000 };
     if (message.type === 'tipPost') return { ok: true, value: { note: 'ab'.repeat(32), sats: 1234, tips: 3 } };
     return { ok: true, value: 'lnbc210n1pinvoice' };
@@ -86,7 +86,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     assert.match(box().querySelector('.onNostr')!.textContent!, /^On Nostr · \D?1[.,]23\D* from 3 tips$/);
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', sats: 100, post: '9' });
+    assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', ...target, sats: 100, post: '9' });
     assert.match(box().querySelector('p b')!.textContent!, /^\D?0[.,]10\D*$/);
     assert.doesNotMatch(box().textContent!, /sats/i);
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
@@ -94,6 +94,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     assert.ok(box().querySelector('.qr svg'));
     // Your own posts show where tips go instead of amounts.
     (buttons[1] as HTMLElement).click();
+    await new Promise(resolve => setTimeout(resolve, 10));
     assert.match(box().textContent!, /me@wallet\.example/);
     assert.equal(box().querySelectorAll('button').length, 0);
   } finally {
