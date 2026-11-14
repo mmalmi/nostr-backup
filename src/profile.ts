@@ -1,3 +1,4 @@
+import type { Event } from 'nostr-tools/pure';
 import { lightningAddress } from './x-tips.ts';
 import type { Archive, Profile } from './types.ts';
 import { archiveRouter } from './archive-event-bus.ts';
@@ -8,7 +9,11 @@ export async function readProfile(db: Archive, pubkey: string): Promise<Profile 
   ]);
   if (!result.complete) throw Error('The local profile index could not be read.');
   const event = result.events[0]?.event;
-  if (!event) return;
+  return event && profileFromEvent(event);
+}
+
+/** Name, picture, about and Lightning address from a kind 0 profile; undefined when its content is not an object. */
+export function profileFromEvent(event: Event): Profile | undefined {
   try {
     const data = JSON.parse(event.content);
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
@@ -24,7 +29,9 @@ export async function readProfile(db: Archive, pubkey: string): Promise<Profile 
       }
     }
     const lightning = lightningAddress(event);
-    return { name, displayName: text(data.display_name) || name, picture, ...(lightning ? { lightning } : {}) };
+    // Enough of the description for a short card; the page clamps it to a few lines.
+    const about = typeof data.about === 'string' ? data.about.trim().slice(0, 400) : '';
+    return { name, displayName: text(data.display_name) || name, picture, ...(about ? { about } : {}), ...(lightning ? { lightning } : {}) };
   } catch {
     return;
   }

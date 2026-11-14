@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { SocialNetwork, Status } from '../types.ts';
+  import type { NostrCard, SocialNetwork, Status } from '../types.ts';
   import { api, notice, send } from '../ui.ts';
   import { captureNetwork } from '../social.ts';
   import ProfileCard from './Profile.svelte';
   import XStats from './XStats.svelte';
+  import NostrCardView from './NostrCard.svelte';
+  import { profileHandle } from '../x.ts';
 
   let status = $state<Status>();
   let site = $state<ReturnType<typeof captureNetwork>>();
+  let card = $state<NostrCard | null>(null);
+  let looked = false;
 
   async function openBackup() {
     await api.runtime.openOptionsPage();
@@ -19,6 +23,12 @@
     if (!next.conf.pubkey) return openBackup();
     site = captureNetwork(tabs[0]?.url);
     status = next;
+    // Once per opening: the Nostr profile of the X account in this tab, when it has a verified link.
+    const handle = site === 'x' ? profileHandle(tabs[0]?.url) : undefined;
+    if (!looked && handle && handle !== next.conf.handle) {
+      looked = true;
+      send('nostrCard', { handle }).then((found) => (card = found), () => {});
+    }
   }
 
   onMount(() => {
@@ -65,4 +75,5 @@
     <p id="xCaptureState">{xLine}</p>
   </section>
   <button id="open" onclick={openBackup}>Open backup</button>
+  {#if card}<NostrCardView {card} canFollow={!!status?.unlocked} />{/if}
 </div>

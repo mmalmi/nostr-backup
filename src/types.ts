@@ -162,7 +162,17 @@ export interface Profile {
   name: string;
   displayName: string;
   picture?: string;
+  about?: string;
   lightning?: string;
+}
+/** An X account's verified Nostr profile, for the toolbar popup. */
+export interface NostrCard {
+  handle: string;
+  pubkey: string;
+  profile?: Profile;
+  /** Followers in Social Backup's nostr-social-graph snapshot. */
+  followers: number;
+  following: boolean;
 }
 /** The X post that proves this profile's X account, published as a NIP-39 claim. */
 export interface XLink {
@@ -241,6 +251,7 @@ export interface Payloads {
   unlinkX: {};
   tipProfile: { handle: string };
   nostrLink: { handle: string };
+  nostrCard: { handle: string };
   tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
   tipPost: { handle: string; post: string; time?: number; text?: string };
   tipRate: { currency: string };
@@ -268,6 +279,7 @@ interface ActionResults {
   unlinkX: void;
   tipProfile: { pubkey: string; lightning: string };
   nostrLink: { pubkey: string };
+  nostrCard: NostrCard | null;
   tipInvoice: string;
   /** The post's Nostr copy by the verified author, and the tips it has received. */
   tipPost: { note?: string; sats: number; tips: number };

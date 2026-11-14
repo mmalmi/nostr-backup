@@ -49,7 +49,8 @@ import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
 import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
 import { followingHandle, profileHandle } from './x.ts';
-import { readProfile } from './profile.ts';
+import { profileFromEvent, readProfile } from './profile.ts';
+import { knownFollowers } from './graph-followers.ts';
 import { importWithNegentropy, pool, publish, syncHistory } from './relays.ts';
 import {
   defaults,
@@ -491,6 +492,16 @@ async function paymentProfile(db: Archive, conf: Settings, handle: string) {
     throw Error('No current Lightning address is available for this profile.');
   return profile;
 }
+// Loaded once per worker, on the first card that needs it.
+let followerTable: Promise<Uint8Array> | undefined;
+function graphFollowers() {
+  followerTable ??= fetch(api.runtime.getURL('graph-followers.bin'))
+    .then((response) => response.arrayBuffer())
+    .then((data) => new Uint8Array(data))
+    .catch((error) => { followerTable = undefined; throw error; });
+  return followerTable;
+}
+
 const tipAddresses = new Map<string, string>();
 const tipNotes = new Map<string, string>();
 
@@ -1202,6 +1213,26 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
         return { matches, unchecked, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
       }
+      case 'nostrCard': {
+        // Only X accounts already in the local directory are looked up, so other profiles cause no requests.
+        const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
+        if (!handlePattern.test(handle) || !(await directoryClaims(db, handle)).length) return null;
+        const [link, contacts, table] = await Promise.all([
+          currentLink(db, conf, handle).catch(() => undefined),
+          latestOwn(db, conf, 3),
+          graphFollowers().catch(() => new Uint8Array()),
+        ]);
+        if (!link) return null;
+        const { pubkey } = link.target;
+        const event = newestProfile(link.events, pubkey);
+        return {
+          handle,
+          pubkey,
+          profile: event && profileFromEvent(event),
+          followers: knownFollowers(table, pubkey),
+          following: !!contacts?.tags.some(([name, key]) => name === 'p' && key === pubkey),
+        };
+      }
       case 'followOnNostr': {
         if (!Array.isArray(msg.pubkeys) || !msg.pubkeys.length || !msg.pubkeys.every((key) => /^[0-9a-f]{64}$/.test(key)))
           throw Error('Choose people to follow.');
@@ -1301,7 +1332,8 @@ void arm();
 async function scheduledDirectory() {
   await recover();
   const conf = await settings();
-  if (changing || !conf.pubkey || (conf.tipButtons !== true || !await paymentConsent())) return;
+  // Public identity lists for tips, the popup's Nostr card and finding X follows.
+  if (changing || !conf.pubkey) return;
   const db = await openArchive(conf.archiveName);
   try { await updateDirectory(db, conf); } finally { db.close(); }
 }

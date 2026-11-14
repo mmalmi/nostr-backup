@@ -1625,6 +1625,56 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   }
 });
 
+test('the popup card shows a verified X account on Nostr with known followers, with tips off', async (t) => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const carol = generateSecretKey(), carolKey = getPublicKey(carol);
+  const url = 'wss://card.example/';
+  const relay = fixtureRelay(url);
+  for (const event of [
+    finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:carol', '88']] }, carol),
+    finalizeEvent({ kind: 0, created_at: 5, content: JSON.stringify({ name: 'carol', display_name: 'Carol', about: 'Gardener.\nWrites about bees.' }), tags: [] }, carol),
+    finalizeEvent({ kind: 3, created_at: 4, content: '', tags: [['p', carolKey]] }, secret),
+  ]) relay.stored.set(event.id, event);
+  // A one-row follower table for Carol: her key's first 10 bytes, then 7.
+  const table = new Uint8Array(12);
+  table.set(Buffer.from(carolKey.slice(0, 20), 'hex'));
+  table[11] = 7;
+  const fetched: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    if (String(input).endsWith('graph-followers.bin')) return new Response(table);
+    return publicTweet(input, 'Verifying my account on nostr My Public Key: ' + carolKey);
+  });
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url });
+    // The public directory refreshes without tips, so the card works when tips are off.
+    api.alarms.onAlarm.list[0]({ name: 'x-directory' });
+    await until(() => relay.reads.some(filter => filter.kinds?.includes(10011) && filter.authors?.includes(carolKey)));
+    await idle();
+    const dir = await openArchive('nostr-backup-' + owner);
+    await until(async () => !!await dir.get('meta', ['xDirectorySchedule', url]));
+    dir.close();
+    // A profile without a directory claim makes no requests.
+    const reads = relay.reads.length, fetches = fetched.length;
+    assert.equal(await success('nostrCard', { handle: 'dave' }), null);
+    assert.equal(relay.reads.length, reads);
+    assert.equal(fetched.length, fetches);
+    assert.deepEqual(await success('nostrCard', { handle: 'Carol' }), {
+      handle: 'carol',
+      pubkey: carolKey,
+      profile: { name: 'carol', displayName: 'Carol', picture: undefined, about: 'Gardener.\nWrites about bees.' },
+      followers: 7,
+      following: true,
+    });
+    // X pages cannot ask for cards.
+    assert.equal((await call('nostrCard', { handle: 'carol' }, x)).ok, false);
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('waiting to send counts posts for the current relays, not one row per relay', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
     publicTweet(url, 'Post ' + String(url).split('/').pop()));

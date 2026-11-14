@@ -7,7 +7,7 @@ import { zipSync } from 'fflate';
 const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 // Rasters of ui/icon.svg: resvg -w SIZE ui/icon.svg ui/icon-SIZE.png
 const icons = { 16: 'icon-16.png', 32: 'icon-32.png', 48: 'icon-48.png', 128: 'icon-128.png' };
-const assets = ['archive.html', 'popup.html', 'approve.html', 'style.css', 'icon.svg', ...Object.values(icons)];
+const assets = ['archive.html', 'popup.html', 'approve.html', 'style.css', 'icon.svg', 'graph-followers.bin', ...Object.values(icons)];
 const common = {
   manifest_version: 3,
   name: 'Social Backup',

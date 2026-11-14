@@ -779,3 +779,41 @@ ul:empty {
     position: static;
   }
 }
+
+/* The Nostr profile of the X account in the current tab */
+.popup #nostrCard {
+  padding: 14px;
+  margin: 12px 0 0;
+}
+.popup .nostrCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.popup #nostrCard button.follow {
+  width: auto;
+  margin: 0;
+  padding: 7px 14px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+.popup #nostrCard .about {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.popup .nostrCardMeta {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+}
+.popup .nostrCardMeta a {
+  color: var(--brand);
+  font-weight: 600;
+}
