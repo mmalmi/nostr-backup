@@ -70,6 +70,7 @@ p, li { text-wrap: pretty; }
 
 .backup-preview { margin: 0; min-width: 0; }
 .archive-preview { max-width: 47.5rem; margin: 2rem auto 0; }
+.inline-icon { display: inline-block; width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
 .backup-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: .7rem; }
 .tips-preview { max-width: 38rem; margin: 2.5rem auto 0; }
 .backup-preview figcaption { margin-top: .55rem; color: var(--muted); font-size: .85rem; }
