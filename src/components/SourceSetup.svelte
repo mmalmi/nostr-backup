@@ -85,7 +85,7 @@
     <h2 id="setupTitle">Find each other on Nostr</h2>
     <p class="hint">Both are optional. You can also do them later in Sources.</p>
     <h3>Link your X account</h3>
-    <XLinkPost pubkey={page.status?.conf.pubkey ?? ''} xLink={page.status?.xLink} />
+    <XLinkPost pubkey={page.status?.conf.pubkey ?? ''} xLink={page.status?.xLink} handle={clean(usernames.x)} />
     <h3>People you follow on X</h3>
     <XFollowMatches handle={clean(usernames.x)} read={page.status?.xFollows} unlocked={page.status?.unlocked} />
     <button id="nostrNext" class="setupNext" onclick={() => (stage = 'done')}>Continue</button>

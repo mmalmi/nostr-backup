@@ -1049,3 +1049,17 @@ ul:empty {
     color: #fff;
   }
 }
+
+.pasteProof {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pasteProof input {
+  flex: 1;
+  min-width: 0;
+}
+.pasteProof button {
+  width: auto;
+  margin: 0;
+}

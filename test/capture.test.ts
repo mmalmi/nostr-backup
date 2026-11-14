@@ -203,3 +203,17 @@ test('following list reads only cells in the main column of your own following p
     await window.happyDOM.abort();
   }
 });
+
+test('your own verification post is found on any X page, such as the home timeline', async () => {
+  const { proofPostIds } = await import('../src/x.ts');
+  const window = new Window({ url: 'https://x.com/home' });
+  try {
+    window.document.body.innerHTML = article('alice', '501', 'Verifying npub1abc') + article('bob', '502', 'Verifying npub1abc') +
+      article('alice', '503', 'Lunch');
+    const doc = window.document as unknown as Document;
+    assert.deepEqual(proofPostIds(doc, 'alice', (text) => text.startsWith('Verifying')), ['501']);
+    assert.deepEqual(proofPostIds(doc, 'carol', () => true), []);
+  } finally {
+    await window.happyDOM.abort();
+  }
+});

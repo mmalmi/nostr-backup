@@ -42,6 +42,22 @@ function bodyText(node: Node): string {
   }
   return Array.from(node.childNodes, bodyText).join('');
 }
+/** IDs of the account's own posts on any X page whose text passes `isProof`, such as the home timeline right after posting. */
+export function proofPostIds(doc: Document, handle: string, isProof: (text: string) => boolean) {
+  const ids: string[] = [];
+  for (const article of doc.querySelectorAll(tweet)) {
+    if (article.parentElement?.closest(tweet)) continue;
+    const primary = (selector: string) =>
+      Array.from(article.querySelectorAll(selector)).find(
+        (node) => node.closest(tweet) === article && !node.closest('[role="link"],[data-testid="quoteTweet"]'),
+      );
+    const time = primary('[data-testid="User-Name"]')?.querySelector('a[href] time[datetime]');
+    const match = status.exec(xPath(time?.closest('a')?.getAttribute('href')));
+    const text = primary('[data-testid="tweetText"]');
+    if (match && match[1].toLowerCase() === handle && text && isProof(bodyText(text))) ids.push(match[2]);
+  }
+  return ids;
+}
 export function capturePosts(doc: Document, url: string, handle?: string): Capture[] {
   if (!handle || profileHandle(url) !== handle) return [];
   const posts = [];

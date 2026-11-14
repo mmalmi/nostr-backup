@@ -48,8 +48,8 @@ import { identity, hex, unhex, handlePattern, isOwnEvent, parseRelayKinds, relay
 import { deliverBlossom, queueBlossom } from './blossom-sync.ts';
 import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
-import { followingHandle, profileHandle } from './x.ts';
-import { profileFromEvent, readProfile } from './profile.ts';
+import { followingHandle, profileHandle, xPermalink } from './x.ts';
+import { readProfile } from './profile.ts';
 import { knownFollowers } from './graph-followers.ts';
 import { importWithNegentropy, pool, publish, syncHistory } from './relays.ts';
 import {
@@ -943,7 +943,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'capture', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
@@ -958,6 +958,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           pubkey: conf.pubkey,
           tips: network === 'x' && conf.tipButtons === true && await paymentConsent(),
           ...(conf.tipCurrency ? { tipCurrency: conf.tipCurrency } : {}),
+          ...(network === 'x' ? { xLinked: ((await db.get('meta', 'xLink')) as XLink | undefined)?.handle === conf.handle } : {}),
         };
       const handle = selected?.handle;
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
@@ -1042,7 +1043,12 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
       if (!handlePattern.test(handle)) throw Error('Invalid handle.');
       // A link to the verified Nostr profile, from the X profile header.
-      if (msg.type === 'nostrLink') return { pubkey: (await currentLink(db, conf, handle)).target.pubkey };
+      // Opening a profile link only checks the proof on X; relays never learn which X profile you are on.
+      if (msg.type === 'nostrLink') {
+        const target = await verifiedTarget(db, handle);
+        if (!target) throw Error('This X account has no current verified Nostr link.');
+        return { pubkey: target.pubkey };
+      }
       if (msg.type === 'tipProfile') {
         const profile = await paymentProfile(db, conf, handle);
         const lightning = lightningAddress(profile)!;
@@ -1087,6 +1093,21 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         sign: template => finalizeEvent(template, unhex(key)),
         note: msg.post ? tipNotes.get(profile.pubkey + ':' + msg.post) : undefined,
       });
+    }
+    if (msg.type === 'xProof') {
+      // Your verification post, seen on any X page. X's public page must confirm it before it links.
+      // The setup page can also take a pasted link to the post, which works whatever X's pages look like.
+      const handle = conf.handle;
+      if (!handle || (!trustedPage && (captureNetwork(sender.url) !== 'x' || !sender.tab))) throw Error('Save your X username first.');
+      const pasted = trustedPage && typeof msg.url === 'string' ? xPermalink(msg.url.trim()) : undefined;
+      if (pasted && pasted.author !== handle) throw Error('That post is from @' + pasted.author + ', not @' + handle + '.');
+      const id = pasted?.id ?? msg.id;
+      if (typeof id !== 'string' || !/^\d{1,20}$/.test(id)) throw Error('Paste the link to your verification post.');
+      if (!(await sessionKey())) throw Error('Unlock your account first.');
+      const post = await readPublicXOriginal(handle, id).catch(() => undefined);
+      if (post?.visibility !== 'public' || !isProofPost(post.text, conf.pubkey)) throw Error('X doesn’t show that as a public verification post yet.');
+      await updateXLink(db, conf, { handle, proof: id });
+      return;
     }
     if (msg.type === 'xFollows') {
       // Handles read from the user's own X following list, to find them on Nostr later.
@@ -1273,21 +1294,21 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         return { matches, unchecked, loading, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
       }
       case 'nostrCard': {
-        // Only X accounts already in the local directory are looked up, so other profiles cause no requests.
+        // Only X accounts already in the local directory are checked, and only on X.
         const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
         if (!handlePattern.test(handle) || !(await directoryClaims(db, handle)).length) return null;
-        const [link, contacts, table] = await Promise.all([
-          currentLink(db, conf, handle).catch(() => undefined),
-          latestOwn(db, conf, 3),
+        // Everything else is local, so relays never learn which X profile you are looking at.
+        const [target, contacts, table] = await Promise.all([
+          verifiedTarget(db, handle).catch(() => undefined),
+          archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [3], limit: 1 }]).then((r) => r.events[0]?.event),
           graphFollowers().catch(() => new Uint8Array()),
         ]);
-        if (!link) return null;
-        const { pubkey } = link.target;
-        const event = newestProfile(link.events, pubkey);
+        if (!target) return null;
+        const { pubkey } = target;
         return {
           handle,
           pubkey,
-          profile: event && profileFromEvent(event),
+          profile: (await db.get('xDirectory', [pubkey, 0]))?.profile,
           followers: knownFollowers(table, pubkey),
           following: !!contacts?.tags.some(([name, key]) => name === 'p' && key === pubkey),
         };

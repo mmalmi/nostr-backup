@@ -1,5 +1,6 @@
 import type { Capture, CaptureConfig, SocialCapture } from './types.ts';
-import { captureFollows, capturePosts, followingHandle, profileHandle } from './x.ts';
+import { captureFollows, capturePosts, followingHandle, profileHandle, proofPostIds } from './x.ts';
+import { isProofPost } from './x-identity.ts';
 
 import { captureNetwork, socialProfile } from './social.ts';
 import { captureInstagramPosts, createInstagramCollector, instagramPermalink } from './instagram.ts';
@@ -46,7 +47,22 @@ function startCapture() {
       for (const handle of handles) sentFollows.delete(handle);
     });
   }
+  // Your X verification post links as soon as it shows on any X page, such as the timeline right after
+  // posting. Each post is checked again on X's public page, and retried while X is still publishing it.
+  const proofRetry = new Map<string, number>();
+  function sendProofs() {
+    if (network !== 'x' || !config?.handle || !config.pubkey || config.xLinked) return;
+    const pubkey = config.pubkey, session = config;
+    for (const id of proofPostIds(document, config.handle, (text) => isProofPost(text, pubkey))) {
+      if ((proofRetry.get(id) ?? 0) > Date.now()) continue;
+      proofRetry.set(id, Date.now() + 30000);
+      api.runtime.sendMessage({ type: 'xProof', id }).then((reply: { ok?: boolean } | undefined) => {
+        if (reply?.ok && config === session) session.xLinked = true;
+      }, () => {});
+    }
+  }
   function collect() {
+    sendProofs();
     if (network === 'x' && config?.handle && followingHandle(location.href) === config.handle) return sendFollows();
     if (!config?.capture || !onProfile(config.handle)) {
       pending.clear();

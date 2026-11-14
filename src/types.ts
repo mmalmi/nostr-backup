@@ -215,6 +215,8 @@ export interface CaptureConfig {
   pubkey?: string;
   tips?: boolean;
   tipCurrency?: string;
+  /** Whether the configured X account is already linked to this Nostr profile. */
+  xLinked?: boolean;
 }
 /** A Nostr key and the X proof post claimed for it. */
 export interface TipTarget {
@@ -265,6 +267,7 @@ export interface Payloads {
   tipProfile: { handle: string };
   nostrLink: { handle: string };
   nostrCard: { handle: string };
+  xProof: { id?: string; url?: string };
   tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
   tipPost: { handle: string; post: string; time?: number; text?: string };
   tipRate: { currency: string };
@@ -293,6 +296,7 @@ interface ActionResults {
   tipProfile: { pubkey: string; lightning: string };
   nostrLink: { pubkey: string };
   nostrCard: NostrCard | null;
+  xProof: void;
   detectAccounts: { x?: string; instagram?: string; instagramProfile?: NewProfile };
   xProfile: Omit<NewProfile, 'name'> & { name: string } | null;
   tipInvoice: string;

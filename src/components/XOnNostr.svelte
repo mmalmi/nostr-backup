@@ -27,7 +27,7 @@
     <p class="hint">Save your X username first.</p>
   {:else}
     <h4>Your X account</h4>
-    <XLinkPost {pubkey} xLink={view?.xLink} />
+    <XLinkPost {pubkey} xLink={view?.xLink} {handle} />
     {#if view?.xLink}
       <button class="secondary" disabled={!view.unlocked} onclick={unlink}>Unlink X account</button>
       <p class="hint">Lost your Nostr key? Delete the proof post on X. To switch keys, post a new proof for your new profile.</p>

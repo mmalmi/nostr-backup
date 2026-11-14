@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools/pure';
-import type { Archive, TipTarget } from './types.ts';
+import type { Archive, Profile, TipTarget } from './types.ts';
+import { profileFromEvent } from './profile.ts';
 import { IDENTITY_KIND, checkXProof, xClaims, type XClaim } from './x-identity.ts';
 import { isOwnEvent } from './model.ts';
 import seed from './x-graph-seed.json' with { type: 'json' };
@@ -11,6 +12,8 @@ export interface DirectoryRow {
   id: string;
   handles: string[];
   claims: XClaim[];
+  /** From a kind 0 row, so profiles show without asking relays while you browse. */
+  profile?: Profile;
 }
 
 // Two-hop owners projected from nostr-social-graph's checksum-pinned October 29 bootstrap.
@@ -28,7 +31,8 @@ export async function saveDirectory(db: Archive, events: Event[]) {
         (previous.created_at === event.created_at && previous.id <= event.id))) continue;
     const { pubkey, kind, created_at, id } = event;
     const claims = xClaims(event);
-    await tx.store.put({ pubkey, kind, created_at, id, claims, handles: claims.map(c => c.handle) });
+    const profile = kind === 0 ? profileFromEvent(event) : undefined;
+    await tx.store.put({ pubkey, kind, created_at, id, claims, handles: claims.map(c => c.handle), ...(profile ? { profile } : {}) });
   }
   await tx.done;
 }

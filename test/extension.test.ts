@@ -1633,6 +1633,7 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
   store(finalizeEvent({ kind: 3, created_at: 9, content: '', tags: [['p', friend]] }, secret));
   const tweets: Record<string, string> = {
     '501': proofTweet(owner),
+    '502': proofTweet(owner),
     '77': 'Verifying my account on nostr My Public Key: ' + getPublicKey(bob),
   };
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) =>
@@ -1669,6 +1670,15 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     assert.equal((await success('status')).xLink, undefined);
     await success('capture', { posts: [{ author: 'alice', id: '501', time: 1700000001, text: proofTweet(owner) }] }, x);
     assert.equal((await success('status')).xLink, undefined);
+    // A new proof also links from any X page or a pasted link, once X's public page confirms it.
+    const home = { ...x, url: 'https://x.com/home', tab: { id: 1, url: 'https://x.com/home' } };
+    assert.equal((await success('captureConfig', {}, home)).xLinked, false);
+    assert.equal((await call('xProof', { id: '500' }, home)).ok, false);
+    const wrongAuthor = await call('xProof', { url: 'https://x.com/bob/status/77' });
+    assert.ok(!wrongAuthor.ok && /from @bob/.test(wrongAuthor.error));
+    await success('xProof', { url: 'https://x.com/alice/status/502?s=20' });
+    assert.deepEqual((await success('status')).xLink, { handle: 'alice', proof: '502' });
+    assert.equal((await success('captureConfig', {}, home)).xLinked, true);
   } finally {
     await idle();
     await success('logout', { pubkey: owner });
@@ -1823,13 +1833,19 @@ test('the popup card shows a verified X account on Nostr with known followers, w
     assert.equal(await success('nostrCard', { handle: 'dave' }), null);
     assert.equal(relay.reads.length, reads);
     assert.equal(fetched.length, fetches);
+    // The card only checks the proof on X: relays never learn which X profile you are looking at.
+    const before = relay.reads.length;
     assert.deepEqual(await success('nostrCard', { handle: 'Carol' }), {
       handle: 'carol',
       pubkey: carolKey,
       profile: { name: 'carol', displayName: 'Carol', picture: undefined, about: 'Gardener.\nWrites about bees.' },
       followers: 7,
-      following: true,
+      following: false,
     });
+    assert.equal(relay.reads.length, before);
+    // Following is an intentional public action, so it reads your follow list from relays first.
+    await success('followOnNostr', { pubkeys: [carolKey] });
+    assert.equal((await success('nostrCard', { handle: 'carol' }))?.following, true);
     // X pages cannot ask for cards.
     assert.equal((await call('nostrCard', { handle: 'carol' }, x)).ok, false);
   } finally {

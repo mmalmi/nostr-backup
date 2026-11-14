@@ -2,30 +2,41 @@
 
 Save your own posts from X, Facebook, Instagram and Nostr in a local archive. Export posts and media as a ZIP or share confirmed public posts through Nostr.
 
-[Download and installation instructions](https://socialbackup.org/) · [Privacy policy](website/public/privacy.html) · [MIT license](LICENSE)
+[Download and installation instructions](https://socialbackup.org/) · [Privacy policy](website/public/privacy.html) · [Terms of use](website/public/terms.html) · [MIT license](LICENSE)
 
 The X, Facebook and Instagram logos in sign-up are their owners' trademarks, used unmodified under their brand guidelines and not covered by the MIT license.
 
 ## First backup
 
-1. Open the extension. Sign up to create a Nostr profile and publish your chosen display name, or sign in with an existing key. A public key (`npub`) opens a read-only archive.
-2. In **Sources**, save the usernames you want to back up. With a signing key and backup enabled, visit those profiles and scroll. The extension checks the public originals, signs confirmed public posts, and can send them and their media to your configured relays and Blossom servers. Private and unconfirmed captures stay local.
+1. Open the extension and choose **Sign up**, or **Sign in** if you are already on Nostr.
+   - **Sign up** asks which accounts to back up, filled in from the X and Instagram accounts signed in on tabs you already have open. It then previews the Nostr profile it will publish, prefilled from your X or Instagram profile, and ends by offering to save your secret key.
+   - **Sign in** takes your secret key and keeps your Nostr profile as it is. A user ID (`npub`) only opens a read-only copy of what that profile has published.
+2. Visit your own profiles and scroll. The extension checks the public originals, signs confirmed public posts, and can send them and their media to your relays and media backup servers. Private and unconfirmed captures stay local. Change usernames and switches later in **Sources**.
 3. In **Backup**, choose your relays and sync your Nostr events. Use **Media → Back up media** to save attachments. **Download ZIP** exports signed events in `events.jsonl`, local captures, media metadata and Hashtree blocks.
 
-The extension stores an unlocked signing key unencrypted in the browser profile. Back it up before locking, logging out or uninstalling. The archive ZIP excludes the signing key and can contain private posts. Deleting a local archive cannot recall published copies.
+The extension stores an unlocked signing key unencrypted in the browser profile. Save a copy at sign-up or with **Account → Copy secret key** before locking, logging out or uninstalling. The archive ZIP excludes the signing key and can contain private posts. Deleting a local archive cannot recall published copies.
 
 ## Optional X links and tips
 
-Under **Sources → X → On Nostr**, post a verification to link your accounts, find people you follow, or enable Lightning tips. Tip buttons match X handles locally. Opening **Tip** verifies the X proof and looks up the Lightning address by Nostr public key. Your wallet approves payment.
+- **Link X and find who you follow.** In sign-up's "Find each other on Nostr" step, or later under **Sources → X → On Nostr**, post the verification that links your X account. It links as soon as the post shows on X, or when you paste its link. Scroll your X following list, then find those people's verified Nostr profiles and follow them.
+- **See people on Nostr.** On an X profile with a verified link, the toolbar popup shows that Nostr profile, its known followers and a Follow button, and the profile header gets a **Nostr** link. Both work from local data, so relays don't learn what you browse.
+- **Tips.** Turn on tip buttons and choose a currency under **Sources → Tips**. Tip buttons match X handles locally. Opening one checks the X proof and the current Lightning address. Your wallet approves payment.
 
 To switch keys, post and back up a newer X proof for the new key. Delete the old proof on X to stop new invoices using it. If you still control the old key, **Unlink X account** also withdraws its Nostr claim.
 
+## Signing in to Nostr websites
+
+The extension provides `window.nostr` to websites. Each request opens an approval window. You can remember allowing or declining a kind of request per site, except for changes that replace or delete data, such as your profile or follow list, which always ask. Review and revoke site permissions in **Account**.
+
 ## Development
+
+Read [AGENTS.md](AGENTS.md) first: it records the privacy and reliability principles every change follows.
 
 Use Node 22.12 or newer and pnpm 10.28.2.
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm typecheck
 pnpm test
 pnpm build
 ```
@@ -49,3 +60,4 @@ The command builds from the exact source ZIP supplied to Firefox reviewers. It w
 - `pnpm test:browser chrome` or `pnpm test:browser firefox` exercises an installed extension with disposable accounts and a local relay. Start the matching WebDriver on port 4444 first.
 - `node --experimental-strip-types scripts/extract-media.ts archive.zip restored-media` extracts and verifies saved media offline.
 - `pnpm build:site` assembles the download website and browser packages in `website/dist`.
+- `node scripts/graph-followers.ts <nostr-social-graph module> <socialGraph.bin>` regenerates `ui/graph-followers.bin`, the known-follower counts, from the pinned social graph snapshot.
