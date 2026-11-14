@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from './page.svelte.ts';
+  import { send } from '../ui.ts';
   import AccountFields, { type Usernames } from './AccountFields.svelte';
   import XLinkPost from './XLinkPost.svelte';
   import XFollowMatches from './XFollowMatches.svelte';
@@ -24,6 +25,8 @@
   // With an X account, linking it and finding the people you follow come before "You're set".
   let stage = $state<'accounts' | 'nostr' | 'done' | 'key'>('accounts');
   let saving = $state(false);
+  // After signing in with a key, accounts signed in on open tabs fill the empty fields.
+  let detected = $state<Partial<Usernames>>({});
 
   const accounts = [
     { id: 'x', label: 'X', url: (u: string) => 'https://x.com/' + u },
@@ -53,7 +56,11 @@
   const finish = () => (page.setup = false);
   // Accounts already chosen during sign-up are saved at once, so the next screen is "You're set".
   onMount(() => {
-    if (chosenFirst) void next();
+    if (chosenFirst) return void next();
+    send('detectAccounts').then((found) => {
+      detected = { x: found.x, instagram: found.instagram };
+      for (const id of ['x', 'instagram'] as const) if (found[id] && !usernames[id].trim()) usernames[id] = found[id]!;
+    }, () => {});
   });
 </script>
 
@@ -62,7 +69,7 @@
     <form onsubmit={next}>
       <h2 id="setupTitle">Which accounts should we back up?</h2>
       <p class="hint">Add your usernames. Posts are saved as you scroll your own profile.</p>
-      <AccountFields bind:usernames />
+      <AccountFields bind:usernames {detected} />
       <div class="setupActions">
         <button type="button" class="quiet" id="skipSetup" onclick={finish}>Skip</button>
         <button type="submit" id="saveSetup" disabled={saving}>Continue</button>

@@ -306,9 +306,9 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
     page.document.getElementById(name)!.dispatchEvent(new page.Event(event, { bubbles: true }));
   await until(() => !id('onboarding').hidden);
   assert.equal(id('workspace').hidden, true);
-  // Sign-up starts with the accounts to back up.
-  assert.equal(page.document.activeElement?.id, 'setup-x');
-  id('existingProfileLink').click();
+  // The first screen asks whether you are new or already on Nostr.
+  assert.equal(page.document.activeElement?.id, 'startSignUp');
+  id('existingProfile').click();
   assert.equal(page.document.querySelector('#keyChoice'), null);
   assert.equal(page.document.querySelector('#loginForm button'), null);
   id('loginKey').value = 'invalid';
@@ -388,8 +388,10 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   id('logout').click();
   await until(() => !id('onboarding').hidden);
   assert.equal(popupPath, '');
-  assert.equal(id('accountsForm').hidden, false);
+  assert.equal(id('welcome').hidden, false);
   assert.equal(id('nameForm').hidden, true);
+  id('startSignUp').click();
+  await until(() => !id('accountsForm').hidden);
   assert.equal(id('profileName').value, '');
   assert.equal(id('signedInProfile').hidden, true);
   assert.equal(id('signedInProfile').hasAttribute('href'), false);
@@ -1231,6 +1233,8 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
     return response;
   });
   const setupX = () => page.document.getElementById('setup-x') as unknown as HTMLInputElement;
+  id('startSignUp').click();
+  await until(() => !id('accountsForm').hidden);
   assert.equal(setupX().value, '');
   // Coming back to the page after opening X looks again.
   page.dispatchEvent(new page.Event('focus'));

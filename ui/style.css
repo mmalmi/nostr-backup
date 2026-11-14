@@ -982,3 +982,13 @@ ul:empty {
 .keyActions button {
   flex: 1;
 }
+#welcome {
+  text-align: center;
+}
+#welcome .existingProfile {
+  margin-top: 20px;
+}
+#welcome #startSignUp {
+  width: 100%;
+  margin-top: 6px;
+}

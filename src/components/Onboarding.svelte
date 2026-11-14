@@ -7,10 +7,10 @@
   import AccountFields, { type Usernames } from './AccountFields.svelte';
   import { app, page } from './page.svelte.ts';
 
-  // Sign-up asks which accounts to back up, then shows the profile it will publish,
-  // prefilled from the X account when there is one.
-  let step = $state<'accounts' | 'profile' | 'signin'>('accounts');
-  let previous: 'accounts' | 'profile' = 'accounts';
+  // A new user signs up: which accounts to back up, then the profile it will publish, prefilled
+  // from the X account when there is one. Someone already on Nostr signs in with their key instead.
+  let step = $state<'welcome' | 'accounts' | 'profile' | 'signin'>('welcome');
+  let previous: 'welcome' | 'accounts' | 'profile' = 'welcome';
   let usernames = $state<Usernames>({ x: '', facebook: '', instagram: '' });
   // Accounts signed in on open X and Instagram tabs, and the Instagram profile found there.
   let detected = $state<Partial<Usernames>>({});
@@ -26,13 +26,14 @@
   let xField: HTMLElement;
   let nameField: HTMLInputElement;
   let keyField: HTMLInputElement;
+  let startButton: HTMLButtonElement;
 
   const clean = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
 
   // Fields are read and cleared directly so a pasted key leaves the page at once.
   export function reset() {
     if (keyField) keyField.value = '';
-    step = 'accounts';
+    step = 'welcome';
     usernames = { x: '', facebook: '', instagram: '' };
     profile = { name: '' };
     detected = {};
@@ -42,7 +43,7 @@
     touched.clear();
   }
   export function focus() {
-    (step === 'signin' ? keyField : step === 'profile' ? nameField : xField?.querySelector('input'))?.focus();
+    (step === 'signin' ? keyField : step === 'profile' ? nameField : step === 'accounts' ? xField?.querySelector('input') : startButton)?.focus();
   }
   // A different profile, or none, always starts from a clean form.
   let owner: string | undefined;
@@ -57,7 +58,7 @@
   });
   $effect(() => {
     const again = () => {
-      if (step === 'accounts' && !page.status?.conf.pubkey) void detect();
+      if ((step === 'welcome' || step === 'accounts') && !page.status?.conf.pubkey) void detect();
     };
     addEventListener('pagehide', reset);
     // Coming back from a newly opened X tab picks up its account.
@@ -71,7 +72,7 @@
   // Accounts signed in on open tabs fill their fields until you type in or clear them.
   async function detect() {
     const found = await send('detectAccounts').catch(() => undefined);
-    if (!found || step !== 'accounts') return;
+    if (!found || (step !== 'welcome' && step !== 'accounts')) return;
     detected = { x: found.x, instagram: found.instagram };
     instagramProfile = found.instagramProfile;
     for (const id of ['x', 'instagram'] as const) {
@@ -118,12 +119,6 @@
   function remove(field: 'picture' | 'banner' | 'website') {
     touched.add(field);
     profile[field] = undefined;
-  }
-  // Signing in with an existing key keeps its Nostr profile. Usernames on the first screen still
-  // carry over, so setup links your accounts the same way.
-  async function signInInstead() {
-    if (step === 'accounts' && Object.values(usernames).some((value) => value.trim())) page.accounts = { ...usernames };
-    await show('signin');
   }
   async function skip() {
     page.accounts = { x: '', facebook: '', instagram: '' };
@@ -191,12 +186,16 @@
   };
 </script>
 
-{#snippet signInLink()}
+<div id="welcome" class="onboardingStep" hidden={step !== 'welcome'}>
+  <h2>Back up your posts</h2>
+  <p class="hint">Keep a copy of your X, Facebook and Instagram posts, and share the public ones on Nostr.</p>
+  <button id="startSignUp" class="setupNext" bind:this={startButton} onclick={run(() => show('accounts'))}>Sign up</button>
+  <!-- Signing in keeps your Nostr profile; setup then links your accounts the same way. -->
   <div class="existingProfile">
-    <a href="#signin" id="existingProfileLink" onclick={run(signInInstead)}>Already on Nostr?</a>
-    <button type="button" class="secondary" id="existingProfile" onclick={run(signInInstead)}>Sign in with your key</button>
+    <span>Already on Nostr?</span>
+    <button type="button" class="secondary" id="existingProfile" onclick={run(() => show('signin'))}>Sign in</button>
   </div>
-{/snippet}
+</div>
 
 <form id="accountsForm" class="onboardingStep" hidden={step !== 'accounts'} onsubmit={run(next)}>
   <h2>Which accounts should we back up?</h2>
@@ -261,7 +260,6 @@
     <button type="submit" id="signUp">Sign up</button>
   </div>
 </form>
-{#if step !== 'signin'}{@render signInLink()}{/if}
 
 <div id="existingLogin" hidden={step !== 'signin'}>
   <h2>Sign in</h2>
