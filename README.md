@@ -4,6 +4,8 @@ Save your own posts from X, Facebook, Instagram and Nostr in a local archive. Ex
 
 [Download and installation instructions](https://socialbackup.org/) · [Privacy policy](website/public/privacy.html) · [MIT license](LICENSE)
 
+The X, Facebook and Instagram logos in sign-up are their owners' trademarks, used unmodified under their brand guidelines and not covered by the MIT license.
+
 ## First backup
 
 1. Open the extension. Sign up to create a Nostr profile and publish your chosen display name, or sign in with an existing key. A public key (`npub`) opens a read-only archive.

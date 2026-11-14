@@ -1030,3 +1030,22 @@ ul:empty {
 .readOnlyWarning .setupActions {
   margin-top: 12px;
 }
+
+/* Official account logos: X and Instagram in solid black or white, Facebook in its blue */
+.accountLabel {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 6px;
+}
+.brandLogo {
+  flex: none;
+  width: 29px;
+  height: 29px;
+  color: #000;
+}
+@media (prefers-color-scheme: dark) {
+  .brandLogo {
+    color: #fff;
+  }
+}

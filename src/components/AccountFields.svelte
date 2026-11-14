@@ -3,6 +3,8 @@
 </script>
 
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
+
   // `detected` holds the accounts signed in on open tabs.
   let {
     usernames = $bindable(),
@@ -27,7 +29,7 @@
 
 {#each accounts as account (account.id)}
   <label
-    >{account.label}<span class="clearable"
+    ><span class="accountLabel"><BrandLogo network={account.id} />{account.label}</span><span class="clearable"
       ><input
         id={'setup-' + account.id}
         bind:value={usernames[account.id]}
