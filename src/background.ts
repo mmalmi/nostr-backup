@@ -30,6 +30,7 @@ import { contactsTemplate, xClaims, XRateLimited, identityTemplate, IDENTITY_KIN
 import { directoryAuthors, directoryClaims, saveDirectory, verifiedTarget } from './x-directory.ts';
 import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice, zapTotal } from './x-tips.ts';
+import { paymentConsent } from './tip-consent.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
@@ -725,7 +726,7 @@ async function configure(msg: Message<'settings'>) {
     capture: !!msg.capture,
     social,
     skipCrossposts: msg.skipCrossposts ?? prev.skipCrossposts ?? true,
-    tipButtons: msg.tipButtons ?? prev.tipButtons ?? true,
+    tipButtons: msg.tipButtons ?? prev.tipButtons ?? false,
     relaySync: !!msg.relaySync,
     relayKinds,
     blossomServer,
@@ -886,7 +887,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           handle: selected?.handle ?? '',
           capture: !!selected?.capture && !!(await sessionKey()),
           pubkey: conf.pubkey,
-          tips: network === 'x' && conf.tipButtons !== false,
+          tips: network === 'x' && conf.tipButtons === true && await paymentConsent(),
         };
       const handle = selected?.handle;
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
@@ -940,7 +941,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       return;
     }
     if (msg.type === 'tipProfile' || msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost') {
-      if (captureNetwork(sender.url) !== 'x' || !sender.tab || conf.tipButtons === false) throw Error('Tips are off.');
+      if (captureNetwork(sender.url) !== 'x' || !sender.tab || (conf.tipButtons !== true || !await paymentConsent())) throw Error('Tips are off.');
       if (msg.type === 'tipRate') {
         // A fiat estimate: saved for 15 minutes, from Snort's signed rate events or Coinbase.
         if (typeof msg.currency !== 'string' || !/^[A-Z]{3}$/.test(msg.currency)) throw Error('Invalid currency.');
@@ -1292,7 +1293,7 @@ void arm();
 async function scheduledDirectory() {
   await recover();
   const conf = await settings();
-  if (changing || !conf.pubkey || conf.tipButtons === false) return;
+  if (changing || !conf.pubkey || (conf.tipButtons !== true || !await paymentConsent())) return;
   const db = await openArchive(conf.archiveName);
   try { await updateDirectory(db, conf); } finally { db.close(); }
 }

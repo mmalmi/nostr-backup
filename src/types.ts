@@ -21,7 +21,7 @@ export interface Settings {
   capture: boolean;
   social?: Partial<Record<SocialNetwork, { handle: string; capture: boolean }>>;
   skipCrossposts?: boolean;
-  /** Show tip buttons on X for people with a verified Nostr profile. On unless turned off. */
+  /** Show tip buttons on X for people with a verified Nostr profile. Off until enabled. */
   tipButtons?: boolean;
   relaySync: boolean;
   relayKinds?: RelayKindFilter;

@@ -120,6 +120,7 @@
     maxlength="100"
     required
   />
+  <p class="hint">Creating a profile publishes your name and public key to Nostr relays. Your secret key is stored on this device.</p>
   <button type="submit">Go</button>
   <div class="existingProfile">
     <a href="#signin" id="existingProfileLink" onclick={run(openLogin)}>Already have an account?</a>
@@ -129,7 +130,7 @@
 <div id="existingLogin" hidden={!showLogin}>
   <h2>Sign in</h2>
   <p id="loginHelp" class="hint">
-    Use your secret key to sign in. To view a backup without making changes, use your user ID instead.
+    Use your secret key to sign in. To view a backup without making changes, use your user ID instead. Your relays receive the public key to find your posts.
   </p>
   <form id="loginForm" onsubmit={run(() => signIn(true))}>
     <input

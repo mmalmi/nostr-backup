@@ -44,6 +44,7 @@ interface ExtensionAPI {
   };
   runtime: {
     id: string;
+    getManifest?(): { browser_specific_settings?: { gecko?: unknown } };
     getURL(path: string): string;
     openOptionsPage(): Promise<void>;
     sendMessage<M extends Message>(message: M): Promise<Reply<Result<M['type']>>>;
@@ -81,7 +82,10 @@ interface ExtensionAPI {
       args?: A;
     }): Promise<{ result: R }[]>;
   };
-  permissions: { request(options: { origins: string[] }): Promise<boolean> };
+  permissions: {
+    contains(options: { data_collection: string[] }): Promise<boolean>;
+    request(options: { origins: string[] } | { data_collection: string[] }): Promise<boolean>;
+  };
 }
 interface Provider {
   getPublicKey(): Promise<string>;

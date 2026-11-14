@@ -21,7 +21,7 @@
   let typed = $state<Record<Source, string>>({ x: '', instagram: '', facebook: '' });
   let capture = $state<Record<Source, boolean>>({ x: true, instagram: true, facebook: true });
   let skipCrossposts = $state(true);
-  let tipButtons = $state(true);
+  let tipButtons = $state(false);
   let saving = $state<Source>();
 
   // Matches how settings store a username.
@@ -52,7 +52,7 @@
       facebook: conf.social?.facebook?.capture ?? true,
     };
     skipCrossposts = conf.skipCrossposts !== false;
-    tipButtons = conf.tipButtons !== false;
+    tipButtons = conf.tipButtons === true;
   }
 
   /** Stages usernames from the setup step as saved; the caller then saves settings. */

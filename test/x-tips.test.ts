@@ -122,3 +122,29 @@ test('only zap receipts signed by the recipient lightning provider count', () =>
   assert.deepEqual(zapTotal([receipt(provider, 'lnbc210n1p' + pad), receipt(provider, 'lnbc1u1p' + pad), receipt(faker, 'lnbc1m1p' + pad)], getPublicKey(provider)),
     { sats: 121, tips: 2 });
 });
+
+test('Firefox tips need payment consent, including after revocation', async t => {
+  const { paymentConsent } = await import('../src/tip-consent.ts');
+  let granted = false;
+  const permissions = {
+    contains: async () => granted,
+    request: async (details: object) => {
+      assert.deepEqual(details, { data_collection: ['financialAndPaymentInfo'] });
+      return granted;
+    },
+  };
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'browser');
+  Object.defineProperty(globalThis, 'browser', { configurable: true, value: {
+    runtime: { getManifest: () => ({ browser_specific_settings: { gecko: {} } }) }, permissions,
+  } });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'browser', previous);
+    else Reflect.deleteProperty(globalThis, 'browser');
+  });
+  assert.equal(await paymentConsent(true), false);
+  granted = true;
+  assert.equal(await paymentConsent(true), true);
+  assert.equal(await paymentConsent(), true);
+  granted = false;
+  assert.equal(await paymentConsent(), false);
+});

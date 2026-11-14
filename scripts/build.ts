@@ -14,7 +14,7 @@ const common = {
   version: pkg.version,
   homepage_url: pkg.homepage,
   description: 'Save your posts from X, Instagram, Facebook and Nostr. Download a copy with photos and videos, or share public posts on Nostr.',
-  permissions: ['storage', 'alarms', 'scripting', 'activeTab', 'unlimitedStorage'],
+  permissions: ['storage', 'alarms', 'scripting', 'unlimitedStorage'],
   host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*', 'http://[::1]/*'],
   icons,
   action: { default_title: 'Social Backup', default_icon: icons },
@@ -64,11 +64,13 @@ for (const target of ['chrome', 'firefox', 'safari']) {
           "; connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
       },
       browser_specific_settings: {
+        gecko_android: { strict_min_version: '142.0' },
         gecko: {
           id: 'nostr-backup@extensions.local',
           strict_min_version: '140.0',
           data_collection_permissions: {
-            required: ['websiteContent', 'personallyIdentifyingInfo'],
+            required: ['websiteContent', 'personallyIdentifyingInfo', 'personalCommunications', 'authenticationInfo', 'browsingActivity'],
+            optional: ['financialAndPaymentInfo'],
           },
         },
       },

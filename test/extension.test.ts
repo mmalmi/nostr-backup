@@ -1578,6 +1578,8 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   await success('login', { key: nsecEncode(secret) });
   try {
     await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url });
+    assert.equal((await success('captureConfig', {}, page)).tips, false);
+    await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipButtons: true });
     assert.equal((await success('captureConfig', {}, page)).tips, true);
     api.alarms.onAlarm.list[0]({ name: 'x-directory' });
     await until(() => relay.reads.some(filter => filter.kinds?.includes(10011) && filter.authors?.includes(carolKey)));
