@@ -283,7 +283,7 @@ interface ActionResults {
   approval: Approval | void;
   syncBlossom: number;
   broadcast: number;
-  findXFollows: { matches: XMatch[]; unchecked: number; following: string[] };
+  findXFollows: { matches: XMatch[]; unchecked: number; following: string[]; loading?: boolean };
   followOnNostr: number;
   tipTargets: Record<string, TipTarget | null>;
   unlinkX: void;

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { page } from './page.svelte.ts';
   import AccountFields, { type Usernames } from './AccountFields.svelte';
+  import XLinkPost from './XLinkPost.svelte';
+  import XFollowMatches from './XFollowMatches.svelte';
 
   // Saves the usernames through the Sources settings. Rejects with the error already shown.
   let { save }: { save: (usernames: Usernames) => Promise<void> } = $props();
@@ -15,7 +17,8 @@
     instagram: chosenFirst?.instagram || conf?.social?.instagram?.handle || '',
     facebook: chosenFirst?.facebook || conf?.social?.facebook?.handle || '',
   });
-  let done = $state(false);
+  // With an X account, linking it and finding the people you follow come before "You're set".
+  let stage = $state<'accounts' | 'nostr' | 'done'>('accounts');
   let saving = $state(false);
 
   const accounts = [
@@ -33,7 +36,8 @@
     saving = true;
     try {
       await save(usernames);
-      if (chosen.length) done = true;
+      if (clean(usernames.x)) stage = 'nostr';
+      else if (chosen.length) stage = 'done';
       else page.setup = false;
     } catch {
       // The page shows the error; the user can fix the username.
@@ -49,7 +53,7 @@
 </script>
 
 <section class="setup" aria-labelledby="setupTitle">
-  {#if !done}
+  {#if stage === 'accounts'}
     <form onsubmit={next}>
       <h2 id="setupTitle">Which accounts should we back up?</h2>
       <p class="hint">Add your usernames. Posts are saved as you scroll your own profile.</p>
@@ -59,6 +63,14 @@
         <button type="submit" id="saveSetup" disabled={saving}>Continue</button>
       </div>
     </form>
+  {:else if stage === 'nostr'}
+    <h2 id="setupTitle">Find each other on Nostr</h2>
+    <p class="hint">Both are optional. You can also do them later in Sources.</p>
+    <h3>Link your X account</h3>
+    <XLinkPost pubkey={page.status?.conf.pubkey ?? ''} xLink={page.status?.xLink} />
+    <h3>People you follow on X</h3>
+    <XFollowMatches handle={clean(usernames.x)} read={page.status?.xFollows} unlocked={page.status?.unlocked} />
+    <button id="nostrNext" class="setupNext" onclick={() => (stage = 'done')}>Continue</button>
   {:else}
     <h2 id="setupTitle">You're set</h2>
     <p class="hint">Open each profile and scroll down. Social Backup saves your posts as they appear.</p>

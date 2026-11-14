@@ -451,6 +451,28 @@ async function refreshDirectory(db: Archive, conf: Settings) {
   const next = start + batch.length;
   await db.put('meta', next >= authors.length ? ['0', String(Date.now() + 86400000)] : [String(next), '0'], stateKey);
 }
+// A whole directory pass in the background, rather than one batch per alarm, once you look for
+// the people you follow. Each batch uses the current settings and stops if the account changes.
+let warming: Promise<void> | undefined;
+function warmDirectory() {
+  warming ??= (async () => {
+    const owner = (await settings()).pubkey;
+    if (changing || !owner) return;
+    const db = await openArchive((await settings()).archiveName);
+    try {
+      for (let batch = 0; batch < 32; batch++) {
+        const conf = await settings();
+        if (changing || conf.pubkey !== owner || !conf.relays.length) break;
+        const [, due = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
+        if (Date.now() < Number(due)) break;
+        await updateDirectory(db, conf);
+      }
+    } finally {
+      db.close();
+    }
+  })().catch(() => {}).finally(() => (warming = undefined));
+  return warming;
+}
 const directoryJobs = new Map<string, Promise<void>>();
 function updateDirectory(db: Archive, conf: Settings) {
   const current = directoryJobs.get(db.name);
@@ -1064,6 +1086,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         throw Error('Invalid following list.');
       const known = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
       await db.put('meta', [...new Set([...known, ...msg.handles.map((h) => h.toLowerCase())])].slice(0, 10000), 'xFollows');
+      // You are about to look for them on Nostr, so the directory of X links fills meanwhile.
+      void warmDirectory();
       return;
     }
     switch (msg.type) {
@@ -1217,8 +1241,11 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         await updateXLink(db, conf);
         return;
       case 'findXFollows': {
+        // Matches come from the local directory at once; its refresh from relays runs in the background.
         const handles = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
-        await updateDirectory(db, conf);
+        const [, due = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
+        const loading = conf.relays.length > 0 && Date.now() >= Number(due);
+        if (loading) void warmDirectory();
         const matches = [];
         let unchecked = 0;
         for (const handle of handles) {
@@ -1231,9 +1258,9 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
             break;
           }
         }
-        const contacts = await latestOwn(db, conf, 3);
+        const contacts = (await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [3], limit: 1 }])).events[0]?.event;
         const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
-        return { matches, unchecked, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
+        return { matches, unchecked, loading, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
       }
       case 'nostrCard': {
         // Only X accounts already in the local directory are looked up, so other profiles cause no requests.

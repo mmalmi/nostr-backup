@@ -1271,8 +1271,12 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
     return new Response(jpeg, { headers: { 'content-type': 'image/jpeg' } });
   });
   id('nameForm').requestSubmit();
-  // Signing up saves the usernames through the Sources settings and links to the profiles,
-  // without waiting for the copies.
+  // Signing up saves the usernames through the Sources settings, without waiting for the copies.
+  // With an X account, the next step links it to Nostr and finds the people you follow.
+  await until(() => !!page.document.getElementById('nostrNext'));
+  assert.match(page.document.getElementById('linkX')?.getAttribute('href') ?? '', /^https:\/\/x\.com\/intent\/post\?text=Verifying/);
+  assert.equal(page.document.querySelector('#findXFollows')?.hasAttribute('disabled'), true);
+  id('nostrNext').click();
   await until(() => !!page.document.getElementById('finishSetup'));
   const latestProfile = async () => {
     const d = await openArchive((await success('status')).conf.archiveName);
@@ -1605,7 +1609,10 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     await success('xFollows', { handles: ['bob', 'carol'] }, following);
     assert.equal((await success('status')).xFollows, 2);
     // Looking people up checks each proof: the impostor fails.
-    const found = await success('findXFollows');
+    // The first look starts filling the directory from relays in the background and says so.
+    assert.equal((await success('findXFollows')).loading, true);
+    let found = await success('findXFollows');
+    await until(async () => !(found = await success('findXFollows')).loading && found.matches.length > 0);
     assert.deepEqual(found.matches.map((m) => m.pubkey), [getPublicKey(bob)]);
     assert.equal(found.unchecked, 0);
     assert.deepEqual(found.following, []);

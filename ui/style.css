@@ -949,3 +949,22 @@ ul:empty {
   font-size: 16px;
   line-height: 1;
 }
+
+/* Sign-up: find each other on Nostr */
+.setup h3 {
+  margin: 22px 0 6px;
+  font-size: 1rem;
+}
+.setup .setupNext,
+.setup #linkX {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+.setup .setupNext {
+  margin-top: 24px;
+}
+.setup h3 ~ .hint {
+  text-align: left;
+  margin-bottom: 10px;
+}
