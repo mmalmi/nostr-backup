@@ -56,10 +56,13 @@ import {
   defaults,
   settings,
   login,
+  profileContent,
   accountSettings,
   saveSettings,
   eraseAccount,
 } from './accounts.ts';
+import { withCopiedImages, expiringImage } from './profile-images.ts';
+import { instagramViewer, xProfileLink } from './signed-in.ts';
 import { queueIndexPointer, deliverIndexPointer } from './index-pointer.ts';
 import { accountRecord, writeAccountRecords } from './account-storage.ts';
 import { revokeSession, revokeWebsite, handleSignerRequest, approval } from './signer.ts';
@@ -837,14 +840,19 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         throw Error('Enter a profile name.');
       if (msg.type === 'createProfile') {
         const { name, about, picture, banner, website } = msg;
-        await login(hex(generateSecretKey()), { name, about, picture, banner, website });
+        const key = generateSecretKey();
+        profileContent({ name, about, picture, banner, website });
+        await login(hex(key), await withCopiedImages({ name, about, picture, banner, website }, key, defaults.blossomServer!));
       } else await login(msg.key);
     });
     void kick();
     return;
   }
   // Sign-up details: the X account signed in on an open X tab, and its public profile.
-  if (trustedPage && msg.type === 'detectAccounts') return { x: await signedInXHandle() };
+  if (trustedPage && msg.type === 'detectAccounts') {
+    const [x, instagram] = await Promise.all([signedInXHandle(), signedInInstagram()]);
+    return { x, ...instagram };
+  }
   if (trustedPage && msg.type === 'xProfile') {
     const handle = typeof msg.handle === 'string' ? msg.handle.trim().replace(/^@/, '').toLowerCase() : '';
     if (!handlePattern.test(handle)) throw Error('Enter your X username.');
@@ -1317,19 +1325,42 @@ async function arm() {
   if (!(await api.alarms.get('backup')))
     await api.alarms.create('backup', { periodInMinutes: 5 });
 }
-// X's sidebar links to the signed-in account's profile. Only already open X tabs are read.
-async function signedInXHandle() {
-  const tabs = (await api.tabs.query({ url: 'https://x.com/*' })).filter(tab => tab.id !== undefined);
+// Sign-up reads the signed-in account from tabs that are already open, never opening any.
+async function readOpenTabs<T>(urls: string[], func: () => unknown, accept: (value: unknown) => T | undefined) {
+  const tabs = (await api.tabs.query({ url: urls })).filter(tab => tab.id !== undefined);
   for (const tab of tabs.slice(0, 5)) {
     try {
-      const [result] = await api.scripting.executeScript({
-        target: { tabId: tab.id! },
-        func: () => document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href') ?? null,
-      });
-      const handle = profileHandle(typeof result?.result === 'string' ? 'https://x.com' + result.result : undefined);
-      if (handle) return handle;
+      const [result] = await api.scripting.executeScript({ target: { tabId: tab.id! }, func });
+      const value = accept(result?.result);
+      if (value) return value;
     } catch { /* A tab that is loading or closing has nothing to read. */ }
   }
+}
+// X's sidebar links to the signed-in account's profile.
+function signedInXHandle() {
+  return readOpenTabs(['https://x.com/*'], xProfileLink, (href) =>
+    profileHandle(typeof href === 'string' ? 'https://x.com' + href : undefined));
+}
+// Instagram's page data names the signed-in account and its public profile.
+function signedInInstagram() {
+  return readOpenTabs(['https://www.instagram.com/*', 'https://instagram.com/*'], instagramViewer, (value) => {
+    const viewer = value as Record<string, unknown> | null;
+    const username = typeof viewer?.username === 'string' ? viewer.username.toLowerCase() : '';
+    if (!username || socialProfile('instagram', 'https://www.instagram.com/' + username + '/') !== username) return;
+    const text = (field: unknown, max: number) => (typeof field === 'string' ? field.trim().slice(0, max) : '');
+    const name = text(viewer!.name, 100) || username, about = text(viewer!.about, 1000);
+    const picture = typeof viewer!.picture === 'string' && expiringImage(viewer!.picture) &&
+      viewer!.picture.startsWith('https://') ? viewer!.picture : '';
+    let website = '';
+    try {
+      const url = new URL(String(viewer!.website));
+      if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) website = url.href;
+    } catch { /* No link. */ }
+    return {
+      instagram: username,
+      instagramProfile: { name, ...(about ? { about } : {}), ...(picture ? { picture } : {}), ...(website ? { website } : {}) },
+    };
+  });
 }
 async function attachOpenProfileTabs() {
   const tabs = await api.tabs.query({ url: [...captureSites] });

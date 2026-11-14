@@ -3,12 +3,12 @@
 </script>
 
 <script lang="ts">
-  // `detected` is the X account signed in on an open X tab, if any.
+  // `detected` holds the accounts signed in on open tabs.
   let {
     usernames = $bindable(),
-    detected = '',
+    detected = {},
     onedit,
-  }: { usernames: Usernames; detected?: string; onedit?: (id: keyof Usernames) => void } = $props();
+  }: { usernames: Usernames; detected?: Partial<Usernames>; onedit?: (id: keyof Usernames) => void } = $props();
 
   const accounts = [
     { id: 'x', label: 'X', placeholder: '@yourname' },
@@ -43,8 +43,8 @@
           title="Clear"
           onclick={(event) => clear(account.id, event.currentTarget)}>×</button
         >{/if}</span
-    >{#if account.id === 'x' && detected && clean(usernames.x) === detected}<small class="detected"
-        >Signed in on X in this browser</small
+    >{#if detected[account.id] && clean(usernames[account.id]) === detected[account.id]}<small class="detected"
+        >Signed in on {account.label} in this browser</small
       >{/if}</label
   >
 {/each}

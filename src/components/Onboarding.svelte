@@ -12,8 +12,10 @@
   let step = $state<'accounts' | 'profile' | 'signin'>('accounts');
   let previous: 'accounts' | 'profile' = 'accounts';
   let usernames = $state<Usernames>({ x: '', facebook: '', instagram: '' });
-  let detected = $state('');
-  let edited = false;
+  // Accounts signed in on open X and Instagram tabs, and the Instagram profile found there.
+  let detected = $state<Partial<Usernames>>({});
+  let instagramProfile: NewProfile | undefined;
+  const edited = new Set<keyof Usernames>();
   let profile = $state<NewProfile>({ name: '' });
   let filledFrom = '';
   let loading = $state(false);
@@ -31,8 +33,10 @@
     step = 'accounts';
     usernames = { x: '', facebook: '', instagram: '' };
     profile = { name: '' };
-    detected = filledFrom = '';
-    edited = false;
+    detected = {};
+    instagramProfile = undefined;
+    filledFrom = '';
+    edited.clear();
   }
   export function focus() {
     (step === 'signin' ? keyField : step === 'profile' ? nameField : xField?.querySelector('input'))?.focus();
@@ -61,12 +65,16 @@
     };
   });
 
-  // The X account signed in on an open X tab fills the X field until you type in it.
+  // Accounts signed in on open tabs fill their fields until you type in or clear them.
   async function detect() {
-    const found = (await send('detectAccounts').catch(() => undefined))?.x;
-    if (!found || edited || step !== 'accounts') return;
-    detected = found;
-    usernames.x = found;
+    const found = await send('detectAccounts').catch(() => undefined);
+    if (!found || step !== 'accounts') return;
+    detected = { x: found.x, instagram: found.instagram };
+    instagramProfile = found.instagramProfile;
+    for (const id of ['x', 'instagram'] as const) {
+      const value = found[id];
+      if (value && !edited.has(id)) usernames[id] = value;
+    }
   }
 
   async function show(next: typeof step) {
@@ -85,14 +93,16 @@
       facebook: { handle: usernames.facebook, capture: true },
     });
     page.accounts = { ...usernames };
-    // The X profile's public name, picture, banner, description and website, once per username.
-    if (handle && handle !== filledFrom) {
+    // The public profile of the X account, with the signed-in Instagram account filling what X lacks.
+    const instagram = detected.instagram && clean(usernames.instagram) === detected.instagram ? instagramProfile : undefined;
+    const source = handle + ' ' + (instagram ? detected.instagram : '');
+    if (source.trim() && source !== filledFrom) {
       loading = true;
       try {
-        const found = await send('xProfile', { handle }).catch(() => null);
-        if (found) {
-          profile = { ...found };
-          filledFrom = handle;
+        const fromX = handle ? await send('xProfile', { handle }).catch(() => null) : null;
+        if (fromX || instagram) {
+          profile = { ...instagram, ...fromX } as NewProfile;
+          filledFrom = source;
         }
       } finally {
         loading = false;
@@ -176,7 +186,7 @@
   <h2>Which accounts should we back up?</h2>
   <p class="hint">Posts are saved as you scroll your own profile.</p>
   <div bind:this={xField}>
-    <AccountFields bind:usernames {detected} onedit={(id) => (edited ||= id === 'x')} />
+    <AccountFields bind:usernames {detected} onedit={(id) => edited.add(id)} />
   </div>
   <div class="setupActions">
     <button type="button" class="quiet" id="skipAccounts" onclick={run(skip)}>Skip</button>
@@ -226,7 +236,7 @@
       </p>
     {/if}
   </div>
-  <p class="hint">Signing up publishes this profile and your public key to Nostr relays. Your secret key is stored on this device.</p>
+  <p class="hint">Signing up publishes this profile to Nostr, with its own copies of your pictures. Your secret key is stored on this device.</p>
   <div class="setupActions">
     <button type="button" class="quiet" id="backToAccounts" onclick={run(() => show('accounts'))}>Back</button>
     <button type="submit" id="signUp">Sign up</button>

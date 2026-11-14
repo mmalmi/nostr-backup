@@ -290,7 +290,7 @@ interface ActionResults {
   tipProfile: { pubkey: string; lightning: string };
   nostrLink: { pubkey: string };
   nostrCard: NostrCard | null;
-  detectAccounts: { x?: string };
+  detectAccounts: { x?: string; instagram?: string; instagramProfile?: NewProfile };
   xProfile: Omit<NewProfile, 'name'> & { name: string } | null;
   tipInvoice: string;
   /** The post's Nostr copy by the verified author, and the tips it has received. */

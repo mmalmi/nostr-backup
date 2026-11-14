@@ -27,6 +27,8 @@ import { svelte } from '../scripts/svelte.ts';
 import { Window } from 'happy-dom';
 import { publicProfileHTML, publicTweetHTML } from './fixtures.ts';
 import { DEFAULT_RELAYS } from '../src/default-relays.ts';
+import { DEFAULT_BLOSSOM_SERVER } from '../src/media-refs.ts';
+import { createHash } from 'node:crypto';
 
 const key = generateSecretKey(),
   pubkey = getPublicKey(key);
@@ -1207,9 +1209,15 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const receipt = Promise.withResolvers<void>();
   destinations[0].holdPublish = receipt.promise;
   t.after(() => receipt.resolve());
-  // The X account signed in on an open X tab fills the first screen.
-  t.mock.method(api.tabs, 'query', async () => [{ id: 7, url: 'https://x.com/home' }]);
-  t.mock.method(api.scripting, 'executeScript', async () => [{ result: '/Example' }]);
+  // The accounts signed in on open X and Instagram tabs fill the first screen.
+  t.mock.method(api.tabs, 'query', async (query?: { url?: string[] }) =>
+    query?.url?.some((url) => url.includes('instagram')) ? [{ id: 8, url: 'https://www.instagram.com/' }] : [{ id: 7, url: 'https://x.com/home' }]);
+  t.mock.method(api.scripting, 'executeScript', async ({ target }: Injection) => [{
+    result: target.tabId === 7 ? '/Example' : {
+      username: 'Example.IG', name: 'Example on Instagram', about: 'Pots and plants', website: '',
+      picture: 'https://scontent.cdninstagram.com/v/face.jpg?oe=1',
+    },
+  }]);
   const profilePage = publicProfileHTML('Example', {
     name: 'Example Person', bio: 'Potter. Shop: https://t.co/shop', links: [['https://t.co/shop', 'https://shop.example/']],
     avatar: 'https://pbs.twimg.com/profile_images/1/face_normal.jpg', banner: 'https://pbs.twimg.com/profile_banners/9/100',
@@ -1228,6 +1236,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   page.dispatchEvent(new page.Event('focus'));
   await until(() => setupX().value === 'example');
   assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
+  assert.equal((page.document.getElementById('setup-instagram') as unknown as HTMLInputElement).value, 'example.ig');
   // A cleared field stays empty when the page looks again; the username can be typed back.
   id('clear-x').click();
   await until(() => setupX().value === '' && !page.document.getElementById('clear-x'));
@@ -1248,9 +1257,22 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   id('profileName').value = 'Example';
   id('profileName').dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
   profileFetch.mock.restore();
+  // Signing up copies the pictures to the Blossom server, so they outlast the X account.
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 7]);
+  const copies = t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === DEFAULT_BLOSSOM_SERVER + '/upload') {
+      const hash = (init?.headers as Record<string, string>)['X-SHA-256'];
+      return Response.json({ url: DEFAULT_BLOSSOM_SERVER + '/' + hash + '.jpg', sha256: hash, size: jpeg.byteLength });
+    }
+    assert.match(url, /^https:\/\/pbs\.twimg\.com\//);
+    return new Response(jpeg, { headers: { 'content-type': 'image/jpeg' } });
+  });
   id('nameForm').requestSubmit();
-  // Signing up saves the X username through the Sources settings and links to the profile.
+  // Signing up saves the usernames through the Sources settings and links to the profiles.
   await until(() => !!page.document.getElementById('finishSetup'));
+  copies.mock.restore();
+  assert.equal((await success('status')).conf.social?.instagram?.handle, 'example.ig');
   assert.equal(id('workspace').hidden, true);
   assert.equal((await success('status')).conf.handle, 'example');
   assert.equal(page.document.querySelector('.setupLinks a')?.getAttribute('href'), 'https://x.com/example');
@@ -1282,11 +1304,12 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const [profile] = await d.getAll('events');
   d.close();
   assert.equal(profile.kind, 0);
+  const copy = DEFAULT_BLOSSOM_SERVER + '/' + createHash('sha256').update(jpeg).digest('hex') + '.jpg';
   assert.deepEqual(JSON.parse(profile.content), {
     name: 'Example',
     about: 'Potter. Shop: https://shop.example/',
-    picture: 'https://pbs.twimg.com/profile_images/1/face_400x400.jpg',
-    banner: 'https://pbs.twimg.com/profile_banners/9/100/1500x500',
+    picture: copy,
+    banner: copy,
   });
   assert.ok(verifyEvent(profile));
   await until(() => destinations.every(relay => relay.sent.some(event => event.id === profile.id)));
