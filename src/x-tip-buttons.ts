@@ -54,15 +54,17 @@ export function createTipButtons(send: Send, doc: Document = document) {
     popover?.remove();
     popover = undefined;
   }
-  function button(handle: string, post: Post | undefined, own: boolean) {
+  function button(handle: string, post: Post | undefined, own: boolean, placement: 'profile' | 'post') {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
-    node.textContent = '⚡';
+    node.textContent = placement === 'profile' ? '⚡ Tip' : '⚡';
     node.title = own ? 'People with Social Backup can tip you here' : 'Tip @' + handle + ' with Bitcoin';
     node.setAttribute('aria-label', node.title);
-    node.style.cssText =
-      'background:none;border:0;cursor:pointer;font-size:16px;line-height:1;padding:0 10px;color:inherit;opacity:.75';
+    node.style.cssText = placement === 'profile'
+      ? 'background:transparent;border:1px solid currentColor;border-radius:999px;color:inherit;cursor:pointer;' +
+        'font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px;white-space:nowrap'
+      : 'background:none;border:0;cursor:pointer;font-size:16px;line-height:1;padding:0 10px;color:inherit;opacity:.75';
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -213,11 +215,11 @@ export function createTipButtons(send: Send, doc: Document = document) {
       const handle = author(article);
       if (!handle || !targets.get(handle) || article.querySelector(`[${MARK}]`)) continue;
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
-      bar?.append(button(handle, postInfo(article), handle === own));
+      bar?.append(button(handle, postInfo(article), handle === own, 'post'));
     }
     // On the name row, after the name and badges, rather than on a line of its own.
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`))
-      (name.firstElementChild ?? name).append(button(profile, undefined, profile === own));
+      (name.firstElementChild ?? name).append(button(profile, undefined, profile === own, 'profile'));
   }
   function reset() {
     close();
