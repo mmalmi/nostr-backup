@@ -13,6 +13,9 @@ type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?
 const EMOJI = ['👍', '💯', '🔥'];
 const MARK = 'data-social-backup-tip';
 const POST = 'data-social-backup-post';
+// Profile pills share one fixed height, with or without an icon.
+const PILL = 'box-sizing:border-box;height:28px;padding:0 10px;background:transparent;border:1px solid currentColor;' +
+  'border-radius:999px;font:600 13px/1 system-ui;margin-inline-start:4px';
 // The Social Backup forget-me-not (ui/icon.svg), with IDs that cannot clash with X's page.
 const FLOWER =
   // 18.75px like X's own action icons; an inline size so page styles cannot change it.
@@ -87,9 +90,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
     node.title = own ? 'People with Social Backup can tip you here' : 'Tip @' + handle + ' with Bitcoin';
     node.setAttribute('aria-label', node.title);
     node.style.cssText = 'display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:inherit;white-space:nowrap;' +
-      (placement === 'profile'
-        ? 'background:transparent;border:1px solid currentColor;border-radius:999px;font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px'
-        : 'background:none;border:0;font:13px/1 system-ui;padding:0 10px');
+      (placement === 'profile' ? PILL : 'background:none;border:0;font:13px/1 system-ui;padding:0 10px');
+    // In a pill the flower matches the label's size; on posts it matches X's action icons.
+    if (placement === 'profile') Object.assign(node.querySelector('svg')!.style, { width: '16px', height: '16px' });
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -153,8 +156,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     node.textContent = 'Nostr ↗';
     node.title = 'Open @' + handle + '’s Nostr profile';
     node.setAttribute('aria-label', node.title);
-    node.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;color:inherit;white-space:nowrap;background:transparent;' +
-      'border:1px solid currentColor;border-radius:999px;font:600 13px/1 system-ui;padding:5px 10px;margin-inline-start:4px';
+    node.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;color:inherit;white-space:nowrap;' + PILL;
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();

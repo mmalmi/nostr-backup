@@ -127,6 +127,8 @@ test('a verified profile links to its Nostr profile once the proof is checked ag
     await new Promise((resolve) => setTimeout(resolve, 10));
     const pills = Array.from(doc.querySelectorAll('[data-testid="UserName"] button'));
     assert.deepEqual(pills.map((b) => b.textContent), ['Tip', 'Nostr ↗']);
+    // Both pills are the same height, whether or not they have an icon.
+    assert.deepEqual(pills.map((b) => (b as HTMLElement).style.height), ['28px', '28px']);
     const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
     (pills[1] as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
