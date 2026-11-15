@@ -165,6 +165,9 @@ const extensionId = 'test-extension',
 let winURL: string | undefined;
 // Tabs the extension opened.
 const tabURLs: string[] = [];
+// The badge and tooltip the extension last set on each tab's toolbar icon.
+const badges = new Map<number, { text?: string; color?: string; title?: string }>();
+const badge = (tabId: number) => badges.get(tabId) ?? badges.set(tabId, {}).get(tabId)!;
 function approvalScreen() {
   assert.ok(winURL);
   return { ...ui, url: winURL };
@@ -183,6 +186,10 @@ const api = {
     setPopup: async ({ popup }: { popup: string }) => {
       popupPath = popup;
     },
+    setBadgeText: async ({ text, tabId }: { text: string; tabId: number }) => void (badge(tabId).text = text),
+    setBadgeBackgroundColor: async ({ color, tabId }: { color: string; tabId: number }) => void (badge(tabId).color = color),
+    setBadgeTextColor: async () => {},
+    setTitle: async ({ title, tabId }: { title: string; tabId: number }) => void (badge(tabId).title = title),
   },
   scripting: {
     executeScript: async (_: Injection): Promise<{ result: unknown }[]> => {
@@ -220,7 +227,7 @@ const api = {
   },
   tabs: {
     query: async () => [] as { id: number; url: string }[],
-    onRemoved: listener(),
+    onRemoved: listener<(id: number) => void>(),
     get: async () => ({ url: 'https://client.example/' }),
     create: async (o: { url: string }) => {
       tabURLs.push(o.url);
@@ -394,7 +401,9 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   assert.equal(popup.document.querySelector('#displayName')?.closest('a')?.getAttribute('href'), 'archive.html');
   assert.equal(pageElements(popup)('displayName').textContent, 'Alice Example');
   assert.equal(pageElements(popup)('profileMode').hidden, false);
-  assert.equal(pageElements(popup)('xPopupStats').hidden, true);
+  // Away from X, Facebook and Instagram the popup has no site line, only the size of the backup.
+  assert.equal(pageElements(popup)('siteState').hidden, true);
+  assert.match(pageElements(popup)('summary').textContent!, /^\d+ items? in your backup$/);
   id('logout').click();
   await until(() => !id('onboarding').hidden);
   assert.equal(popupPath, '');
@@ -633,17 +642,25 @@ test('read-only mode pauses capture and preserves existing drafts until the sign
   t.mock.method(api.tabs, 'query', async () => [{ id: 1, url: 'https://x.com/alice' }]);
   const popup = await extensionPage(t, 'popup');
   const id = pageElements(popup);
-  await until(() => !id('xPopupStats').hidden);
-  assert.equal(id('xCaptured').textContent, '1');
-  assert.equal(id('xSigned').textContent, '1');
-  assert.equal(id('xDrafts').textContent, '0');
+  // On X the popup says in one line what the backup does there, and gives one number.
+  await until(() => !id('siteState').hidden);
+  assert.equal(id('siteState').textContent, 'Backing up @alice on X');
+  assert.equal(id('siteState').getAttribute('data-level'), 'on');
+  assert.equal(id('summary').textContent, '1 post saved from X');
+  assert.equal(popup.document.getElementById('xPopupStats'), null);
   assert.equal(id('profileMode').hidden, true);
+  // The page in the tab reports a post that stays out of the backup: the popup says so.
+  await success('pageStatus', { unsaved: 1 }, x);
+  await until(() => id('siteState').getAttribute('data-level') === 'problem');
+  assert.equal(id('siteState').textContent, '1 post on this page could not be backed up');
+  // Read-only mode is known from the settings, whatever the page last reported.
   await success('lock');
   const lockedPopup = await extensionPage(t, 'popup');
   const locked = pageElements(lockedPopup);
   await until(() => !locked('backupActions').hidden);
   assert.equal(locked('profileMode').hidden, false);
-  assert.equal(locked('xCaptureState').textContent, 'Capture paused · Read-only mode');
+  assert.equal(locked('siteState').textContent, 'X backup is paused. Enter your secret key in Account');
+  assert.equal(locked('siteState').getAttribute('data-level'), 'attention');
 });
 test('signer binds public-key access and approvals to the authorized website', async () => {
   const token = crypto.randomUUID(),
@@ -1525,6 +1542,19 @@ test('X captures sign locally even while the previous delivery has no reply', as
     const home = { ...x, url: 'https://x.com/home', tab: { id: 1, url: 'https://x.com/home' } };
     const requests = (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount();
     assert.equal((await success('captureConfig', {}, home)).marks, true);
+    // The tab's toolbar icon gets a green dot while the backup is on, and its tooltip says what it does.
+    await until(() => badges.get(1)?.title === 'Social Backup: Backing up @alice on X');
+    assert.deepEqual(badges.get(1), { text: ' ', color: '#12a15f', title: 'Social Backup: Backing up @alice on X' });
+    // The page reports posts that stay out of the backup: the dot becomes a red mark, and the popup can read why.
+    await success('pageStatus', { unsaved: 2 }, home);
+    await until(() => badges.get(1)?.title === 'Social Backup: 2 posts on this page could not be backed up');
+    assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#e5484d']);
+    assert.deepEqual((await api.storage.session.get('site-1'))['site-1'], { site: 'x', unsaved: 2 });
+    assert.equal((await success('captureConfig', { failed: true }, home)).capture, true);
+    await until(() => badges.get(1)?.title === 'Social Backup: Your posts on this page could not be saved');
+    await success('pageStatus', {}, home);
+    await until(() => badges.get(1)?.title === 'Social Backup: Backing up @alice on X');
+    assert.equal(badges.get(1)?.text, ' ');
     assert.deepEqual(await success('savedPosts', { ids: ['1', '9', '3'] }, home), [{ id: '1', onNostr: true }, { id: '3', onNostr: true }]);
     assert.equal(requests, (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount());
     // A click on a mark has the extension open the post's signed copy on Iris. The page gets no note ID.
@@ -1537,14 +1567,29 @@ test('X captures sign locally even while the previous delivery has no reply', as
     assert.equal((await call('savedPosts', { ids: ['1'] }, { ...x, url: 'https://elsewhere.example/', tab: { id: 2, url: 'https://elsewhere.example/' } })).ok, false);
     await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url, markSaved: false });
     assert.equal((await success('captureConfig', {}, home)).marks, false);
-    assert.deepEqual(await success('savedPosts', { ids: ['1'] }, home), []);
-    assert.equal(await success('openSaved', { id: '3' }, home), false);
-    assert.equal(tabURLs.length, 1);
+    // Without marks the page still asks which posts are saved, to see that the backup works.
+    assert.deepEqual(await success('savedPosts', { ids: ['1'] }, home), [{ id: '1', onNostr: true }]);
+    // A site that is not set up gets no dot.
+    await success('captureConfig', {}, { ...x, url: 'https://www.instagram.com/alice/', tab: { id: 31, url: 'https://www.instagram.com/alice/' } });
+    await until(() => badges.get(31)?.title === 'Social Backup: Add your Instagram username in Sources');
+    assert.equal(badges.get(31)?.text, '');
+    // In read-only mode the backup is paused: a yellow mark.
+    await success('lock');
+    assert.equal((await success('captureConfig', {}, home)).capture, false);
+    await until(() => badges.get(1)?.title === 'Social Backup: X backup is paused. Enter your secret key in Account');
+    assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#f5b301']);
+    // A closed tab's state is forgotten.
+    for (const closed of api.tabs.onRemoved.list) closed(1);
+    await until(async () => !(await api.storage.session.get('site-1'))['site-1']);
   } finally {
     held.resolve();
     await until(async () => !(await success('status')).running);
     await success('logout', { pubkey: owner });
   }
+  // Signed out, X shows a yellow mark that asks to sign in.
+  await success('captureConfig', {}, x);
+  await until(() => badges.get(1)?.title === 'Social Backup: Sign in to back up your posts');
+  assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#f5b301']);
 });
 
 test('new X captures reach a relay before its history import finishes', async (t) => {

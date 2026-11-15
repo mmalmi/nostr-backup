@@ -39,6 +39,7 @@ import { createUploadAuth } from 'nostr-tools/nipb7';
 import { DEFAULT_BLOSSOM_SERVER, blossomOrigin, mediaServers, publicMediaURL } from './media-refs.ts';
 import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
 import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemplate, canDeliverCapture, validateSocialPost } from './social.ts';
+import { siteBadge, siteState, type PageReport, type TabReport } from './site-status.ts';
 import { instagramPermalink } from './instagram.ts';
 import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
 import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
@@ -934,7 +935,11 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         x: { captured: 0, signed: 0, matched: 0, drafts: 0 },
         xFollows: 0,
       } satisfies Status;
-    if (msg.type === 'captureConfig') return { capture: false, handle: '' };
+    if (msg.type === 'captureConfig') {
+      const site = captureNetwork(sender.url);
+      if (site && sender.tab && !conf.pubkey) showSiteState(sender.tab, { site });
+      return { capture: false, handle: '' };
+    }
     throw Error('Choose a Nostr profile to start your backup.');
   }
   if (msg.type === 'nip07')
@@ -944,20 +949,21 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'savedPosts', 'openSaved', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'pageStatus', 'capture', 'savedPosts', 'openSaved', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
-    if (msg.type === 'captureConfig' || msg.type === 'capture' || msg.type === 'savedPosts' || msg.type === 'openSaved') {
+    if (msg.type === 'captureConfig' || msg.type === 'pageStatus' || msg.type === 'capture' || msg.type === 'savedPosts' || msg.type === 'openSaved') {
       const network = captureNetwork(sender.url);
       if (!network || !sender.tab || !sender.url) throw Error('Invalid capture source.');
       const selected = network === 'x' ? conf : conf.social?.[network];
-      // Marks on the user's own posts compare post IDs with the backup on this device. Nothing is sent anywhere.
+      // Marks on the user's own posts, and the check that those posts get saved, compare post IDs with the backup
+      // on this device. Nothing is sent anywhere.
       if (msg.type === 'savedPosts' || msg.type === 'openSaved') {
         const ids = msg.type === 'openSaved' ? [msg.id] : msg.ids;
         if (!Array.isArray(ids) || ids.length > 50 || !ids.every((id) => typeof id === 'string' && /^[\w-]{1,120}$/.test(id)))
           throw Error('Invalid posts.');
-        const found = conf.markSaved === false || !selected?.handle ? [] : await savedPosts(db, network, ids);
+        const found = !selected?.handle ? [] : await savedPosts(db, network, ids);
         if (msg.type === 'savedPosts') return found.map(({ id, event }) => ({ id, onNostr: !!event }));
         // A click on a mark opens the post's public copy on Iris. The page it came from never sees which note that is.
         const event = found[0]?.event;
@@ -967,16 +973,20 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         });
         return !!event;
       }
-      if (msg.type === 'captureConfig')
+      if (msg.type === 'captureConfig' || msg.type === 'pageStatus') {
+        const unlocked = !!(await sessionKey());
+        showSiteState(sender.tab, { site: network, ...pageReport(msg), ...(await relaysDown(db, conf) ? { relaysDown: true } : {}) }, conf, unlocked);
+        if (msg.type === 'pageStatus') return;
         return {
           handle: selected?.handle ?? '',
-          capture: !!selected?.capture && !!(await sessionKey()),
+          capture: !!selected?.capture && unlocked,
           pubkey: conf.pubkey,
           tips: network === 'x' && conf.tipButtons === true && await paymentConsent(),
           marks: conf.markSaved !== false && !!selected?.handle,
           ...(conf.tipCurrency ? { tipCurrency: conf.tipCurrency } : {}),
           ...(network === 'x' ? { xLinked: ((await db.get('meta', 'xLink')) as XLink | undefined)?.handle === conf.handle } : {}),
         };
+      }
       const handle = selected?.handle;
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
         (network === 'x' ? profileHandle(url) === handle : socialProfile(network, url) === handle ||
@@ -1385,6 +1395,35 @@ api.runtime.onMessage.addListener((msg, sender, respond) => {
   );
   return true;
 });
+// The dot on the toolbar icon of a tab on X, Facebook or Instagram, and the same state for the popup.
+function showSiteState(tab: { id?: number }, report: TabReport, conf?: Settings, unlocked = false) {
+  if (tab.id === undefined) return;
+  const tabId = tab.id, key = `site-${tabId}` as const;
+  const state = siteState(report.site, conf, unlocked, report), badge = siteBadge(state.level);
+  // The dot is a hint. Nothing waits for it, and a closed tab or a browser without badges changes nothing else.
+  void (async () => {
+    await api.storage.session.set({ [key]: report });
+    await api.action.setBadgeText({ tabId, text: badge.text });
+    if (badge.color) await api.action.setBadgeBackgroundColor({ tabId, color: badge.color });
+    if (badge.textColor) await api.action.setBadgeTextColor?.({ tabId, color: badge.textColor });
+    await api.action.setTitle({ tabId, title: 'Social Backup: ' + state.text });
+  })().catch(() => {});
+}
+function pageReport(msg: PageReport): PageReport {
+  return {
+    ...(msg.failed === true ? { failed: true } : {}),
+    ...(typeof msg.unsaved === 'number' && Number.isSafeInteger(msg.unsaved) && msg.unsaved > 0 ? { unsaved: Math.min(msg.unsaved, 999) } : {}),
+  };
+}
+/** Every relay failed in the last run while posts still wait to be sent. */
+async function relaysDown(db: Archive, conf: Settings) {
+  if (!conf.relays.length) return false;
+  const last = await accountRecord('lastRun');
+  return last?.pubkey === conf.pubkey &&
+    conf.relays.every((url) => ['retry', 'error'].includes(last.relays?.[url]?.phase ?? '')) &&
+    (await db.count('outbox')) > 0;
+}
+api.tabs.onRemoved.addListener((id) => void api.storage.session.remove(`site-${id}`).catch(() => {}));
 // A toolbar click opens the full-page welcome screen until a profile is active.
 api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 function setToolbarPopup(pubkey?: string) {
@@ -1494,10 +1533,19 @@ function signedInInstagram() {
   });
 }
 async function attachOpenProfileTabs() {
-  const tabs = await api.tabs.query({ url: [...captureSites] });
-  await Promise.allSettled(tabs.filter(tab => tab.id !== undefined).map(tab =>
+  const tabs = (await api.tabs.query({ url: [...captureSites] })).filter(tab => tab.id !== undefined);
+  if (!tabs.length) return;
+  await Promise.allSettled(tabs.map(tab =>
     api.scripting.executeScript({target: {tabId: tab.id!}, files: ['content.js']})
   ));
+  // A page that stays silent still runs the code from before the update. Its backup starts after a reload.
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  const conf = await settings();
+  for (const tab of tabs) {
+    const site = captureNetwork(tab.url), key = `site-${tab.id!}` as const;
+    if (!site || (await api.storage.session.get(key))[key]) continue;
+    if (conf.pubkey && siteState(site, conf, true).level) showSiteState(tab, { site, stale: true }, conf, true);
+  }
 }
 api.runtime.onInstalled.addListener(() => {
   void attachOpenProfileTabs();

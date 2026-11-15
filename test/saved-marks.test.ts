@@ -127,6 +127,31 @@ test('a post kept on this device gets a mark that is not a link, until it has a 
   assert.equal(doc.querySelector(MARK)!.getAttribute('role'), 'link');
 });
 
+test('without drawing, a scan still tells which of the user’s posts the backup lacks', async (t) => {
+  const tile = (id: string) => '<div><a href="/me.example/p/' + id + '/"><div><img src="https://scontent.cdninstagram.com/a.jpg"></div></a></div>';
+  const doc = page(t, 'https://www.instagram.com/me.example/', '<main>' + tile('AAA111') + tile('BBB222') + '</main>');
+  const store = backup(['AAA111']);
+  const marks = createSavedMarks('instagram', store.ask, store.open, doc);
+  assert.deepEqual(marks.unsaved(), []);
+  marks.scan('me.example', false);
+  // Until the backup has answered, both posts count as not saved, with no time of an answer.
+  assert.deepEqual(marks.unsaved(), [{ id: 'AAA111', checked: undefined }, { id: 'BBB222', checked: undefined }]);
+  const before = Date.now();
+  await settle();
+  assert.equal(doc.querySelectorAll(MARK).length, 0);
+  const missing = marks.unsaved();
+  assert.deepEqual(missing.map((post) => post.id), ['BBB222']);
+  assert.ok(missing[0].checked! >= before);
+  // Once it is saved it is no longer missing. Tiles without a box of their own count too.
+  store.saved.push('BBB222');
+  marks.refresh(['BBB222']);
+  marks.scan('me.example', false);
+  await settle();
+  assert.deepEqual(marks.unsaved(), []);
+  marks.reset();
+  assert.deepEqual(marks.unsaved(), []);
+});
+
 test('Instagram marks saved profile tiles and an open post’s date', async (t) => {
   const tile = (path: string) => '<div style="position:relative"><a href="' + path + '"><div style="position:relative"><img src="https://scontent.cdninstagram.com/a.jpg"></div></a></div>';
   const doc = page(t, 'https://www.instagram.com/me.example/', '<main>' + tile('/me.example/p/AAA111/') + tile('/me.example/reel/BBB222/') + tile('/other/p/CCC333/') + tile('/p/DDD444/') +

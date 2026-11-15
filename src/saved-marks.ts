@@ -11,10 +11,11 @@ import { facebookPostLinks } from './facebook.ts';
 
 type Ask = (ids: string[]) => Promise<{ ok: boolean; value?: unknown } | undefined>;
 type Kind = 'bar' | 'tile' | 'date';
-/** A place for one post's mark: in `host`, right after `after` or else at the end. */
+/** One of the user's posts on the page and the place for its mark: in `host`, right after `after` or else at the end. */
 interface Spot {
   id: string;
-  host: Element;
+  /** Missing when the page has no fitting place: the post gets no mark. */
+  host?: Element;
   after?: Element;
   kind: Kind;
 }
@@ -35,6 +36,9 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
   const asking = new Set<string>();
   // A post that is not saved or not public yet is asked about again later, or as soon as it has been captured.
   const retryAt = new Map<string, number>();
+  // When the backup last said that it lacks a post, and the posts found by the latest scan.
+  const missedAt = new Map<string, number>();
+  let visible: string[] = [];
   let generation = 0;
 
   function mark(id: string, kind: Kind, onNostr: boolean) {
@@ -94,8 +98,7 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
       for (const { id, link, tile } of instagramPostLinks(doc, doc.location?.href ?? '', handle)) {
         // Beside the date itself: Instagram lays the date out as a block, so a mark after its link wraps to a new line.
         const time = tile ? undefined : link.querySelector('time')!;
-        const host = time ? time.parentElement : tileBox(link);
-        if (host) found.push(time ? { id, host, after: time, kind: 'date' } : { id, host, kind: 'tile' });
+        found.push(time ? { id, host: time.parentElement ?? undefined, after: time, kind: 'date' } : { id, host: tileBox(link), kind: 'tile' });
       }
     } else {
       // At the end of the date link, so it stays on the date's line.
@@ -104,7 +107,7 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
     return found;
   }
 
-  function show({ id, host, after, kind }: Spot, onNostr: boolean) {
+  function show({ id, host, after, kind }: Spot & { host: Element }, onNostr: boolean) {
     const current = Array.from(host.children).find((node) => node.hasAttribute(MARK));
     if (current?.getAttribute(MARK) === id && current.getAttribute('data-kind') === kind &&
         (current.getAttribute('role') === 'link') === onNostr) return current;
@@ -115,12 +118,16 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
     return node;
   }
 
-  /** Marks the saved posts of `handle` on the page and removes marks that no longer belong. */
-  function scan(handle: string) {
+  /**
+   * Looks up the posts of `handle` on the page, marks the saved ones and removes marks that no longer belong.
+   * Without `draw` it only looks them up, for `unsaved`.
+   */
+  function scan(handle: string, draw = true) {
     if (!handle) return;
     const found = spots(handle);
+    visible = [...new Set(found.map((spot) => spot.id))];
     const now = Date.now();
-    const unknown = [...new Set(found.map((spot) => spot.id))]
+    const unknown = visible
       .filter((id) => !saved.get(id) && !asking.has(id) && (retryAt.get(id) ?? 0) <= now)
       .slice(0, 50);
     if (unknown.length) {
@@ -143,16 +150,19 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
               saved.set(id, onNostr);
             } else if (answered && saved.delete(id)) changed = true;
             if (!onNostr) retryAt.set(id, Date.now() + 60000);
+            if (onNostr !== undefined) missedAt.delete(id);
+            else if (answered) missedAt.set(id, Date.now());
           }
           while (saved.size > 5000) saved.delete(saved.keys().next().value!);
           while (retryAt.size > 5000) retryAt.delete(retryAt.keys().next().value!);
-          if (changed) scan(handle);
+          while (missedAt.size > 5000) missedAt.delete(missedAt.keys().next().value!);
+          if (changed) scan(handle, draw);
         });
     }
     const kept = new Set<Element>();
-    for (const spot of found) {
+    if (draw) for (const spot of found) {
       const onNostr = saved.get(spot.id);
-      if (onNostr !== undefined) kept.add(show(spot, onNostr));
+      if (onNostr !== undefined && spot.host) kept.add(show({ ...spot, host: spot.host }, onNostr));
     }
     // The page reuses its elements for other posts as it scrolls.
     for (const node of doc.querySelectorAll('[' + MARK + ']')) if (!kept.has(node)) node.remove();
@@ -161,12 +171,18 @@ export function createSavedMarks(network: 'x' | SocialNetwork, ask: Ask, open: (
   function refresh(ids: string[]) {
     for (const id of ids) retryAt.delete(id);
   }
+  /** The posts found by the latest scan that the backup lacks, each with when the backup last said so. */
+  function unsaved() {
+    return visible.filter((id) => !saved.has(id)).map((id) => ({ id, checked: missedAt.get(id) }));
+  }
   function reset() {
     generation++;
+    visible = [];
     saved.clear();
     asking.clear();
     retryAt.clear();
+    missedAt.clear();
     for (const node of doc.querySelectorAll('[' + MARK + ']')) node.remove();
   }
-  return { scan, refresh, reset };
+  return { scan, refresh, unsaved, reset };
 }

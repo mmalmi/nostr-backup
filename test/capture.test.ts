@@ -179,6 +179,58 @@ test('scroll keeps recycled rows while a previous capture batch is saving', asyn
   assert.deepEqual(captured, ['1', '2', '3']);
 });
 
+test('the page reports its own posts that stay out of the backup, and takes the report back once they are saved', async (t) => {
+  const win = new Window({ url: 'https://x.com/alice' });
+  t.after(() => win.happyDOM.abort());
+  // The page's clock, moved by hand.
+  win.eval('globalThis.__skew = 0; const now = Date.now.bind(Date); Date.now = () => now() + globalThis.__skew;');
+  const sent: { type: string; unsaved?: number; failed?: boolean }[] = [];
+  let saved = false;
+  Object.assign(win, {
+    chrome: {
+      storage: { onChanged: { addListener() {} } },
+      runtime: {
+        id: 'fixture',
+        async sendMessage(msg: { type: string; ids?: string[]; unsaved?: number; failed?: boolean }) {
+          sent.push(msg);
+          if (msg.type === 'captureConfig') return { ok: true, value: { capture: true, handle: 'alice', pubkey: 'owner' } };
+          // The background accepts the capture and leaves the post out, as for a long post it cannot read in full.
+          if (msg.type === 'savedPosts') return { ok: true, value: saved ? msg.ids!.map((id) => ({ id, onNostr: true })) : [] };
+          return { ok: true };
+        },
+      },
+    },
+  });
+  const { build } = await import('esbuild');
+  const bundle = await build({ entryPoints: ['src/content.ts'], bundle: true, format: 'iife', write: false });
+  win.document.body.innerHTML = article('alice', '1');
+  win.eval(bundle.outputFiles[0].text);
+  const frames = async (count = 3) => {
+    for (let i = 0; i < count; i++) {
+      win.dispatchEvent(new win.Event('scroll'));
+      await new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const reports = () => sent.filter((msg) => msg.type === 'pageStatus').map(({ unsaved, failed }) => ({ unsaved, failed }));
+  await frames();
+  assert.ok(sent.some((msg) => msg.type === 'capture'));
+  // Right after the capture the post may still be on its way: nothing is reported.
+  assert.deepEqual(reports(), []);
+  win.eval('__skew += 16000');
+  await frames();
+  assert.deepEqual(reports(), [{ unsaved: 1, failed: undefined }]);
+  // The next request for settings carries the report, so the dot stays as it is.
+  win.dispatchEvent(new win.Event('focus'));
+  await frames(1);
+  assert.equal(sent.findLast((msg) => msg.type === 'captureConfig')?.unsaved, 1);
+  // Once the backup has the post, the report is taken back.
+  saved = true;
+  win.eval('__skew += 61000');
+  await frames();
+  assert.deepEqual(reports(), [{ unsaved: 1, failed: undefined }, { unsaved: undefined, failed: undefined }]);
+});
+
 test('a quote card points to its own permalink, separate from the outer commentary', () => {
   const quote =
     '<div data-testid="quoteTweet" role="link"><span data-testid="tweetText">Original text</span><a href="/alice/status/10"><time>Earlier</time></a></div>';

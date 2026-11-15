@@ -328,5 +328,7 @@ export function createInstagramCollector(onPosts: (posts: SocialCapture[]) => vo
       void run();
     },
     stop() { session.abort(); queue.clear(); retryAt.clear(); },
+    /** Posts are still waiting to be read. */
+    busy: () => queue.size > 0 || active.size > 0,
   };
 }

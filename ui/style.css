@@ -380,32 +380,39 @@ ul:empty {
 .popup .profile {
   min-width: 0;
 }
-.popup #summary,
-.popup #socialPopup {
-  margin: 12px 0;
-  font-size: 0.9rem;
-}
-.popup #xPopupStats {
-  padding: 14px;
-  margin: 12px 0;
-}
-.popup #xPopupStats h2 {
+/* What the backup is doing in this tab, with the same dot as the toolbar icon. */
+.popup #siteState {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 14px 0 4px;
   font-size: 0.95rem;
-  margin-bottom: 10px;
+  font-weight: 600;
 }
-.popup #xPopupStats .stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 14px;
-  margin-bottom: 10px;
-  font-size: 0.8rem;
+.popup #siteState::before {
+  content: '';
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #8a93a6;
 }
-.popup #xPopupStats .stats strong {
-  font-size: 1.3rem;
+.popup #siteState[data-level='on']::before {
+  background: #12a15f;
 }
-.popup #xPopupStats p {
-  font-size: 0.82rem;
-  margin: 4px 0 0;
+.popup #siteState[data-level='attention']::before {
+  background: #f5b301;
+}
+.popup #siteState[data-level='problem']::before {
+  background: #e5484d;
+}
+.popup #summary {
+  margin: 4px 0 14px;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+.popup #siteState + #summary {
+  padding-left: 17px;
 }
 .popup button {
   display: block;

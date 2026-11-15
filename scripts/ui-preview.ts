@@ -38,7 +38,7 @@ for (let n = 0; n < 80; n++)
 
 const bridge = `
 const worker=new SharedWorker('/worker.js'),port=worker.port;let seq=0;const pending=new Map(),listeners=[];
-window.chrome={runtime:{sendMessage(message){const id=++seq;return new Promise(resolve=>{pending.set(id,resolve);port.postMessage({id,message,page:location.pathname})})},openOptionsPage:async()=>{location.href='/archive.html'}},tabs:{query:async()=>[{id:1,url:'https://x.com/alice'}]},storage:{onChanged:{addListener(fn){listeners.push(fn)}}}};
+window.chrome={runtime:{sendMessage(message){const id=++seq;return new Promise(resolve=>{pending.set(id,resolve);port.postMessage({id,message,page:location.pathname})})},openOptionsPage:async()=>{location.href='/archive.html'}},tabs:{query:async()=>[{id:1,url:'https://x.com/alice'}]},storage:{onChanged:{addListener(fn){listeners.push(fn)}},session:{get:async key=>({[key]:{problem:{site:'x',unsaved:2},attention:{site:'x',stale:true}}[location.hash.slice(1)]})}}};
 port.onmessage=({data})=>{if(data.id){if(data.reply?.value?.profile?.picture)data.reply.value.profile.picture='/icon.svg';pending.get(data.id)?.(data.reply);pending.delete(data.id)}else if(data.changes){listeners.forEach(fn=>fn(data.changes,'local'))}};
 port.start();`;
 const worker = `

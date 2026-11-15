@@ -1,4 +1,5 @@
 import type { Capture, CaptureConfig, SocialCapture } from './types.ts';
+import type { PageReport } from './site-status.ts';
 import { captureFollows, capturePosts, followingHandle, profileHandle, proofPostIds } from './x.ts';
 import { isProofPost } from './x-identity.ts';
 
@@ -11,7 +12,7 @@ import { createSavedMarks } from './saved-marks.ts';
 function startCapture() {
   const network = captureNetwork(location.href);
   if (!network) return;
-  let collector: { collect(doc: Document, url: string, handle: string): void; stop(): void } | undefined;
+  let collector: { collect(doc: Document, url: string, handle: string): void; stop(): void; busy(): boolean } | undefined;
   const onProfile = (handle: string) => network === 'x' ? profileHandle(location.href) === handle :
     socialProfile(network, location.href) === handle || (network === 'instagram' && !!instagramPermalink(location.href, handle));
   const api = globalThis.browser ?? chrome;
@@ -30,6 +31,51 @@ function startCapture() {
   let frame: number | undefined;
   const pending = new Map<string, Capture>();
   const seen = new Map<string, { snapshot: string; public: boolean }>();
+
+  // How the backup of the user's own posts on their profile is going, for the dot on the toolbar icon. It is a
+  // problem when saving keeps failing, or when nothing is left to do and the backup still lacks posts on the page.
+  const GRACE = 15000;
+  let failingSince: number | undefined, quietSince: number | undefined;
+  let lookedAt = 0;
+  let report: PageReport = {};
+  let healthTimer: ReturnType<typeof setTimeout> | undefined;
+  function health() {
+    clearTimeout(healthTimer);
+    healthTimer = undefined;
+    if (!api.runtime?.id) return;
+    const now = Date.now();
+    // Missing posts stay reported until they are saved. A failure is judged again each time.
+    let next: PageReport = report.unsaved ? report : {}, again: number | undefined;
+    if (!config?.capture || !onProfile(config.handle)) {
+      failingSince = quietSince = undefined;
+      next = {};
+    } else {
+      quietSince = sending || pending.size || collector?.busy() ? undefined : quietSince ?? now;
+      const missing = marks.unsaved();
+      if (failingSince !== undefined) {
+        if (now - failingSince >= GRACE) next = { failed: true };
+        else again = failingSince + GRACE - now;
+      } else if (!missing.length) next = {};
+      else if (quietSince !== undefined) {
+        const since = quietSince + GRACE;
+        if (now < since) again = since - now;
+        else if (missing.every((post) => (post.checked ?? 0) >= since)) next = { unsaved: missing.length };
+        else {
+          // Nothing is left to do: look at the backup once more, and wait for its answer.
+          if (lookedAt < since || now - lookedAt > 60000) {
+            lookedAt = now;
+            marks.refresh(missing.map((post) => post.id));
+            schedule();
+          }
+          again = 1000;
+        }
+      }
+    }
+    if (again !== undefined) healthTimer = setTimeout(health, again + 50);
+    if (JSON.stringify(next) === JSON.stringify(report)) return;
+    report = next;
+    api.runtime.sendMessage({ type: 'pageStatus', account: config?.pubkey, ...next }).catch(() => undefined);
+  }
 
   function enqueue(posts: Capture[]) {
     if (!config?.capture || !onProfile(config.handle)) return;
@@ -110,9 +156,11 @@ function startCapture() {
           posts,
         });
         if (!reply?.ok) {
+          failingSince ??= Date.now();
           retryLater();
           break;
         }
+        failingSince = undefined;
         if (session !== config) break;
         for (const post of posts) {
           const snapshot = JSON.stringify(post);
@@ -124,11 +172,19 @@ function startCapture() {
         while (seen.size > 2000) seen.delete(seen.keys().next().value!);
       }
     } catch {
+      failingSince ??= Date.now();
       retryLater();
     } finally {
       sending = false;
       if (session !== config) schedule();
+      health();
     }
+  }
+  // Posts are looked up to mark them, and on the user's profile also to see that they get saved.
+  function look() {
+    if (!config) return;
+    if (config.marks || (config.capture && onProfile(config.handle))) marks.scan(config.handle, !!config.marks);
+    health();
   }
 
   function schedule() {
@@ -137,7 +193,7 @@ function startCapture() {
       frame = undefined;
       collect();
       if (config?.tips) tips?.scan(config.handle);
-      if (config?.marks) marks.scan(config.handle);
+      look();
     });
   }
 
@@ -149,7 +205,7 @@ function startCapture() {
     }
     configuring = true;
     try {
-      const reply = await api.runtime.sendMessage({ type: 'captureConfig' });
+      const reply = await api.runtime.sendMessage({ type: 'captureConfig', ...report });
       if (!reply?.ok) {
         retryLater();
         return;
@@ -179,7 +235,7 @@ function startCapture() {
       }
       collect();
       if (config?.tips) tips?.scan(config.handle);
-      if (config?.marks) marks.scan(config.handle);
+      look();
     } catch {
       retryLater();
     } finally {

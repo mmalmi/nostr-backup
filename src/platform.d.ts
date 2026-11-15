@@ -1,4 +1,5 @@
 import type { LastRun, Settings, Message, Result, Reply } from './types.ts';
+import type { TabReport } from './site-status.ts';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
 
 export interface Tab {
@@ -24,6 +25,12 @@ interface SessionData {
   signingKey?: string;
   [key: `grant-${number}`]: { token: string; origin: string; loginPubkey?: string } | undefined;
 }
+/** What the backup is doing in each tab, for the popup. */
+interface SiteStates {
+  get(key: `site-${number}`): Promise<Record<string, TabReport | undefined>>;
+  set(values: Record<`site-${number}`, TabReport>): Promise<void>;
+  remove(key: `site-${number}`): Promise<void>;
+}
 interface Area<T> {
   get(key: null): Promise<Partial<T>>;
   get<K extends keyof T>(key: K): Promise<Pick<T, K>>;
@@ -35,10 +42,15 @@ interface ExtensionAPI {
   action: {
     onClicked: Listener<() => void>;
     setPopup(details: { popup: string }): Promise<void>;
+    setBadgeText(details: { text: string; tabId: number }): Promise<void>;
+    setBadgeBackgroundColor(details: { color: string; tabId: number }): Promise<void>;
+    /** Missing in some browsers, which then choose the colour themselves. */
+    setBadgeTextColor?(details: { color: string; tabId: number }): Promise<void>;
+    setTitle(details: { title: string; tabId: number }): Promise<void>;
   };
   storage: {
     local: Area<LocalData & { settingsChanged?: string }>;
-    session: Area<SessionData>;
+    session: Area<SessionData> & SiteStates;
     onChanged: Listener<
       (changes: { settingsChanged?: unknown }, area: string) => void
     >;

@@ -1,5 +1,6 @@
 import type { RelayDelivery as Delivery } from 'nostr-pubsub';
 import type { XMatch } from './x-identity.ts';
+import type { PageReport } from './site-status.ts';
 import type { CID } from '@hashtree/core';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
@@ -241,7 +242,9 @@ export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' 
 export interface Payloads {
   resolveImage: { url: string };
   status: {};
-  captureConfig: {};
+  /** A page asks for its settings and says how the backup of the user's own posts on it is going. */
+  captureConfig: PageReport;
+  pageStatus: PageReport;
   capture: { posts: Capture[] };
   savedPosts: { ids: string[] };
   openSaved: { id: string };

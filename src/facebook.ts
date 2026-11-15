@@ -344,7 +344,9 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
       }
     } finally { if (!signal.aborted) running = false; }
   }
-  return {stop, collect(doc: Document, url: string, handle?: string) {
+  /** Posts are still waiting to be read. */
+  const busy = () => running || queued.size > 0;
+  return {stop, busy, collect(doc: Document, url: string, handle?: string) {
     if (!handle || facebookProfile(url) !== handle) { stop(); return; }
     if (current !== handle) { stop(); current = handle; }
     const found = captureFacebookPosts(doc, url, handle).filter(item => seen.get(item.id) !== item);

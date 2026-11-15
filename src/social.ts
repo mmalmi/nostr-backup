@@ -7,7 +7,7 @@ export const socialNetworks = ['instagram', 'facebook'] as const;
 export const captureSites = ['https://x.com/*', ...socialNetworks.flatMap(network =>
   ['https://' + network + '.com/*', 'https://www.' + network + '.com/*'])];
 
-export function captureNetwork(url?: string) {
+export function captureNetwork(url?: string): 'x' | SocialNetwork | undefined {
   if (!url) return;
   try {
     const origin = new URL(url).origin;
