@@ -244,6 +244,7 @@ export interface Payloads {
   captureConfig: {};
   capture: { posts: Capture[] };
   savedPosts: { ids: string[] };
+  openSaved: { id: string };
   settings: SettingsForm;
   watch: { pubkey: string };
   unlock: { key: string };
@@ -289,8 +290,10 @@ interface ActionResults {
   listPermissions: { origin: string; kind: number; allow: boolean; label: string }[];
   status: Status;
   captureConfig: CaptureConfig;
-  /** The asked post IDs that are in the backup. */
-  savedPosts: string[];
+  /** The asked posts that are in the backup, and whether each has a public copy on Nostr. */
+  savedPosts: { id: string; onNostr: boolean }[];
+  /** Whether the post's public copy was opened. */
+  openSaved: boolean;
   authorizeMediaUpload: Event;
   nip07: string | Event;
   approval: Approval | void;

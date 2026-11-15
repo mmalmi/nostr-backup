@@ -113,14 +113,18 @@ export async function stagePosts(db: Archive, posts: Capture[]) {
   await tx.done;
 }
 
-/** Which of these posts are in the backup: signed, waiting to be signed, or kept on this device. */
+/**
+ * Which of these posts are in the backup: signed, waiting to be signed, or kept on this device.
+ * A signed post comes with its event, unless that event is held back from relays.
+ */
 export async function savedPosts(db: Archive, network: string, ids: string[]) {
-  const tx = db.transaction(['sources', 'drafts', 'localCaptures']);
-  const found: string[] = [];
+  const tx = db.transaction(['sources', 'drafts', 'localCaptures', 'heldEvents']);
+  const found: { id: string; event?: string }[] = [];
   for (const id of ids) {
     const key = network + ':' + id;
-    if ((await tx.objectStore('sources').getKey(key)) ?? (await tx.objectStore('drafts').getKey(key)) ??
-        (await tx.objectStore('localCaptures').getKey(key))) found.push(id);
+    const event = await tx.objectStore('sources').get(key);
+    if (event) found.push((await tx.objectStore('heldEvents').getKey(event)) ? { id } : { id, event });
+    else if ((await tx.objectStore('drafts').getKey(key)) ?? (await tx.objectStore('localCaptures').getKey(key))) found.push({ id });
   }
   return found;
 }

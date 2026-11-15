@@ -15,7 +15,7 @@ import {
   getPublicKey,
   verifyEvent,
 } from 'nostr-tools/pure';
-import { nsecEncode, npubEncode, decode } from 'nostr-tools/nip19';
+import { nsecEncode, npubEncode, noteEncode, decode } from 'nostr-tools/nip19';
 import { NostrEventStore } from '@hashtree/nostr';
 import { hex } from '../src/model.ts';
 import { readOnlyStore } from '../src/blocks.ts';
@@ -163,6 +163,8 @@ function area(onSet?: (values: Record<string, unknown>) => void) {
 const extensionId = 'test-extension',
   ext = 'chrome-extension://' + extensionId + '/';
 let winURL: string | undefined;
+// Tabs the extension opened.
+const tabURLs: string[] = [];
 function approvalScreen() {
   assert.ok(winURL);
   return { ...ui, url: winURL };
@@ -220,6 +222,10 @@ const api = {
     query: async () => [] as { id: number; url: string }[],
     onRemoved: listener(),
     get: async () => ({ url: 'https://client.example/' }),
+    create: async (o: { url: string }) => {
+      tabURLs.push(o.url);
+      return {};
+    },
   },
   windows: {
     onRemoved: listener(),
@@ -1493,6 +1499,7 @@ test('X captures sign locally even while the previous delivery has no reply', as
   await success('login', { key: nsecEncode(secret) });
   try {
     await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
+    let third = '';
     const post = (id: string) => ({ author: 'alice', id, time: 1700000000, text: 'Post ' + id });
     await success('capture', { posts: [post('1')] }, x);
     await until(() => relay.sent.length === 1);
@@ -1511,19 +1518,28 @@ test('X captures sign locally even while the previous delivery has no reply', as
         const event = await index.getById(root, eventId);
         assert.ok(event && verifyEvent(event));
         assert.equal(event.content, 'Post ' + id);
+        third = eventId;
       }
     } finally { db.close(); }
     // Any X page can ask which of its posts are in the backup, to mark them. The answer comes from this device.
     const home = { ...x, url: 'https://x.com/home', tab: { id: 1, url: 'https://x.com/home' } };
     const requests = (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount();
     assert.equal((await success('captureConfig', {}, home)).marks, true);
-    assert.deepEqual(await success('savedPosts', { ids: ['1', '9', '3'] }, home), ['1', '3']);
+    assert.deepEqual(await success('savedPosts', { ids: ['1', '9', '3'] }, home), [{ id: '1', onNostr: true }, { id: '3', onNostr: true }]);
     assert.equal(requests, (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount());
+    // A click on a mark has the extension open the post's signed copy on Iris. The page gets no note ID.
+    tabURLs.length = 0;
+    assert.equal(await success('openSaved', { id: '3' }, home), true);
+    assert.equal(await success('openSaved', { id: '9' }, home), false);
+    assert.deepEqual(tabURLs, ['https://iris.to/' + noteEncode(third)]);
+    assert.equal((await call('openSaved', { id: 'x:1' }, home)).ok, false);
     assert.equal((await call('savedPosts', { ids: ['x:1'] }, home)).ok, false);
     assert.equal((await call('savedPosts', { ids: ['1'] }, { ...x, url: 'https://elsewhere.example/', tab: { id: 2, url: 'https://elsewhere.example/' } })).ok, false);
     await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url, markSaved: false });
     assert.equal((await success('captureConfig', {}, home)).marks, false);
     assert.deepEqual(await success('savedPosts', { ids: ['1'] }, home), []);
+    assert.equal(await success('openSaved', { id: '3' }, home), false);
+    assert.equal(tabURLs.length, 1);
   } finally {
     held.resolve();
     await until(async () => !(await success('status')).running);
@@ -2332,6 +2348,12 @@ test('social profile backup only signs server-confirmed posts and keeps restrict
     assert.equal((await call('capture', { posts }, { ...ig, url: origin + '/other/' })).ok, false);
     await success('capture', { posts: [other] }, fb);
     await until(() => relay.sent.length === 2);
+    // All three posts are in the backup and get a mark. Only the public one has a copy on Nostr to open.
+    assert.deepEqual(await success('savedPosts', { ids: ['Public123', 'Private123', 'Unknown123', 'Missing123'] }, ig),
+      [{ id: 'Public123', onNostr: true }, { id: 'Private123', onNostr: false }, { id: 'Unknown123', onNostr: false }]);
+    tabURLs.length = 0;
+    assert.equal(await success('openSaved', { id: 'Private123' }, ig), false);
+    assert.equal(await success('openSaved', { id: 'Public123' }, ig), true);
     const { conf, social } = await success('status');
     assert.deepEqual(social, { instagram: { saved: 3, signed: 1 }, facebook: { saved: 1, signed: 1 } });
     const db = await openArchive(conf.archiveName);
@@ -2350,10 +2372,15 @@ test('social profile backup only signs server-confirmed posts and keeps restrict
       assert.deepEqual(new Set(events.map(event => event.tags.find(tag => tag[0] === 'r')?.[1])),
         new Set([posts[0].url, other.url]));
       assert.equal(await db.count('drafts'), 0);
+      assert.deepEqual(tabURLs, ['https://iris.to/' + noteEncode((await db.get('sources', 'instagram:Public123'))!)]);
       await success('capture', { posts: [instagram('Public123', 'private')] }, ig);
       assert.equal((await db.get('localCaptures', 'instagram:Public123'))?.visibility, 'private');
       assert.equal(await queueBroadcast(db, conf), 1);
       assert.equal(await db.count('heldEvents'), 1);
+      // A post that turned private keeps its mark, and its copy is no longer offered.
+      assert.deepEqual(await success('savedPosts', { ids: ['Public123'] }, ig), [{ id: 'Public123', onNostr: false }]);
+      assert.equal(await success('openSaved', { id: 'Public123' }, ig), false);
+      assert.equal(tabURLs.length, 1);
     } finally { db.close(); }
   } finally { await success('logout', { pubkey: owner }); }
 });

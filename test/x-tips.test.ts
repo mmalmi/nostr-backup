@@ -65,15 +65,16 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     tips.scan('me');
     await new Promise((resolve) => setTimeout(resolve, 10));
     const buttons = Array.from(doc.querySelectorAll('[data-social-backup-tip]'));
-    assert.deepEqual(buttons.map((b) => b.getAttribute('data-social-backup-tip')), ['alice', 'me']);
+    // The user's own post gets no tip button.
+    assert.deepEqual(buttons.map((b) => b.getAttribute('data-social-backup-tip')), ['alice']);
     // Like X's action bar: the Social Backup flower alone, named by its tooltip.
-    assert.deepEqual(buttons.map((b) => b.textContent), ['', '']);
+    assert.deepEqual(buttons.map((b) => b.textContent), ['']);
     assert.ok(buttons[0].querySelector('svg'));
     assert.equal(buttons[0].getAttribute('title'), 'Tip @alice with Bitcoin');
     assert.deepEqual(sent[0], { type: 'tipTargets', handles: ['alice', 'bob', 'me'] });
     // Scanning again adds nothing and asks about nothing new.
     tips.scan('me');
-    assert.equal(doc.querySelectorAll('[data-social-backup-tip]').length, 2);
+    assert.equal(doc.querySelectorAll('[data-social-backup-tip]').length, 1);
     assert.equal(sent.length, 1);
     (buttons[0] as HTMLElement).click();
     const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
@@ -98,11 +99,45 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
     // A QR code lets a phone wallet pay the same invoice.
     assert.ok(box().querySelector('.qr svg'));
-    // Your own posts show where tips go instead of amounts.
-    (buttons[1] as HTMLElement).click();
-    await new Promise(resolve => setTimeout(resolve, 10));
-    assert.match(box().textContent!, /me@wallet\.example/);
-    assert.equal(box().querySelectorAll('button').length, 0);
+    // A click elsewhere closes the popover, which also ends its check for the payment.
+    doc.body.click();
+    assert.equal(doc.body.lastElementChild!.shadowRoot, null);
+  } finally {
+    await window.happyDOM.abort();
+  }
+});
+
+test('your own profile keeps a Tip button that pays your own wallet, and your posts get none', async () => {
+  const { Window } = await import('happy-dom');
+  const { article } = await import('./fixtures.ts');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/me' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<div data-testid="UserName"><div><span>Me</span></div></div>' + article('me', '11', 'Mine', '<div role="group"><button>Like</button></div>');
+  const target = { pubkey: getPublicKey(secret), lightning: 'me@wallet.example' };
+  const sent: Record<string, unknown>[] = [];
+  const tips = createTipButtons(async (message) => {
+    sent.push(message as Record<string, unknown>);
+    if (message.type === 'tipTargets') return { ok: true, value: { me: target } };
+    if (message.type === 'tipProfile') return { ok: true, value: target };
+    if (message.type === 'tipRate') return { ok: true, value: 100000 };
+    return { ok: true, value: 'lnbc210n1pinvoice' };
+  }, doc);
+  try {
+    tips.scan('me');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const buttons = Array.from(doc.querySelectorAll('[data-social-backup-tip]'));
+    assert.deepEqual(buttons.map((b) => b.textContent), ['Tip']);
+    assert.ok(buttons[0].closest('[data-testid="UserName"]'));
+    assert.equal(buttons[0].getAttribute('title'), 'Tip @me with Bitcoin');
+    (buttons[0] as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    assert.match(box().querySelector('.address')!.textContent!, /me@wallet\.example/);
+    (box().querySelector('.row button') as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'me', ...target, sats: 100 });
+    assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
   } finally {
     await window.happyDOM.abort();
   }

@@ -3,6 +3,7 @@ import type { Event, EventTemplate } from 'nostr-tools/pure';
 
 export interface Tab {
   id?: number;
+  index?: number;
   url?: string;
 }
 export interface Sender {
@@ -62,6 +63,7 @@ interface ExtensionAPI {
   tabs: {
     query(options: { active: true; currentWindow: true } | {url: string | string[]}): Promise<Tab[]>;
     get(id: number): Promise<Tab>;
+    create(options: { url: string; index?: number }): Promise<Tab>;
     onRemoved: Listener<(id: number) => void>;
   };
   windows: {

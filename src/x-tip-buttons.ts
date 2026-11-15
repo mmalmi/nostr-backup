@@ -82,7 +82,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     popover?.remove();
     popover = undefined;
   }
-  function button(handle: string, post: Post | undefined, own: boolean, placement: 'profile' | 'post') {
+  function button(handle: string, post: Post | undefined, placement: 'profile' | 'post') {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
@@ -90,7 +90,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     node.innerHTML = FLOWER + '<span></span>';
     // Like X's own action bar, posts show the icon and a number only once there is one; profiles say "Tip".
     node.querySelector('span')!.textContent = (post && totals.get(handle + ':' + post.id)) || (placement === 'profile' ? 'Tip' : '');
-    node.title = own ? 'People with Social Backup can tip you here' : 'Tip @' + handle + ' with Bitcoin';
+    node.title = 'Tip @' + handle + ' with Bitcoin';
     node.setAttribute('aria-label', node.title);
     node.style.cssText = 'display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:inherit;white-space:nowrap;' +
       (placement === 'profile' ? PILL : 'background:none;border:0;font:13px/1 system-ui;padding:0 10px');
@@ -99,7 +99,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      open(node, handle, post, own);
+      void open(node, handle, post);
     });
     return node;
   }
@@ -168,7 +168,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     return node;
   }
 
-  async function open(anchor: HTMLElement, handle: string, post: Post | undefined, own: boolean) {
+  async function open(anchor: HTMLElement, handle: string, post: Post | undefined) {
     const target = targets.get(handle);
     if (!target) return;
     const { box, dialog, show } = popoverAt(anchor, 'Tip');
@@ -180,92 +180,85 @@ export function createTipButtons(send: Send, doc: Document = document) {
       box.textContent = reply?.error ?? 'This account has no verified Lightning address.';
       return;
     }
-    if (own) {
-      box.textContent = '';
-      const text = doc.createElement('p');
-      text.textContent = 'Tips for your posts go to ' + recipient.lightning + '.';
-      box.append(text);
-    } else {
-      show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small><small class="address"><span></span><button class="alt">Copy</button></small>');
-      // Paying the lightning address directly also works, without the zap.
-      box.querySelector('.address span')!.textContent = recipient.lightning;
-      box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(recipient.lightning));
-      const row = box.querySelector('.row')!;
-      const currentRate = rate ??= send({ type: 'tipRate', currency })
-        .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
-        .catch(() => null);
-      // How many tips the post had when the popover opened, to notice a new one arriving.
-      let tipped: number | undefined;
-      // Only a click looks for the author's Nostr copy. The X URL stays local.
-      if (post)
-        void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
-          .then((reply) => {
-            const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
-            const line = box.querySelector('.onNostr');
-            if (!found?.note || !line) return;
-            tipped = found.tips;
-            const show = (perBitcoin: number | null) => {
-              line.textContent = found.tips
-                ? 'On Nostr · ' + (perBitcoin ? formatFiat(found.sats * perBitcoin / 1e8, currency) + ' from ' : '') + found.tips + (found.tips === 1 ? ' tip' : ' tips')
-                : 'This post is on Nostr.';
-              if (found.tips && perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
-            };
-            void currentRate.then(show);
-          })
-          .catch(() => {});
-      void currentRate.then((perBitcoin) => {
-        if (!perBitcoin) {
-          rate = undefined;
-          row.textContent = 'Exchange rate unavailable.';
-          return;
-        }
-        tipPresets(currency, perBitcoin).forEach(({ sats, fiat }, i) => {
-          const label = formatFiat(fiat, currency);
-          const choice = doc.createElement('button');
-          choice.textContent = EMOJI[i] + ' ' + label;
-          choice.addEventListener('click', async () => {
-            show('<p>Getting an invoice…</p>');
-            const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
-            if (!reply?.ok || typeof reply.value !== 'string') {
-              box.textContent = '';
-              const error = doc.createElement('p');
-              error.textContent = reply?.error ?? 'Social Backup is unavailable.';
-              box.append(error);
+    show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small>Sent as a Nostr zap from your wallet.</small><small class="address"><span></span><button class="alt">Copy</button></small>');
+    // Paying the lightning address directly also works, without the zap.
+    box.querySelector('.address span')!.textContent = recipient.lightning;
+    box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(recipient.lightning));
+    const row = box.querySelector('.row')!;
+    const currentRate = rate ??= send({ type: 'tipRate', currency })
+      .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
+      .catch(() => null);
+    // How many tips the post had when the popover opened, to notice a new one arriving.
+    let tipped: number | undefined;
+    // Only a click looks for the author's Nostr copy. The X URL stays local.
+    if (post)
+      void send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) })
+        .then((reply) => {
+          const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
+          const line = box.querySelector('.onNostr');
+          if (!found?.note || !line) return;
+          tipped = found.tips;
+          const show = (perBitcoin: number | null) => {
+            line.textContent = found.tips
+              ? 'On Nostr · ' + (perBitcoin ? formatFiat(found.sats * perBitcoin / 1e8, currency) + ' from ' : '') + found.tips + (found.tips === 1 ? ' tip' : ' tips')
+              : 'This post is on Nostr.';
+            if (found.tips && perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
+          };
+          void currentRate.then(show);
+        })
+        .catch(() => {});
+    void currentRate.then((perBitcoin) => {
+      if (!perBitcoin) {
+        rate = undefined;
+        row.textContent = 'Exchange rate unavailable.';
+        return;
+      }
+      tipPresets(currency, perBitcoin).forEach(({ sats, fiat }, i) => {
+        const label = formatFiat(fiat, currency);
+        const choice = doc.createElement('button');
+        choice.textContent = EMOJI[i] + ' ' + label;
+        choice.addEventListener('click', async () => {
+          show('<p>Getting an invoice…</p>');
+          const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
+          if (!reply?.ok || typeof reply.value !== 'string') {
+            box.textContent = '';
+            const error = doc.createElement('p');
+            error.textContent = reply?.error ?? 'Social Backup is unavailable.';
+            box.append(error);
+            return;
+          }
+          const invoice = reply.value;
+          if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
+          // Scan with a phone wallet, or open the wallet on this computer.
+          const qr = qrcode(0, 'M');
+          qr.addData('lightning:' + invoice);
+          qr.make();
+          show('<p>Pay <b></b> in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
+            qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
+            '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
+          box.querySelector('b')!.textContent = label;
+          box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
+          box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
+          // While the invoice is open, check this post's tips every few seconds to notice the payment.
+          if (post) void (async () => {
+            for (let i = 0; i < 24 && dialog === popover; i++) {
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+              if (dialog !== popover) return;
+              const reply = await send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) }).catch(() => undefined);
+              const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
+              if (!found || dialog !== popover) continue;
+              if (tipped === undefined) tipped = found.tips;
+              if (found.tips <= tipped) continue;
+              show('<p>Thanks! Your tip arrived.</p>');
+              const perBitcoin = await currentRate;
+              if (perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
               return;
             }
-            const invoice = reply.value;
-            if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
-            // Scan with a phone wallet, or open the wallet on this computer.
-            const qr = qrcode(0, 'M');
-            qr.addData('lightning:' + invoice);
-            qr.make();
-            show('<p>Pay <b></b> in your wallet.</p><div class="qr" role="img" aria-label="Invoice QR code">' +
-              qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) +
-              '</div><div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div>');
-            box.querySelector('b')!.textContent = label;
-            box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
-            box.querySelector('button')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
-            // While the invoice is open, check this post's tips every few seconds to notice the payment.
-            if (post) void (async () => {
-              for (let i = 0; i < 24 && dialog === popover; i++) {
-                await new Promise((resolve) => setTimeout(resolve, 5000));
-                if (dialog !== popover) return;
-                const reply = await send({ type: 'tipPost', handle, post: post.id, ...(post.time ? { time: post.time } : {}), ...(post.text ? { text: post.text } : {}) }).catch(() => undefined);
-                const found = reply?.ok ? (reply.value as { note?: string; sats: number; tips: number }) : undefined;
-                if (!found || dialog !== popover) continue;
-                if (tipped === undefined) tipped = found.tips;
-                if (found.tips <= tipped) continue;
-                show('<p>Thanks! Your tip arrived.</p>');
-                const perBitcoin = await currentRate;
-                if (perBitcoin) showTotal(handle, post.id, formatFiat(found.sats * perBitcoin / 1e8, currency));
-                return;
-              }
-            })();
-          });
-          row.append(choice);
+          })();
         });
+        row.append(choice);
       });
-    }
+    });
   }
 
   doc.addEventListener('keydown', (event) => event.key === 'Escape' && close());
@@ -302,15 +295,16 @@ export function createTipButtons(send: Send, doc: Document = document) {
     }
     for (const article of articles) {
       const handle = author(article);
-      if (!handle || !targets.get(handle) || article.querySelector(`[${MARK}]`)) continue;
+      // The user's own posts get no tip button. Their profile header has one, which pays their own wallet.
+      if (!handle || handle === own || !targets.get(handle) || article.querySelector(`[${MARK}]`)) continue;
       // In the action bar, or at the end of the post if X's page no longer has one.
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
-      (bar ?? article).append(button(handle, postInfo(article), handle === own, 'post'));
+      (bar ?? article).append(button(handle, postInfo(article), 'post'));
     }
     // On the name row, after the name and badges, rather than on a line of its own.
     if (name && profile && targets.get(profile) && !name.querySelector(`[${MARK}]`)) {
       const row = name.firstElementChild ?? name;
-      row.append(button(profile, undefined, profile === own, 'profile'));
+      row.append(button(profile, undefined, 'profile'));
       if (profile !== own) row.append(nostrButton(profile));
     }
   }

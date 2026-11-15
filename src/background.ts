@@ -22,7 +22,7 @@ import type { ImportOptions, ImportResult } from './relays.ts';
 import { errorMessage, type NewProfile } from './types.ts';
 import { imageDataURL, resolveImage } from './helper-images.ts';
 import { readCooldown, readPointer, readRoot } from './archive.ts';
-import { nsecEncode } from 'nostr-tools/nip19';
+import { noteEncode, nsecEncode } from 'nostr-tools/nip19';
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { ArchiveEventBus, archiveRouter, localArchive } from './archive-event-bus.ts';
 import { SimplePool } from 'nostr-tools/pool';
@@ -944,19 +944,28 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       throw Error('Untrusted approval.');
     return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
   }
-  if (!trustedPage && !['captureConfig', 'capture', 'savedPosts', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
+  if (!trustedPage && !['captureConfig', 'capture', 'savedPosts', 'openSaved', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'nostrLink'].includes(msg.type))
     throw Error('Extension page required.');
   const db = await openArchive(conf.archiveName);
   try {
-    if (msg.type === 'captureConfig' || msg.type === 'capture' || msg.type === 'savedPosts') {
+    if (msg.type === 'captureConfig' || msg.type === 'capture' || msg.type === 'savedPosts' || msg.type === 'openSaved') {
       const network = captureNetwork(sender.url);
       if (!network || !sender.tab || !sender.url) throw Error('Invalid capture source.');
       const selected = network === 'x' ? conf : conf.social?.[network];
       // Marks on the user's own posts compare post IDs with the backup on this device. Nothing is sent anywhere.
-      if (msg.type === 'savedPosts') {
-        if (!Array.isArray(msg.ids) || msg.ids.length > 50 || !msg.ids.every((id) => typeof id === 'string' && /^[\w-]{1,120}$/.test(id)))
+      if (msg.type === 'savedPosts' || msg.type === 'openSaved') {
+        const ids = msg.type === 'openSaved' ? [msg.id] : msg.ids;
+        if (!Array.isArray(ids) || ids.length > 50 || !ids.every((id) => typeof id === 'string' && /^[\w-]{1,120}$/.test(id)))
           throw Error('Invalid posts.');
-        return conf.markSaved === false || !selected?.handle ? [] : await savedPosts(db, network, msg.ids);
+        const found = conf.markSaved === false || !selected?.handle ? [] : await savedPosts(db, network, ids);
+        if (msg.type === 'savedPosts') return found.map(({ id, event }) => ({ id, onNostr: !!event }));
+        // A click on a mark opens the post's public copy on Iris. The page it came from never sees which note that is.
+        const event = found[0]?.event;
+        if (event) await api.tabs.create({
+          url: 'https://iris.to/' + noteEncode(event),
+          ...(typeof sender.tab.index === 'number' ? { index: sender.tab.index + 1 } : {}),
+        });
+        return !!event;
       }
       if (msg.type === 'captureConfig')
         return {

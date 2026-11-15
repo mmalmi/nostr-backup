@@ -17,8 +17,13 @@ function startCapture() {
   const api = globalThis.browser ?? chrome;
   const tips = network === 'x' ? createTipButtons((message) => api.runtime.sendMessage(message)) : undefined;
   let config: CaptureConfig | undefined;
-  // Looks up the page's own posts in the backup on this device, to mark the saved ones.
-  const marks = createSavedMarks(network, (ids) => api.runtime.sendMessage({ type: 'savedPosts', account: config?.pubkey, ids }));
+  // Looks up the page's own posts in the backup on this device, to mark the saved ones. A click on a mark has the
+  // extension open the post's public copy.
+  const marks = createSavedMarks(
+    network,
+    (ids) => api.runtime.sendMessage({ type: 'savedPosts', account: config?.pubkey, ids }),
+    (id) => void api.runtime.sendMessage({ type: 'openSaved', account: config?.pubkey, id }).catch(() => undefined),
+  );
   let configuring = false,
     sending = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
