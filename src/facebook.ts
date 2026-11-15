@@ -191,8 +191,9 @@ export function captureFacebookPosts(doc: Document, url: string, handle?: string
   return [...captures.values()];
 }
 
-function mountedPosts(doc: Document, handle: string, origin: string) {
-  const result = new Map<string, string>();
+/** The account's posts mounted on the page, each with its permalink link. */
+export function facebookPostLinks(doc: Document, handle: string) {
+  const result = new Map<string, Element>();
   for (const article of doc.querySelectorAll('[role="article"]')) {
     if (article.parentElement?.closest('[role="article"]')) continue;
     const name = article.querySelector('[data-ad-rendering-role="profile_name"] a[href]');
@@ -203,7 +204,7 @@ function mountedPosts(doc: Document, handle: string, origin: string) {
           link.closest('[data-ad-rendering-role="story_message"],[data-ad-preview="message"]') ||
           !(name.compareDocumentPosition(link) & 4)) continue;
       const id = facebookPermalink(link.getAttribute('href') ?? '', handle);
-      if (id) { result.set(id, origin + '/' + handle + '/posts/' + id); break; }
+      if (id) { result.set(id, link); break; }
     }
   }
   return result;
@@ -352,8 +353,8 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
       onPosts(found);
     }
     const origin = new URL(url).origin;
-    for (const [id, permalink] of mountedPosts(doc, handle, origin)) {
-      if ((known.get(id) ?? 0) <= Date.now() && queued.size < 20) queued.set(id, permalink);
+    for (const id of facebookPostLinks(doc, handle).keys()) {
+      if ((known.get(id) ?? 0) <= Date.now() && queued.size < 20) queued.set(id, origin + '/' + handle + '/posts/' + id);
     }
     void flush(doc, handle);
   }};

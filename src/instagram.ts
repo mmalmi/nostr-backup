@@ -96,6 +96,24 @@ function visibleItems(doc: Document, url: string, handle: string) {
   return [...items.values()];
 }
 
+/**
+ * Where the account's posts show on the page: its profile tiles, and the date link of an open post or a feed post.
+ * Feed dates leave out the account's name, so they all count; only posts in the backup get a mark.
+ */
+export function instagramPostLinks(doc: Document, url: string, handle: string) {
+  const found: { id: string; link: Element; tile: boolean }[] = [];
+  for (const link of doc.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]')) {
+    const href = link.getAttribute('href') ?? '';
+    const item = detail(href, handle, url);
+    if (!item) continue;
+    if (link.querySelector('time')) found.push({ id: item.id, link, tile: false });
+    // The account's own tiles name it in their link. Other grids, such as Explore, are left alone.
+    else if (link.querySelector('img') && instagramProfile(siteURL(href, url)!.href) === handle)
+      found.push({ id: item.id, link, tile: true });
+  }
+  return found;
+}
+
 function mountedMedia(node: ObjectRecord, posters: string[]): string | undefined {
   const video = node.media_type === 2;
   const variants = video && Array.isArray(node.video_versions) ? node.video_versions : [];

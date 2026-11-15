@@ -1513,6 +1513,17 @@ test('X captures sign locally even while the previous delivery has no reply', as
         assert.equal(event.content, 'Post ' + id);
       }
     } finally { db.close(); }
+    // Any X page can ask which of its posts are in the backup, to mark them. The answer comes from this device.
+    const home = { ...x, url: 'https://x.com/home', tab: { id: 1, url: 'https://x.com/home' } };
+    const requests = (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount();
+    assert.equal((await success('captureConfig', {}, home)).marks, true);
+    assert.deepEqual(await success('savedPosts', { ids: ['1', '9', '3'] }, home), ['1', '3']);
+    assert.equal(requests, (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount());
+    assert.equal((await call('savedPosts', { ids: ['x:1'] }, home)).ok, false);
+    assert.equal((await call('savedPosts', { ids: ['1'] }, { ...x, url: 'https://elsewhere.example/', tab: { id: 2, url: 'https://elsewhere.example/' } })).ok, false);
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url, markSaved: false });
+    assert.equal((await success('captureConfig', {}, home)).marks, false);
+    assert.deepEqual(await success('savedPosts', { ids: ['1'] }, home), []);
   } finally {
     held.resolve();
     await until(async () => !(await success('status')).running);

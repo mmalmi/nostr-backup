@@ -19,6 +19,7 @@ export interface SourceSettings {
   capture: boolean;
   skipCrossposts: boolean;
   tipButtons: boolean;
+  markSaved: boolean;
   tipCurrency: string;
   social: Record<import('../types.ts').SocialNetwork, { handle: string; capture: boolean }>;
 }

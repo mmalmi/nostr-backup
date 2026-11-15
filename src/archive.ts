@@ -113,6 +113,18 @@ export async function stagePosts(db: Archive, posts: Capture[]) {
   await tx.done;
 }
 
+/** Which of these posts are in the backup: signed, waiting to be signed, or kept on this device. */
+export async function savedPosts(db: Archive, network: string, ids: string[]) {
+  const tx = db.transaction(['sources', 'drafts', 'localCaptures']);
+  const found: string[] = [];
+  for (const id of ids) {
+    const key = network + ':' + id;
+    if ((await tx.objectStore('sources').getKey(key)) ?? (await tx.objectStore('drafts').getKey(key)) ??
+        (await tx.objectStore('localCaptures').getKey(key))) found.push(id);
+  }
+  return found;
+}
+
 // Preserve the original signed event locally and stop queued deliveries,
 // including an index pointer whose snapshot could contain the restricted post.
 async function holdCapture(

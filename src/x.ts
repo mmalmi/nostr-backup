@@ -22,6 +22,11 @@ function ownTime(article: Element) {
   return own(article, '[data-testid="User-Name"]')?.querySelector<HTMLTimeElement>('a[href] time[datetime]') ??
     (own(article, 'a[href*="/status/"] time[datetime]') as HTMLTimeElement | undefined);
 }
+/** The post an article shows, from its own timestamp link. */
+export function articlePost(article: Element) {
+  const match = status.exec(xPath(ownTime(article)?.closest('a')?.getAttribute('href')));
+  return match ? { author: match[1].toLowerCase(), id: match[2] } : undefined;
+}
 function xPath(value?: string | null) {
   try {
     if (!value) return '';

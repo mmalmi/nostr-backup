@@ -23,6 +23,8 @@ export interface Settings {
   skipCrossposts?: boolean;
   /** Show tip buttons on X for people with a verified Nostr profile. Off until enabled. */
   tipButtons?: boolean;
+  /** Mark the user's own posts on X, Facebook and Instagram once they are in the backup. On unless turned off. */
+  markSaved?: boolean;
   /** The currency tip amounts are shown in. Empty or missing follows the browser's region. */
   tipCurrency?: string;
   relaySync: boolean;
@@ -214,6 +216,8 @@ export interface CaptureConfig {
   capture: boolean;
   pubkey?: string;
   tips?: boolean;
+  /** Mark the account's own posts that are in the backup. */
+  marks?: boolean;
   tipCurrency?: string;
   /** Whether the configured X account is already linked to this Nostr profile. */
   xLinked?: boolean;
@@ -239,6 +243,7 @@ export interface Payloads {
   status: {};
   captureConfig: {};
   capture: { posts: Capture[] };
+  savedPosts: { ids: string[] };
   settings: SettingsForm;
   watch: { pubkey: string };
   unlock: { key: string };
@@ -284,6 +289,8 @@ interface ActionResults {
   listPermissions: { origin: string; kind: number; allow: boolean; label: string }[];
   status: Status;
   captureConfig: CaptureConfig;
+  /** The asked post IDs that are in the backup. */
+  savedPosts: string[];
   authorizeMediaUpload: Event;
   nip07: string | Event;
   approval: Approval | void;

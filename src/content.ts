@@ -6,6 +6,7 @@ import { captureNetwork, socialProfile } from './social.ts';
 import { captureInstagramPosts, createInstagramCollector, instagramPermalink } from './instagram.ts';
 import { createFacebookCollector } from './facebook.ts';
 import { createTipButtons } from './x-tip-buttons.ts';
+import { createSavedMarks } from './saved-marks.ts';
 
 function startCapture() {
   const network = captureNetwork(location.href);
@@ -16,6 +17,8 @@ function startCapture() {
   const api = globalThis.browser ?? chrome;
   const tips = network === 'x' ? createTipButtons((message) => api.runtime.sendMessage(message)) : undefined;
   let config: CaptureConfig | undefined;
+  // Looks up the page's own posts in the backup on this device, to mark the saved ones.
+  const marks = createSavedMarks(network, (ids) => api.runtime.sendMessage({ type: 'savedPosts', account: config?.pubkey, ids }));
   let configuring = false,
     sending = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +114,8 @@ function startCapture() {
           if (JSON.stringify(pending.get(post.id)) === snapshot) pending.delete(post.id);
           seen.set(post.id, { snapshot, public: post.visibility === 'public' });
         }
+        marks.refresh(posts.map((post) => post.id));
+        schedule();
         while (seen.size > 2000) seen.delete(seen.keys().next().value!);
       }
     } catch {
@@ -127,6 +132,7 @@ function startCapture() {
       frame = undefined;
       collect();
       if (config?.tips) tips?.scan(config.handle);
+      if (config?.marks) marks.scan(config.handle);
     });
   }
 
@@ -148,12 +154,14 @@ function startCapture() {
         !config ||
         config.capture !== next.capture ||
         config.tips !== next.tips ||
+        config.marks !== next.marks ||
         config.tipCurrency !== next.tipCurrency ||
         config.pubkey !== next.pubkey ||
         config.handle !== next.handle
       ) {
         tips?.reset();
         tips?.useCurrency(next.tipCurrency);
+        marks.reset();
         pending.clear();
         seen.clear();
         collector?.stop();
@@ -166,6 +174,7 @@ function startCapture() {
       }
       collect();
       if (config?.tips) tips?.scan(config.handle);
+      if (config?.marks) marks.scan(config.handle);
     } catch {
       retryLater();
     } finally {

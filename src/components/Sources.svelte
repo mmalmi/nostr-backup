@@ -23,6 +23,7 @@
   let capture = $state<Record<Source, boolean>>({ x: true, instagram: true, facebook: true });
   let skipCrossposts = $state(true);
   let tipButtons = $state(false);
+  let markSaved = $state(true);
   let tipCurrency = $state('');
   let saving = $state<Source>();
 
@@ -55,6 +56,7 @@
     };
     skipCrossposts = conf.skipCrossposts !== false;
     tipButtons = conf.tipButtons === true;
+    markSaved = conf.markSaved !== false;
     tipCurrency = conf.tipCurrency ?? '';
   }
 
@@ -75,6 +77,7 @@
       capture: capture.x,
       skipCrossposts,
       tipButtons,
+      markSaved,
       tipCurrency,
       social: {
         instagram: { handle: saved.instagram, capture: capture.instagram },
@@ -138,6 +141,10 @@
   Nostr key and send them to your relays. Private and unverified posts stay on this device.
 </p>
 <p id="sourcesReadOnly" class="hint" hidden={!locked}>Read-only mode. Sign in with your secret key to turn on backup.</p>
+<label class="check"
+  ><input type="checkbox" id="markSaved" bind:checked={markSaved} onchange={toggle} /> Show a flower on my posts once
+  they're backed up</label
+>
 
 <section class="source" aria-labelledby="xTitle">
   <h3 id="xTitle">X</h3>

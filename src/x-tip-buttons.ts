@@ -11,13 +11,13 @@ import { npubEncode } from 'nostr-tools/nip19';
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
 // Small, medium and large tips, with Iris's emoji.
 const EMOJI = ['👍', '💯', '🔥'];
-const MARK = 'data-social-backup-tip';
+export const MARK = 'data-social-backup-tip';
 const POST = 'data-social-backup-post';
 // Profile pills share one fixed height, with or without an icon.
 const PILL = 'box-sizing:border-box;height:28px;padding:0 10px;background:transparent;border:1px solid currentColor;' +
   'border-radius:999px;font:600 13px/1 system-ui;margin-inline-start:4px';
 // The Social Backup forget-me-not (ui/icon.svg), with IDs that cannot clash with X's page.
-const FLOWER =
+export const FLOWER =
   // 18.75px like X's own action icons; an inline size so page styles cannot change it.
   '<svg viewBox="0 0 512 512" aria-hidden="true" style="flex:none;width:18.75px;height:18.75px;display:block">' +
   '<defs><linearGradient id="sb-tip-petal" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">' +
