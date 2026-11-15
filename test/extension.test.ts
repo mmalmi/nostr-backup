@@ -404,7 +404,15 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   // Away from X, Facebook and Instagram the popup has no site line, only the size of the backup.
   assert.equal(pageElements(popup)('siteState').hidden, true);
   assert.match(pageElements(popup)('summary').textContent!, /^\d+ items? in your backup$/);
+  await openLogoutConfirmation(page);
+  assert.equal((await success('status')).conf.pubkey, owner);
+  id('cancelLogout').click();
+  await until(() => !page.document.getElementById('confirmLogout'));
+  assert.equal((await success('status')).conf.pubkey, owner);
+  assert.equal(id('workspace').hidden, false);
   id('logout').click();
+  await until(() => !!page.document.getElementById('confirmLogout'));
+  id('confirmLogout').click();
   await until(() => !id('onboarding').hidden);
   assert.equal(popupPath, '');
   assert.equal(id('welcome').hidden, false);
@@ -433,7 +441,8 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   await until(() => id('unlock').hidden);
   assert.equal(id('secret').value, '');
   assert.equal((await success('status')).unlocked, true);
-  id('logout').click();
+  await openLogoutConfirmation(page);
+  id('confirmLogout').click();
   await until(() => !id('onboarding').hidden);
   id('existingProfile').click();
   id('loginKey').value = Buffer.from(secret).toString('hex').toUpperCase();
@@ -857,6 +866,14 @@ function installPageStorage(page: Window) {
     value: { request: (_: string, __: object, fn: (lock: object) => unknown) => fn({}) },
   });
 }
+async function openLogoutConfirmation(page: Window) {
+  page.location.hash = '#account';
+  page.dispatchEvent(new page.Event('hashchange'));
+  await until(() => page.document.querySelector('nav a[href="#account"]')?.getAttribute('aria-current') === 'page');
+  pageElements(page)('logout').click();
+  await until(() => !!page.document.getElementById('confirmLogout'));
+}
+
 function pageElements(page: Window): typeof import('../src/ui.ts').el {
   return ((id: string) => {
     const element = page.document.getElementById(id);
@@ -1456,7 +1473,8 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   suspendUploads = true;
   const interrupted = call('publishIndex', { account: owner });
   await until(() => !!pausedUpload);
-  id('logout').click();
+  await openLogoutConfirmation(page);
+  id('confirmLogout').click();
   await until(() => id('notice').textContent.includes('Logged out'));
   assert.equal((await interrupted).ok, false);
   suspendUploads = false;

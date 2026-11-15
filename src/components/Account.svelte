@@ -13,11 +13,13 @@
 
   let secret = $state('');
   let unlocking = $state(false);
+  let confirmingLogout = $state<string>();
   let confirmingDelete = $state<string>();
   let rules = $state<Rule[]>([]);
 
-  // Leaving the panel or changing profile clears a typed key and any pending delete.
+  // Leaving the panel or changing profile dismisses pending confirmations.
   $effect(() => {
+    if (!open || pubkey !== confirmingLogout) confirmingLogout = undefined;
     if (!open || pubkey !== confirmingDelete) confirmingDelete = undefined;
     if (!open) secret = '';
   });
@@ -124,15 +126,29 @@
     <button
       id="logout"
       class="secondary"
-      hidden={!pubkey}
-      onclick={() =>
-        run(async () => {
-          await send('logout', { pubkey });
-          await app.refresh(true);
-          notice('Logged out. Your archive is saved on this device.');
-        })}>Log out</button
+      hidden={!pubkey || !!confirmingLogout}
+      onclick={() => (confirmingLogout = pubkey)}>Log out</button
     >
   </div>
+  {#if confirmingLogout}
+    <div role="group" aria-labelledby="logoutQuestion">
+      <p id="logoutQuestion">Log out of this profile? Your archive will stay on this device.</p>
+      {#if unlocked}<p class="hint">Save your secret key before logging out so you can sign back in.</p>{/if}
+      <div class="actions">
+        <button id="cancelLogout" class="secondary" onclick={() => (confirmingLogout = undefined)}>Cancel</button>
+        <button
+          id="confirmLogout"
+          onclick={() =>
+            run(async () => {
+              if (!confirmingLogout || confirmingLogout !== pubkey) return;
+              await send('logout', { pubkey: confirmingLogout });
+              await app.refresh(true);
+              notice('Logged out. Your archive is saved on this device.');
+            })}>Log out</button
+        >
+      </div>
+    </div>
+  {/if}
 </section>
 
 <section id="sitePermissions" hidden={!rules.length}>
