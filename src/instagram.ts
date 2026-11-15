@@ -230,9 +230,10 @@ function publicTimestamp(doc: ParentNode, item: Item, handle: string): Timestamp
   if (Number.isFinite(exact)) return { time: Math.floor(exact / 1000) };
   // Instagram's two English description formats put its own byline before or
   // after the caption. Never accept a date mentioned in the user's caption.
+  // A post without a caption ends right after the byline's date.
   const description = meta('og:description');
   const byline = / - @([a-z0-9._]+) on ([A-Za-z]+ \d\d?, \d{4})\s*$/i.exec(description) ||
-    /^[\d,.KM]+ likes?, [\d,.KM]+ comments? - ([a-z0-9._]+) on ([A-Za-z]+ \d\d?, \d{4}): "/i.exec(description);
+    /^[\d,.KM]+ likes?, [\d,.KM]+ comments? - ([a-z0-9._]+) on ([A-Za-z]+ \d\d?, \d{4})(?:: "|\s*$)/i.exec(description);
   if (byline?.[1].toLowerCase() === handle) return fromCalendarDate(byline[2]);
 }
 

@@ -117,6 +117,31 @@ test('a login wall, foreign owner, incomplete carousel, redirect, or unknown dat
   }
 });
 
+test('a post without a caption gets its date from Instagram’s own byline', async t => {
+  const doc = fixture(t, links);
+  const dated = (description: string) => metadata().replace('First - @alice on January 2, 2025', description);
+  for (const [description, expected] of [
+    ['0 likes, 0 comments - alice on January 2, 2025', true],
+    ['1,204 likes, 3 comments - alice on January 2, 2025: &quot;Hello&quot;', true],
+    ['0 likes, 0 comments - bob on January 2, 2025', false],
+    ['0 likes, 0 comments - alice on January 2, 2025 or so', false],
+  ] as const) {
+    const saved: SocialCapture[] = [];
+    let calls = 0;
+    const collector = createInstagramCollector(posts => { saved.push(...posts); }, async url =>
+      response(++calls === 1 ? embed().replace(caption, '') : dated(description), String(url)));
+    collector.collect(doc, profile, 'alice');
+    await new Promise(resolve => setImmediate(resolve));
+    collector.stop();
+    assert.equal(saved.length, expected ? 1 : 0, description);
+    if (!expected) continue;
+    assert.equal(saved[0].time, Date.UTC(2025, 0, 2) / 1000);
+    assert.equal(saved[0].timePrecision, 'day');
+    // With no caption, the post's text is its media.
+    assert.equal(saved[0].text, image);
+  }
+});
+
 test('stopping capture discards even a late public response', async t => {
   const doc = fixture(t, links);
   const waiting = Promise.withResolvers<Response>();
