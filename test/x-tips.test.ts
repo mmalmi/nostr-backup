@@ -171,6 +171,167 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
   }
 });
 
+test('custom amounts use whole sats and the ordinary menu respects the chosen payment method and available balance', async () => {
+  const { Window } = await import('happy-dom');
+  const { article } = await import('./fixtures.ts');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/home' }), doc = window.document as unknown as Document;
+  doc.body.innerHTML = article('alice', '9');
+  const pubkey = getPublicKey(secret), invoice = 'lnbc210n1pinvoice';
+  const invoices: number[] = [], opened: string[] = [];
+  let balance: number | Promise<number> = 200;
+  const tips = createTipButtons(async msg => {
+    switch (msg.type) {
+      case 'tipTargets': return {ok:true,value:{alice:{pubkey,proof:'23'}}};
+      case 'tipMarks': return {ok:true,value:[0]};
+      case 'tipProfile': return {ok:true,value:{pubkey,lightning:'alice@wallet.example',walletEnabled:true}};
+      case 'tipBalance': return {ok:true,value:await balance};
+      case 'tipRate': return {ok:true,value:100000};
+      case 'tipPost': return {ok:true,value:{sats:0,tips:0,ownSats:0,ownTips:0}};
+      case 'tipInvoice': invoices.push(msg.sats); return {ok:true,value:{invoice,kind:'lightning'}};
+      case 'openTipWallet': if (msg.invoice) opened.push(msg.invoice); return {ok:true};
+      default: return {ok:false};
+    }
+  }, doc);
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  const open = async () => {
+    userClick(doc.querySelector('[data-social-backup-tip]')!);
+    await tick();
+    return privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
+  };
+  const submit = async (box: Element, value: string) => {
+    box.querySelector('input')!.value = value;
+    box.querySelector('form')!.dispatchEvent(new doc.defaultView!.Event('submit', {bubbles:true,cancelable:true}));
+    await tick();
+  };
+  try {
+    tips.scan(); await tick();
+    let box = await open();
+    assert.equal(box.querySelector('select')!.value, 'cashu');
+    for (const bad of ['', '-5', '0', '1.5', '1e2', 'abc', '1000001']) {
+      await submit(box, bad);
+      assert.equal(box.querySelector('input')!.getAttribute('aria-invalid'), 'true');
+    }
+    assert.equal(invoices.length, 0);
+    await submit(box, '137');
+    assert.deepEqual(invoices, [137]);
+    assert.deepEqual(opened, [invoice]);
+    assert.equal(box.querySelector('p b')?.textContent, '137 sats');
+    box = await open();
+    box.querySelector('select')!.value = 'external';
+    (box.querySelector('.row button') as HTMLElement).click();
+    await tick();
+    assert.equal(opened.length, 1);
+    assert.ok(box.querySelector('.qr'));
+    assert.equal(box.querySelector('a')!.getAttribute('href'), 'lightning:' + invoice);
+    assert.equal(box.querySelector('.cashu'), null);
+    box = await open();
+    await submit(box, '201'); // Greater than the funded balance.
+    assert.equal(opened.length, 1);
+    assert.ok(box.querySelector('.qr'));
+    balance = 0;
+    box = await open();
+    assert.equal(box.querySelector('select'), null);
+    await submit(box, '200');
+    assert.equal(opened.length, 1);
+    let release!: (v:number) => void;
+    balance = new Promise(resolve => {release = resolve;});
+    box = await open();
+    assert.ok(box.querySelector('.row button'));
+    await submit(box, '21');
+    release(500);
+    await tick();
+    assert.equal(opened.length, 1); // Late balance cannot change the selected method.
+    assert.deepEqual(invoices, [137,100,201,200,21]);
+  } finally { tips.reset(); await window.happyDOM.abort(); }
+});
+
+test('only an intentional short gesture on the same visible untipped post requests one quick tip', async t => {
+  const { Window } = await import('happy-dom');
+  const { article } = await import('./fixtures.ts');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({url:'https://x.com/home'}), doc = window.document as unknown as Document;
+  doc.body.innerHTML = article('alice','9');
+  const pubkey = getPublicKey(secret), account = getPublicKey(tipper);
+  const quick: unknown[] = [];
+  let marks = 0, menus = 0, fail = false;
+  const tips = createTipButtons(async m => {
+    switch(m.type) {
+      case 'tipTargets': return {ok:true,value:{alice:{pubkey,proof:'23'}}};
+      case 'tipMarks': return {ok:true,value:[marks]};
+      case 'tipProfile': menus++; return {ok:true,value:{pubkey,lightning:'alice@wallet.example'}};
+      case 'tipPost': return {ok:true,value:{sats:marks,ownSats:marks,tips:Number(!!marks),ownTips:Number(!!marks)}};
+      case 'quickTip':
+        quick.push(m);
+        return fail ? {ok:false,error:'Wallet balance is too low.'} : {ok:true,value:{state:'opened'}};
+      default: return {ok:false};
+    }
+  },doc);
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  let flower: HTMLElement;
+  const rectangle = {left:10,top:10,right:30,bottom:30,width:20,height:20} as DOMRect;
+  const prepare = async (sats: number) => {
+    tips.useQuickTip({account,sats}); tips.scan(); await tick();
+    flower = doc.querySelector('[data-social-backup-tip]')!;
+    const svg = flower.querySelector('svg')!;
+    svg.getBoundingClientRect = () => rectangle;
+    svg.checkVisibility = () => true;
+    doc.elementFromPoint = () => svg;
+    flower.closest('article')!.getBoundingClientRect = () => rectangle;
+  };
+  const pointer = (name:string, init: PointerEventInit = {}, trusted = true) => {
+    const e = new doc.defaultView!.PointerEvent(name, {bubbles:true,cancelable:true,composed:true,pointerType:'mouse',
+      isPrimary:true,pointerId:1,clientX:20,clientY:20,button:0,buttons:name === 'pointerdown' ? 1 : 0,detail:1,...init});
+    if (trusted) Object.defineProperty(e,'isTrusted',{value:true});
+    flower.dispatchEvent(e);
+  };
+  const tap = (detail=1) => { pointer('pointerdown'); pointer('pointerup'); pointer('click',{detail}); };
+  t.mock.timers.enable({apis:['setTimeout']});
+  try {
+    await prepare(21);
+    pointer('pointerdown',{},false); pointer('pointerup',{},false); pointer('click',{},false);
+    t.mock.timers.tick(550);
+    assert.equal(quick.length,0);
+    // A click event without its trusted down/up pair cannot spend.
+    pointer('click'); t.mock.timers.tick(550);
+    assert.equal(quick.length,0);
+    const cancel = (interrupt:()=>void) => {
+      pointer('pointerdown'); interrupt(); pointer('pointerup'); pointer('click'); t.mock.timers.tick(550);
+    };
+    cancel(()=>pointer('pointermove',{clientX:50}));
+    cancel(()=>pointer('pointercancel'));
+    cancel(()=>doc.dispatchEvent(new doc.defaultView!.Event('scroll')));
+    tap(); tap(2); t.mock.timers.tick(550);
+    assert.equal(menus,0); assert.equal(quick.length,0);
+    pointer('pointerdown'); t.mock.timers.tick(510); await tick();
+    assert.equal(menus,1);
+    pointer('pointerup'); pointer('click'); t.mock.timers.tick(550);
+    assert.equal(menus,1); assert.equal(quick.length,0);
+    pointer('click',{shiftKey:true}); userClick(flower!); await tick();
+    assert.equal(menus,3);
+    tap(); tips.useQuickTip({account,sats:22}); t.mock.timers.tick(550);
+    assert.equal(quick.length,0);
+    await prepare(22);
+    pointer('pointerdown');
+    const link = flower!.closest('article')!.querySelector('time')!.closest('a')!;
+    link.setAttribute('href','/bob/status/9');
+    pointer('pointerup'); pointer('click'); t.mock.timers.tick(550);
+    assert.equal(quick.length,0);
+    link.setAttribute('href','/alice/status/9');
+    tap(); t.mock.timers.tick(510); await tick();
+    assert.deepEqual(quick,[{type:'quickTip',account,sats:22,handle:'alice',pubkey,post:'9'}]);
+    marks=21; await prepare(23); tap(); t.mock.timers.tick(550); await tick();
+    assert.equal(quick.length,1);
+    assert.ok(privateRoot(doc.body.lastElementChild!).querySelector('form'));
+    marks=0; fail=true; await prepare(24); tap(); t.mock.timers.tick(550); await tick();
+    assert.equal(quick.length,2);
+    const box = privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
+    assert.match(box.querySelector('[role=alert]')!.textContent!,/balance is too low/);
+    assert.ok(box.querySelector('form'));
+    t.mock.timers.tick(3000); assert.equal(quick.length,2);
+  } finally { tips.reset(); t.mock.timers.reset(); await window.happyDOM.abort(); }
+});
+
 test('your own profile keeps a Tip button that pays your own wallet, and your posts get none', async () => {
   const { Window } = await import('happy-dom');
   const { article } = await import('./fixtures.ts');

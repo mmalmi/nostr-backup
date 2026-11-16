@@ -1867,6 +1867,169 @@ test('wallet access, automatic inbox checks and public address edits follow acco
   } finally { await success('logout',{pubkey:owner}); }
 });
 
+test('one-click tips verify the active post, bind each approval to its wallet window and retain the issued intent', async t => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret), recipientKey = generateSecretKey(), pubkey = getPublicKey(recipientKey);
+  const relayURL = 'wss://one-click.example/', relay = fixtureRelay(relayURL);
+  const addr = 'alice@quick.example', handle = 'alice', proof = '81', post = '43', sats = 21;
+  const profile = finalizeEvent({kind:0, created_at:12, content:JSON.stringify({lud16:addr}), tags:[]}, recipientKey);
+  const identity = finalizeEvent({kind:10011, created_at:10, content:'', tags:[['i','twitter:alice',proof]]}, recipientKey);
+  for (const ev of [profile,identity]) relay.stored.set(ev.id,ev);
+  const page = {...x, url:'https://x.com/home', tab:{id:9,url:'https://x.com/home'}};
+  const settingsPage = {...ui, url:ext+'wallet.html'};
+  const params = {account:owner, handle, pubkey, post, sats};
+  let nextWindow = 21, failOpen = false, active = page.tab.id;
+  const windows: {url:string; id:number}[] = [];
+  t.mock.method(api.tabs, 'get', async () => ({url:page.url}));
+  t.mock.method(api.tabs, 'query', async (options: {active?:boolean}) => options.active ? [{id:active,url:page.url}] : []);
+  t.mock.method(api.windows,'create',async (opts:{url:string}) => {
+    if (failOpen) throw Error('Popup blocked');
+    const win = {...opts,id:nextWindow++}; windows.push(win); return win;
+  });
+  const endpoint = process.env.SOCIAL_BACKUP_FAKE_MINT;
+  if (endpoint) assert.equal(new URL(endpoint).hostname,'127.0.0.1');
+  const nativeFetch = fetch;
+  let invoiceCount = 0, melts = 0, postValid = true, proofValid = true, hideDuringLookup = false;
+  let invoice = '';
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.origin === 'https://x.com') {
+      if (url.pathname.endsWith('/'+proof)) return publicTweet(url,proofValid ? 'Verifying my account on nostr My Public Key: ' + pubkey : 'Withdrawn proof');
+      const requestedPost = url.pathname.split('/').at(-1)!;
+      const response = new Response(publicTweetHTML(postValid ? handle : 'impostor',requestedPost,'A public post',1700000000),
+        {headers:{'Content-Type':'text/html'}});
+      Object.defineProperty(response, 'url', {value:url.href});
+      if (hideDuringLookup) active = 102;
+      return response;
+    }
+    if (url.hostname === 'quick-test-mint.example' && endpoint) {
+      if (url.pathname === '/v1/melt/bolt11' && init?.method === 'POST') melts++;
+      return nativeFetch(endpoint + url.pathname,init);
+    }
+    if (url.pathname === '/.well-known/lnurlp/alice')
+      return Response.json({tag:'payRequest',callback:'https://quick.example/pay',minSendable:1000,maxSendable:1e9});
+    if (url.pathname === '/pay') {
+      const amount = Number(url.searchParams.get('amount')) / 1000;
+      invoiceCount++;
+      invoice = endpoint ? (await (await nativeFetch(endpoint+'/v1/mint/quote/bolt11', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({amount,unit:'sat'})})).json()).request
+        : signedInvoice(amount,'quick invoice '+invoiceCount,Math.floor(Date.now()/1000),true);
+      return Response.json({pr:invoice, verify:'https://quick.example/verify'});
+    }
+    if (url.pathname === '/verify') return Response.json({status:'OK',settled:false,pr:invoice,preimage:null});
+    throw Error('Unexpected quick tip test request');
+  });
+  const open = (args = params, sender = page) => success('quickTip',args,sender);
+  const latest = () => {
+    const win = windows.at(-1)!;
+    const [id,token] = new URL(win.url).hash.slice(1).split('?quick=');
+    assert.match(token,/^[a-f0-9]{32}$/);
+    return {id, token, sender:{...settingsPage, url:win.url, tab:{id:90,windowId:win.id}}};
+  };
+  await success('login',{key:nsecEncode(secret)});
+  try {
+    await success('settings',{pubkey:owner,handle:'',capture:false,relaySync:false,relays:relayURL,tipButtons:true});
+    const archive = await openArchive((await success('status')).conf.archiveName);
+    await (await import('../src/x-directory.ts')).saveDirectory(archive,[identity,profile]);
+    archive.close();
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    assert.equal((await call('walletSetQuickTip',{account:owner,sats},page)).ok,false);
+    await success('walletPreferences',{account:owner,enabled:true,autoReceive:false},settingsPage);
+    for (const invalid of [-1,0.5,1000001]) assert.equal((await call('walletSetQuickTip',{account:owner,sats:invalid},settingsPage)).ok,false);
+    await success('walletSetQuickTip',{account:owner,sats},settingsPage);
+    assert.deepEqual((await success('captureConfig',{},page)).quickTip,{account:owner,sats});
+    assert.equal((await success('captureConfig',{}, {...page,url:'https://www.instagram.com/alice/'})).quickTip,undefined);
+    assert.equal((await call('quickTip',{...params,sats:sats+1},page)).ok,false);
+    assert.equal((await call('quickTip',{...params,account:pubkey},page)).ok,false);
+    assert.equal((await call('quickTip',params,{...page,frameId:1})).ok,false);
+    assert.equal((await call('quickTip',params,{...page,url:'https://example.org/'})).ok,false);
+    await success('lock');
+    assert.equal((await success('captureConfig',{},page)).quickTip,undefined);
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    await success('unlock',{key:nsecEncode(secret)});
+    postValid=false;
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    postValid=true; proofValid=false;
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    proofValid=true;
+    assert.equal((await call('quickTip',{...params,pubkey:getPublicKey(generateSecretKey())},page)).ok,false);
+    assert.equal(invoiceCount,0);
+    hideDuringLookup=true;
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    assert.equal(windows.length,0);
+    hideDuringLookup=false; active=page.tab.id;
+    failOpen=true;
+    assert.equal((await call('quickTip',params,page)).ok,false);
+    assert.equal(melts,0);
+    failOpen=false;
+    assert.deepEqual(await open(),{state:'opened'});
+    const first = latest();
+    // A second live tab opens the same review and cannot create a separate invoice.
+    active=10;
+    assert.deepEqual(await open(params,{...page,tab:{id:active,url:page.url}}),{state:'opened'});
+    active=page.tab.id;
+    assert.equal(windows.length,1);
+    assert.equal(invoiceCount,1);
+    const request = {account:owner,id:first.id,token:first.token,maxFee:0};
+    assert.equal((await call('walletQuickConfirm',request,page)).ok,false);
+    assert.equal((await call('walletQuickConfirm',request,{...first.sender,tab:{id:3,windowId:120}})).ok,false);
+    assert.equal((await call('walletQuickConfirm',{...request,token:'0'.repeat(32)},first.sender)).ok,false);
+    const expensive = await call('walletQuickConfirm',{...request,maxFee:3},first.sender);
+    assert.ok(!expensive.ok && /fee exceeds/.test(expensive.error));
+    const replay = await call('walletQuickConfirm',request,first.sender);
+    assert.ok(!replay.ok && /Review this tip/.test(replay.error));
+    await open();
+    const stale = latest();
+    const clockNow = Date.now.bind(Date);
+    const clock = t.mock.method(Date,'now',() => clockNow()+61_000);
+    try {
+      const late = await call('walletQuickConfirm',{...request,token:stale.token},stale.sender);
+      assert.ok(!late.ok && /approval expired/.test(late.error));
+    } finally { clock.mock.restore(); }
+    await open();
+    const beforeDisable=latest();
+    await success('walletPreferences',{account:owner,enabled:false,autoReceive:false},settingsPage);
+    assert.equal((await success('captureConfig',{},page)).quickTip,undefined);
+    await success('walletPreferences',{account:owner,enabled:true,autoReceive:false},settingsPage);
+    assert.equal((await success('walletIdentity',{},settingsPage)).quickTipSats,undefined);
+    await success('walletSetQuickTip',{account:owner,sats},settingsPage);
+    assert.equal((await call('walletQuickConfirm',{...request,token:beforeDisable.token},beforeDisable.sender)).ok,false);
+    assert.equal(melts,0);
+    if (endpoint) {
+      await success('walletSelectMint',{account:owner,url:'https://quick-test-mint.example'},settingsPage);
+      const funding = await success('walletFund',{account:owner,sats:23},settingsPage);
+      const deadline = Date.now()+35000;
+      while ((await success('walletRefreshFunding',{account:owner,id:funding.id},settingsPage)).state !== 'paid') {
+        assert.ok(Date.now()<deadline,'test mint funding timeout'); await delay(175);
+      }
+      // Fresh recipient invoice after funding the wallet; the fake back end auto-pays its own quotes.
+      const newPost={...params,post:'44'};
+      await open(newPost);
+      const live=latest();
+      const reviewed = await success('walletPrepare',{account:owner,id:live.id},live.sender);
+      assert.ok(reviewed.fee<=2, 'test fixture fee stays under the one-click ceiling');
+      const hidden = await call('walletQuickConfirm',{account:owner,id:live.id,token:live.token,maxFee:reviewed.fee},live.sender);
+      assert.ok(!hidden.ok && /no longer active/.test(hidden.error));
+      assert.equal(melts,0);
+      await open(newPost);
+      const visible = latest();
+      assert.equal(visible.id,live.id);
+      active=visible.sender.tab.id;
+      const pay = {account:owner,id:visible.id,token:visible.token,maxFee:reviewed.fee};
+      const paid=await success('walletQuickConfirm',pay,visible.sender);
+      assert.equal((await call('walletQuickConfirm',pay,visible.sender)).ok,false);
+      active=page.tab.id;
+      if (paid.state === 'pending') await until(async () => (await success('walletRefresh',{account:owner,id:live.id},live.sender)).state === 'paid');
+      else assert.equal(paid.state,'paid');
+      assert.equal(melts,1);
+      assert.deepEqual(await open(newPost),{state:'already'});
+      assert.deepEqual(await success('tipMarks',{targets:[{post:newPost.post,pubkey}]},page),[sats]);
+      assert.equal(melts,1);
+    }
+    await success('walletSetQuickTip',{account:owner,sats:0},settingsPage);
+    assert.equal((await success('captureConfig',{},page)).quickTip,undefined);
+  } finally { await success('logout',{pubkey:owner}); }
+});
+
 test('tips on X go to verified Nostr profiles with a lightning address and can be turned off', async (t) => {
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const carol = generateSecretKey(), carolKey = getPublicKey(carol);

@@ -32,7 +32,8 @@ import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice } from './x-tips.ts';
 import { invoiceDetails, readTipMarks, summarizeTips } from './tip-history.ts';
 import { issuedTip, rememberInvoice, reconcileTipInvoices } from './wallet-intent.ts';
-import { isWalletAction, menuWalletBalance, walletIdentity, walletOperation, recoverPayments, checkIncoming } from './wallet-service.ts';
+import { consumeQuickTip, openQuickTip, revokeQuickTips } from './quick-tip-window.ts';
+import { checkQuickSettings, priorQuickPayment, quickConfirm, isWalletAction, menuWalletBalance, walletIdentity, walletOperation, recoverPayments, checkIncoming } from './wallet-service.ts';
 import { updateReceivingAddress } from './receiving-address.ts';
 import { paymentConsent } from './tip-consent.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES, TIP_CURRENCIES } from './rates.ts';
@@ -522,8 +523,12 @@ async function currentLink(db: Archive, conf: Settings, handle: string) {
   } finally { pool.destroy(); }
 }
 
-async function paymentProfile(db: Archive, conf: Settings, handle: string) {
+async function paymentProfile(db: Archive, conf: Settings, handle: string, requireFreshLink = false) {
   const { target, events } = await currentLink(db, conf, handle);
+  if (requireFreshLink) {
+    const current = (await db.get('xDirectory', [target.pubkey, IDENTITY_KIND])) ?? await db.get('xDirectory', [target.pubkey, 0]);
+    if (!current || !events.some(event => event.id === current.id)) throw Error('Could not confirm the current Nostr link.');
+  }
   const profile = newestProfile(events, target.pubkey);
   if (!profile || profile.id !== (await db.get('xDirectory', [target.pubkey, 0]))?.id || !lightningAddress(profile))
     throw Error('No current Lightning address is available for this profile.');
@@ -541,6 +546,98 @@ function graphFollowers() {
 
 const tipAddresses = new Map<string, string>();
 const tipNotes = new Map<string, string>();
+
+async function findTipNote(relays: SimplePool, conf: Settings, handle: string, pubkey: string, post: string, time?: number, text?: string) {
+  if (!conf.relays.length) return;
+  const timestamp = Number.isSafeInteger(time) ? time : undefined;
+  const notes = await relays.querySync(conf.relays, {
+    kinds: [1], authors: [pubkey], ...(timestamp !== undefined && {since:timestamp - 60, until:timestamp + 60}), limit:100,
+  }, {maxWait:3500}).catch(() => []);
+  const note = matchingNote(notes.filter(e => e.pubkey === pubkey && e.kind === 1),
+    'https://x.com/' + handle + '/status/' + post, timestamp, typeof text === 'string' ? text.slice(0, 500) : undefined)?.id;
+  if (note) {
+    tipNotes.set(pubkey + ':' + post, note);
+    if (tipNotes.size > 200) tipNotes.delete(tipNotes.keys().next().value!);
+  }
+  return note;
+}
+
+async function issueTip(db: Archive, conf: Settings, tab: number, handle: string, profile: NostrEvent,
+  sats: number, post: string | undefined, note: string | undefined, quick = false) {
+  const key = await sessionKey();
+  if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock Social Backup to tip.');
+  const {invoice, kind, verifyUrl} = await tipInvoice({
+    profile, sats, relays:conf.relays, sign:template => finalizeEvent(template, unhex(key)), note,
+  });
+  const details = invoiceDetails(invoice), lightning = lightningAddress(profile);
+  if (!details || !lightning) throw Error('Invalid tip invoice or recipient.');
+  const tip = await rememberInvoice(db, details.paymentHash, {
+    account:conf.pubkey, tab, handle, pubkey:profile.pubkey, lightning, sats, invoice, post, note, verifyUrl,
+  }, quick);
+  return {tip, invoice, kind};
+}
+
+async function currentQuickTab(sender: Sender) {
+  if (sender.frameId !== 0 || sender.tab?.id === undefined || captureNetwork(sender.url) !== 'x')
+    throw Error('Tap the flower in the X post itself.');
+  const [current, active] = await Promise.all([api.tabs.get(sender.tab.id), api.tabs.query({active:true, currentWindow:true})]);
+  if (current.url !== sender.url || !active.some(tab => tab.id === sender.tab!.id))
+    throw Error('Return to this X post and tap the flower again.');
+  return sender.tab.id;
+}
+
+async function requestQuickTip(msg: Message<'quickTip'>, sender: Sender) {
+  const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
+  if (!msg.account || !handlePattern.test(handle) || !/^[a-f0-9]{64}$/.test(msg.pubkey) ||
+      msg.pubkey === msg.account || typeof msg.post !== 'string' || !/^\d{1,20}$/.test(msg.post))
+    throw Error('Choose another person’s public X post to tip.');
+  const tab = await currentQuickTab(sender);
+  return walletJob(msg.account, async () => {
+    const conf = await checkQuickSettings(msg.account, msg.sats);
+    const db = await openArchive(conf.archiveName);
+    try {
+      const prior = await priorQuickPayment(db, msg.account, msg.pubkey, msg.post);
+      if (prior.paid) return {state:'already'} as const;
+      if (prior.tip && prior.pending) {
+        await currentQuickTab(sender);
+        await openQuickTip(prior.tip, false);
+        return {state:'opened'} as const;
+      }
+      const [post, profile] = await Promise.all([
+        readPublicXOriginal(handle, msg.post), paymentProfile(db, conf, handle, true),
+      ]);
+      if (!post || post.author !== handle || post.id !== msg.post || post.visibility !== 'public')
+        throw Error('Could not verify this public X post and its author.');
+      if (profile.pubkey !== msg.pubkey) throw Error('The recipient changed. Open the tip menu.');
+      const address = lightningAddress(profile);
+      const previous = prior.tip;
+      const matches = previous && previous.pubkey === msg.pubkey && previous.handle === handle &&
+        previous.sats === msg.sats && previous.lightning === address &&
+        (invoiceDetails(previous.invoice)?.expiresAt ?? 0) > Date.now() / 1000;
+      if (previous && prior.reserved && !matches) {
+        revokeQuickTips(conf.pubkey, previous.id);
+        throw Error('The saved quote no longer matches this tip. Cancel it in your wallet before tapping again.');
+      }
+      if (previous && prior.reviewOnly) {
+        await currentQuickTab(sender);
+        await openQuickTip(previous, false);
+        return {state:'opened'} as const;
+      }
+      let tip = matches ? previous : undefined;
+      if (!tip) {
+        const relays = new SimplePool();
+        let note: string | undefined;
+        try { note = await findTipNote(relays, conf, handle, msg.pubkey, msg.post, post.time, post.text); }
+        finally { relays.destroy(); }
+        tip = (await issueTip(db, conf, tab, handle, profile, msg.sats, msg.post, note, true)).tip;
+      }
+      await checkQuickSettings(msg.account, msg.sats);
+      await currentQuickTab(sender);
+      await openQuickTip(tip, true);
+      return {state:'opened'} as const;
+    } finally { db.close(); }
+  });
+}
 
 async function run() {
   const importNow = syncRequested;
@@ -802,6 +899,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
     const deleting = msg.type === 'deleteAccount';
     if (deleting && msg.confirmed !== true) throw Error('Confirm deletion in Settings.');
     await Promise.allSettled([...walletJobs]);
+    revokeQuickTips(conf.pubkey);
     if (deleting && await (await import('./cashu-wallet.ts')).walletHasFundsOrPending(conf.pubkey))
       throw Error('Withdraw your wallet balance and finish pending payments before deleting this profile.');
     quoteController?.abort();
@@ -871,12 +969,27 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     if (!conf.pubkey || (!popup && !tipMenu)) throw Error('Open the wallet balance in Social Backup.');
     return menuWalletBalance(conf.pubkey);
   }
+  if (msg.type === 'quickTip') return requestQuickTip(msg, sender);
   if (isWalletAction(msg)) {
     if (page !== api.runtime.getURL('wallet.html')) throw Error('Open the extension wallet.');
+    if ((msg.type === 'walletSetQuickTip' || msg.type === 'walletQuickConfirm') && sender.frameId !== 0) throw Error('Open the extension wallet.');
     if (msg.type === 'walletIdentity') return walletIdentity(conf);
     if (!conf.pubkey || msg.account !== conf.pubkey) throw Error('Reopen the wallet for the active account.');
     return walletJob(conf.pubkey, async () => {
       const current = await settings();
+      if (msg.type === 'walletSetQuickTip') {
+        if (!Number.isSafeInteger(msg.sats) || msg.sats < 0 || msg.sats > 1_000_000)
+          throw Error('Choose a one-click amount from 1 to 1,000,000 sats, or zero to turn it off.');
+        await write(async () => {
+          const latest = await settings();
+          if (latest.pubkey !== msg.account) throw Error('The active profile changed.');
+          if (msg.sats && (!latest.walletEnabled || !(await walletIdentity(latest)).unlocked || !await paymentConsent()))
+            throw Error('Enable and unlock the wallet before choosing a one-click amount.');
+          revokeQuickTips(latest.pubkey);
+          await saveSettings({...latest, quickTipSats:msg.sats || undefined});
+        });
+        return walletIdentity(await settings());
+      }
       if (msg.type === 'walletPreferences') {
         if (typeof msg.enabled !== 'boolean' || typeof msg.autoReceive !== 'boolean') throw Error('Invalid wallet settings.');
         if (msg.enabled && (!(await walletIdentity(current)).unlocked || !await paymentConsent()))
@@ -884,12 +997,20 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         await write(async () => {
           const latest = await settings();
           if (latest.pubkey !== conf.pubkey) throw Error('The active profile changed.');
-          await saveSettings({...latest, walletEnabled: msg.enabled, walletAutoReceive: msg.enabled && msg.autoReceive});
+          if (!msg.enabled) revokeQuickTips(latest.pubkey);
+          await saveSettings({...latest, walletEnabled: msg.enabled, walletAutoReceive: msg.enabled && msg.autoReceive,
+            quickTipSats: msg.enabled ? latest.quickTipSats : undefined});
         });
         return walletIdentity(await settings());
       }
       const db = await openArchive(current.archiveName);
-      try { return await walletOperation(db, current.pubkey, msg); } finally { db.close(); }
+      try {
+        if (msg.type === 'walletQuickConfirm') {
+          const checkWindow = consumeQuickTip(current.pubkey, msg.id, msg.token, sender);
+          return await quickConfirm(db, current.pubkey, msg.id, msg.maxFee, checkWindow);
+        }
+        return await walletOperation(db, current.pubkey, msg);
+      } finally { db.close(); }
     });
   }
   if (msg.type === 'resolveImage') {
@@ -944,6 +1065,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     mediaController?.abort();
     await walletJob(conf.pubkey, () => write(async () => {
       const next = await accountSettings(identity(msg.pubkey));
+      revokeQuickTips(conf.pubkey);
       await saveKey();
       await revokeSession();
       await saveSettings(next);
@@ -952,7 +1074,10 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     return;
   }
   if (trustedPage && msg.type === 'settings') {
-    await write(() => configure(msg));
+    await walletJob(conf.pubkey, () => write(async () => {
+      await configure(msg);
+      if (msg.tipButtons === false) revokeQuickTips(conf.pubkey);
+    }));
     void kick();
     return;
   }
@@ -1019,14 +1144,17 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         return !!event;
       }
       if (msg.type === 'captureConfig' || msg.type === 'pageStatus') {
-        const unlocked = !!(await sessionKey());
+        const key = await sessionKey(), unlocked = !!key;
         showSiteState(sender.tab, { site: network, ...pageReport(msg), ...(await relaysDown(db, conf) ? { relaysDown: true } : {}) }, conf, unlocked);
         if (msg.type === 'pageStatus') return;
+        const tips = network === 'x' && conf.tipButtons === true && await paymentConsent();
         return {
           handle: selected?.handle ?? '',
           capture: !!selected?.capture && unlocked,
           pubkey: conf.pubkey,
-          tips: network === 'x' && conf.tipButtons === true && await paymentConsent(),
+          tips,
+          ...(tips && sender.frameId === 0 && conf.walletEnabled && conf.quickTipSats && key &&
+            getPublicKey(unhex(key)) === conf.pubkey && {quickTip:{account:conf.pubkey, sats:conf.quickTipSats}}),
           marks: conf.markSaved !== false && !!selected?.handle,
           ...(conf.tipCurrency ? { tipCurrency: conf.tipCurrency } : {}),
           ...(network === 'x' ? { xLinked: ((await db.get('meta', 'xLink')) as XLink | undefined)?.handle === conf.handle } : {}),
@@ -1153,19 +1281,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const pubkey = known[1];
         const relays = new SimplePool();
         try {
-          let note: string | undefined;
-          if (msg.post && conf.relays.length) {
-            const time = Number.isSafeInteger(msg.time) ? msg.time : undefined;
-            const notes = await relays.querySync(conf.relays, {
-              kinds: [1], authors: [pubkey], ...(time !== undefined && { since: time - 60, until: time + 60 }), limit: 100,
-            }, { maxWait: 3500 }).catch(() => []);
-            note = matchingNote(notes.filter(e => e.pubkey === pubkey && e.kind === 1), 'https://x.com/' + handle + '/status/' + msg.post,
-              time, typeof msg.text === 'string' ? msg.text.slice(0, 500) : undefined)?.id;
-            if (note) {
-              tipNotes.set(pubkey + ':' + msg.post, note);
-              if (tipNotes.size > 200) tipNotes.delete(tipNotes.keys().next().value!);
-            }
-          }
+          const note = msg.post ? await findTipNote(relays, conf, handle, pubkey, msg.post, msg.time, msg.text) : undefined;
           const address = tipAddresses.get(pubkey);
           const [receipts, pay] = await Promise.all([
             conf.relays.length ? relays.querySync(conf.relays, { kinds: [9735], '#p': [pubkey], ...(note && { '#e': [note] }), limit: 300 },
@@ -1184,15 +1300,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       if (profile.pubkey !== msg.pubkey || lightningAddress(profile) !== msg.lightning)
         throw Error('The recipient changed. Reopen Tip to review the new address.');
       const note = msg.post ? tipNotes.get(profile.pubkey + ':' + msg.post) : undefined;
-      const {invoice, kind, verifyUrl} = await tipInvoice({
-        profile, sats: msg.sats, relays: conf.relays,
-        sign: template => finalizeEvent(template, unhex(key)),
-        note,
-      });
-      const details = invoiceDetails(invoice);
-      if (!details || sender.tab.id === undefined) throw Error('Invalid invoice or tab.');
-      await rememberInvoice(db, details.paymentHash, {account: conf.pubkey, tab: sender.tab.id, handle, pubkey: profile.pubkey,
-        lightning: msg.lightning, sats: msg.sats, invoice, post: msg.post, note, verifyUrl});
+      if (sender.tab.id === undefined) throw Error('Invalid tip tab.');
+      const {invoice, kind} = await issueTip(db, conf, sender.tab.id, handle, profile, msg.sats, msg.post, note);
       return {invoice,kind};
     }
     if (msg.type === 'receivingAddress') {
@@ -1380,7 +1489,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       case 'lock':
         mediaController?.abort();
         indexController?.abort();
-        await walletJob(conf.pubkey, () => write(async () => { await saveKey(); await revokeSession(); }));
+        await walletJob(conf.pubkey, () => write(async () => { revokeQuickTips(conf.pubkey); await saveKey(); await revokeSession(); }));
         return;
       case 'sync':
         if (!conf.relays.length) throw Error('Select a relay first.');

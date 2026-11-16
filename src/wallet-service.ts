@@ -1,3 +1,4 @@
+import { quickTipFeeLimit } from './quick-tip.ts';
 import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import type { Archive, Message, Settings } from './types.ts';
 import type { IncomingSummary, WalletRPC } from './wallet-actions.ts';
@@ -5,9 +6,9 @@ import { settings } from './accounts.ts';
 import { savedKey } from './signer-storage.ts';
 import { unhex } from './model.ts';
 import { paymentConsent } from './tip-consent.ts';
-import { invoiceDetails, settleOwnTip } from './tip-history.ts';
+import { invoiceDetails, readTipMarks, settleOwnTip } from './tip-history.ts';
 import { openArchive } from './archive.ts';
-import { tipById, type WalletIntent } from './wallet-intent.ts';
+import { savedQuickTip, tipById, type WalletIntent } from './wallet-intent.ts';
 import { incomingQuotes, receivingMint } from './npub-incoming.ts';
 
 type Engine = typeof import('./cashu-wallet.ts');
@@ -35,6 +36,7 @@ export async function walletIdentity(conf: Settings) {
     ...(lastIncoming && { lastIncoming }),
     enabled: conf.walletEnabled === true,
     autoReceive: conf.walletAutoReceive === true,
+    ...(conf.walletEnabled && conf.quickTipSats && {quickTipSats: conf.quickTipSats}),
   };
 }
 
@@ -51,6 +53,15 @@ async function walletAccess(owner: string, automatic = false) {
   if (!key || getPublicKey(unhex(key)) !== owner) throw Error('Unlock this profile to use its wallet.');
   if (!(await paymentConsent())) throw Error('Enable payment data in the extension settings.');
   return unhex(key);
+}
+
+export async function checkQuickSettings(owner: string, sats: number) {
+  await walletAccess(owner);
+  const conf = await settings();
+  if (!Number.isSafeInteger(sats) || sats < 1 || sats > 1_000_000 || conf.pubkey !== owner ||
+      !conf.tipButtons || !conf.walletEnabled || conf.quickTipSats !== sats)
+    throw Error('One-click tip settings changed. Open the tip menu.');
+  return conf;
 }
 
 export async function menuWalletBalance(owner: string) {
@@ -150,7 +161,65 @@ export async function recoverPayments(db: Archive, owner: string, checkPending: 
   return status;
 }
 
-type Operation = Exclude<keyof WalletRPC, 'walletIdentity' | 'walletPreferences'>;
+// Check private records before creating an invoice. Another tab or a restored wallet can
+// already own the only payment for this X post, even if the site's handle subsequently changed.
+export async function priorQuickPayment(db: Archive, owner: string, pubkey: string, post: string) {
+  const [own] = await readTipMarks(db, [{pubkey, post}]);
+  if (own > 0) return {paid:true} as const;
+  const cashu = await engine();
+  const {payments} = await cashu.walletStatus(owner);
+  const matching = payments.filter(p => p.tip?.post === post);
+  const paid = matching.find(p => p.state === 'paid');
+  if (paid) {
+    await markPayment(db, owner, paid);
+    return {paid:true} as const;
+  }
+  const saved = await savedQuickTip(db, post);
+  const live = matching.find(p => p.state === 'pending') ?? matching.find(p => p.state === 'ready');
+  if (live) {
+    const tip = (await tipById(db, live.id)) ?? restoredTip(owner, live);
+    if (!tip || tip.account !== owner || tip.post !== post) throw Error('Review the existing payment in your wallet.');
+    return {paid:false, tip, reviewOnly:saved?.id !== live.id, pending:live.state === 'pending', reserved:true} as const;
+  }
+  if (saved && !payments.some(p => p.id === saved.id && p.state === 'failed')) {
+    if (saved.account !== owner) throw Error('The active wallet changed.');
+    return {paid:false, tip:saved, reviewOnly:false, pending:false, reserved:false} as const;
+  }
+  return {paid:false} as const;
+}
+
+export async function quickConfirm(db: Archive, owner: string, id: string, maxFee: number, checkWindow: () => Promise<void>) {
+  const tip = await tipById(db, id);
+  if (!tip || tip.account !== owner || !tip.post || (await savedQuickTip(db, tip.post))?.id !== id)
+    throw Error('This one-click tip is no longer active.');
+  await checkQuickSettings(owner, tip.sats);
+  const invoice = invoiceDetails(tip.invoice);
+  if (!invoice || invoice.network !== 'bc' || invoice.msats !== tip.sats * 1000 || invoice.expiresAt <= Date.now() / 1000)
+    throw Error('The invoice expired or changed. Review this tip in the wallet.');
+  if (!Number.isSafeInteger(maxFee) || maxFee < 0 || maxFee > quickTipFeeLimit(tip.sats))
+    throw Error('The fee exceeds your one-click limit. Review this tip in the wallet.');
+  const cashu = await engine();
+  const {payments} = await cashu.walletStatus(owner);
+  const payment = payments.find(p => p.id === id);
+  if (!payment || payment.invoice !== tip.invoice || payment.sats !== tip.sats || payment.tip?.pubkey !== tip.pubkey ||
+      payment.tip?.post !== tip.post || payment.tip.lightning !== tip.lightning)
+    throw Error('Review the current wallet quote first.');
+  if (payment.state !== 'ready') {
+    await markPayment(db, owner, payment);
+    return payment;
+  }
+  if (payment.fee !== maxFee) throw Error('The wallet fee changed. Review this tip in the wallet.');
+  if ((await readTipMarks(db, [{pubkey:tip.pubkey, post:tip.post}]))[0] > 0 ||
+      payments.some(p => p.id !== id && p.tip?.post === tip.post && (p.state === 'pending' || p.state === 'paid')))
+    throw Error('You already tipped this post or a payment is pending.');
+  await checkQuickSettings(owner, tip.sats);
+  await checkWindow();
+  const result = await cashu.confirmWalletPayment(owner, id, maxFee);
+  await markPayment(db, owner, result);
+  return result;
+}
+
+type Operation = Exclude<keyof WalletRPC, 'walletIdentity' | 'walletPreferences' | 'walletSetQuickTip' | 'walletQuickConfirm'>;
 export async function walletOperation(db: Archive, owner: string, msg: Message<Operation>) {
   await walletAccess(owner);
   const cashu = await engine();

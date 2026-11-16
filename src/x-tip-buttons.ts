@@ -1,4 +1,4 @@
-import type { Message, TipTarget } from './types.ts';
+import type { CaptureConfig, Message, TipTarget } from './types.ts';
 import type { IssuedInvoice } from './x-tips.ts';
 import type { TipSummary, TipLocation } from './tip-history.ts';
 import { postArticles, profileHandle, xPermalink } from './x.ts';
@@ -8,7 +8,7 @@ import { npubEncode } from 'nostr-tools/nip19';
 
 // Adds a quiet Social Backup flower button to X posts and a "Tip" button to profiles with a local Nostr link claim.
 // Proof and address are checked on click.
-// Cashu spending needs separate confirmation in the extension; external wallets get the same invoice.
+// The ordinary menu opens wallet review. Quick tips use the account's explicit, fixed-amount setting.
 
 type Send = (message: Message) => Promise<{ ok: boolean; value?: unknown; error?: string } | undefined>;
 // Small, medium and large tips, with Iris's emoji.
@@ -50,8 +50,9 @@ interface Post {
   time?: number;
   text?: string;
 }
+const postTime = (article: Element) => Array.from(article.querySelectorAll('a[href] time')).find(t => t.closest('article') === article);
 function postInfo(article: Element): Post | undefined {
-  const time = Array.from(article.querySelectorAll('a[href] time')).find((t) => t.closest('article') === article);
+  const time = postTime(article);
   const id = xPermalink(time?.closest('a')?.getAttribute('href') ?? '')?.id;
   if (!id) return;
   const seconds = Math.floor(Date.parse(time?.getAttribute('datetime') ?? '') / 1000);
@@ -69,6 +70,40 @@ export function createTipButtons(send: Send, doc: Document = document) {
   // A miss can be checked locally again after a directory refresh.
   const retryAt = new Map<string, number>();
   let generation = 0;
+  let quickTip: CaptureConfig['quickTip'];
+  const started = new Set<string>();
+  let press: {node: HTMLButtonElement; id: number; x: number; y: number; released: boolean} | undefined;
+  let holdTimer: ReturnType<typeof setTimeout> | undefined, tapTimer: ReturnType<typeof setTimeout> | undefined;
+  let delayed: HTMLButtonElement | undefined, ignorePointer: number | undefined;
+  function cancelGesture() {
+    clearTimeout(holdTimer);
+    clearTimeout(tapTimer);
+    press = undefined;
+    delayed = undefined;
+  }
+  // Pointer events from X scripts cannot arm or complete a payment. Any second press on
+  // the same flower during the double-click interval cancels the first tap as well.
+  doc.addEventListener('pointerdown', event => {
+    if (!event.isTrusted) return;
+    ignorePointer = delayed && event.composedPath().includes(delayed) ? event.pointerId : undefined;
+    cancelGesture();
+  }, true);
+  doc.addEventListener('pointermove', event => {
+    if (event.isTrusted && press && event.pointerId === press.id && !press.released &&
+        Math.hypot(event.clientX - press.x, event.clientY - press.y) > 6) cancelGesture();
+  }, true);
+  doc.addEventListener('pointerup', event => {
+    if (!event.isTrusted || !press || event.pointerId !== press.id) return;
+    clearTimeout(holdTimer);
+    if (event.isPrimary && event.button === 0 && event.composedPath().includes(press.node) &&
+      Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 6) press.released = true;
+    else cancelGesture();
+  }, true);
+  doc.addEventListener('pointercancel', cancelGesture, true);
+  doc.addEventListener('scroll', cancelGesture, { capture: true, passive: true });
+  doc.defaultView?.addEventListener('scroll', cancelGesture, { passive: true });
+  doc.defaultView?.addEventListener('blur', cancelGesture);
+  doc.addEventListener('visibilitychange', cancelGesture);
   let popover: HTMLElement | undefined, opener: HTMLElement | undefined;
   let poll: ReturnType<typeof setTimeout> | undefined;
   // One fiat rate per page, for showing tip amounts in the chosen currency or the browser's region's.
@@ -133,7 +168,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     if (returnFocus && opener?.isConnected) opener.focus({ preventScroll: true });
     opener = undefined;
   }
-  function button(handle: string, post: Post | undefined, placement: 'profile' | 'post') {
+  function button(handle: string, post: Post | undefined, placement: 'profile' | 'post', article?: Element, parent?: Element) {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
@@ -152,8 +187,80 @@ export function createTipButtons(send: Send, doc: Document = document) {
       (placement === 'profile' ? PILL : 'background:none;border:0;font:13px/1 system-ui;padding:0 10px');
     // In a pill the flower matches the label's size; on posts it matches X's action icons.
     if (placement === 'profile') Object.assign(node.querySelector('svg')!.style, { width: '16px', height: '16px' });
-    node.addEventListener('click', (event) => {
-      if (!event.isTrusted) return;
+    if (quickTip && post && article && target) {
+      node.style.setProperty('touch-action', 'manipulation');
+      node.style.setProperty('user-select', 'none');
+      node.style.setProperty('-webkit-touch-callout', 'none');
+      node.title += ' · Hold or Shift-click for tip options';
+      node.setAttribute('aria-label', node.title);
+      const key = locationKey({ pubkey: target.pubkey, post: post.id });
+      const settings = quickTip;
+      const flower = node.querySelector('svg')!;
+      const currentPost = () => {
+        const link = xPermalink(postTime(article)?.closest('a')?.getAttribute('href') ?? '');
+        return node.isConnected && node.closest('article') === article && node.parentElement === parent && author(article) === handle &&
+          link?.author === handle && link.id === post.id && targets.get(handle)?.pubkey === target.pubkey && quickTip === settings;
+      };
+      const currentHit = (x: number, y: number) => {
+        if (!currentPost() || doc.hidden || !node.contains(doc.elementFromPoint(x, y))) return false;
+        const rect = flower.getBoundingClientRect(), bounds = article.getBoundingClientRect();
+        if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return false;
+        // Check the visible flower itself, including its small padding hit area. An unrelated
+        // or stretched element elsewhere on the page can never stand in for this gesture.
+        return rect.width >= 12 && rect.height >= 12 && rect.width <= 40 && rect.height <= 40 &&
+          x >= rect.left - 12 && x <= rect.right + 12 && y >= rect.top - 6 && y <= rect.bottom + 6 &&
+          flower.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) === true;
+      };
+      const modified = (event: MouseEvent) => event.shiftKey || event.ctrlKey || event.altKey || event.metaKey;
+      const canQuickTip = () => amounts.get(key) === 0 && !started.has(key);
+      node.addEventListener('pointerdown', event => {
+        if (!event.isTrusted || !event.isPrimary || event.button !== 0 || event.buttons !== 1 ||
+          ignorePointer === event.pointerId || modified(event) || !canQuickTip() || !currentHit(event.clientX, event.clientY)) return;
+        const gesture = { node, id: event.pointerId, x: event.clientX, y: event.clientY, released: false };
+        press = gesture;
+        holdTimer = setTimeout(() => {
+          if (press !== gesture || gesture.released) return;
+          cancelGesture();
+          if (currentHit(gesture.x, gesture.y)) void open(node, handle, post);
+        }, 500);
+      });
+      node.addEventListener('contextmenu', event => {
+        if (event.isTrusted && currentPost()) {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelGesture();
+          if (opener !== node) void open(node, handle, post);
+        }
+      });
+      node.addEventListener('click', event => {
+        if (!event.isTrusted) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!currentPost() || event.detail > 1) return;
+        // Keyboard/assistive activation and modifier clicks always choose a payment in the menu.
+        if (event.detail === 0 || modified(event) || !canQuickTip() || typeof flower.checkVisibility !== 'function') {
+          cancelGesture();
+          void open(node, handle, post);
+          return;
+        }
+        if (!press?.released || press.node !== node || !currentHit(event.clientX, event.clientY)) return;
+        const {x, y} = press;
+        cancelGesture();
+        delayed = node;
+        tapTimer = setTimeout(async () => {
+          delayed = undefined;
+          if (!currentHit(x, y) || !canQuickTip()) return;
+          started.add(key);
+          const reply = await send({type: 'quickTip', account: settings.account, sats: settings.sats, handle, pubkey: target.pubkey, post: post.id}).catch(() => undefined);
+          if (!currentPost()) return;
+          checked.delete(key);
+          markVisible([{pubkey: target.pubkey, post: post.id}]);
+          if (!reply?.ok || (reply.value as {state?: string})?.state !== 'opened')
+            void open(node, handle, post, reply?.ok ? undefined : reply?.error ?? 'Quick tip unavailable. Choose a payment below.');
+        }, 500);
+      });
+    } else node.addEventListener('click', event => {
+      if (!event.isTrusted || !node.isConnected) return;
       event.preventDefault();
       event.stopPropagation();
       void open(node, handle, post);
@@ -186,6 +293,11 @@ export function createTipButtons(send: Send, doc: Document = document) {
       .row{display:flex;gap:6px}.cashu{width:100%;margin-bottom:8px}.kind{margin:-3px 0 9px}
       button,a{flex:1;font:600 13px system-ui;border-radius:8px;padding:7px 0;cursor:pointer;
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
+      .custom{display:flex;gap:6px;margin:8px 0 0}.custom input{box-sizing:border-box;min-width:0;flex:1;padding:7px 8px;
+        border-radius:8px;border:1px solid #8993a2;background:transparent;color:inherit;font:13px system-ui}
+      .custom button{flex:0 0 auto;padding:7px 10px}
+      .method{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-size:13px}
+      .method select{flex:1;min-width:0;background:transparent;color:inherit;border:1px solid #8993a2;border-radius:6px;padding:4px}
       button.alt{background:none;color:inherit;border-color:#dce2ec}
       button.balance{display:block;margin:8px 0 0;padding:2px 0;background:none;border:0;color:inherit;text-decoration:underline;text-underline-offset:3px}
       .qr{width:176px;height:176px;margin:4px auto 12px;background:#fff;border-radius:8px;padding:6px}
@@ -237,29 +349,48 @@ export function createTipButtons(send: Send, doc: Document = document) {
     return node;
   }
 
-  async function open(anchor: HTMLElement, handle: string, post: Post | undefined) {
+  async function open(anchor: HTMLElement, handle: string, post: Post | undefined, quickError?: string) {
     const target = targets.get(handle);
     if (!target) return;
     const { box, dialog, show } = popoverAt(anchor, 'Tip');
+    function explainFailure() {
+      if (!quickError) return;
+      const error = doc.createElement('p');
+      error.setAttribute('role', 'alert');
+      error.textContent = quickError;
+      box.prepend(error);
+    }
     const key = locationKey({ pubkey: target.pubkey, post: post?.id });
     show('<p>Checking X proof and Lightning address…</p><small></small>');
+    explainFailure();
     if (amounts.get(key)) box.querySelector('small')!.textContent = 'You tipped ' + satLabel(amounts.get(key)!);
     const reply = await send({ type: 'tipProfile', handle }).catch(() => undefined);
     if (dialog !== popover) return;
     const recipient = reply?.value as { pubkey: string; lightning: string; walletEnabled?: boolean } | undefined;
     if (!reply?.ok || !recipient?.lightning || recipient.pubkey !== target.pubkey) {
-      box.querySelector('p')!.textContent = reply?.error ?? 'This account has no current verified Lightning address.';
+      box.querySelector('p:not([role=alert])')!.textContent = reply?.error ?? 'This account has no current verified Lightning address.';
       return;
     }
-    show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><small class="onNostr"></small><small class="address"><span></span><button class="alt">Copy</button></small>');
+    show('<p>Tip @' + handle + ' with Bitcoin</p><div class="row"></div><form class="custom" novalidate><input aria-label="Custom amount in sats" placeholder="Custom amount (sats)" inputmode="numeric" autocomplete="off"><button class="alt" type="submit">Continue</button></form><small class="amountError" role="status"></small><small class="onNostr"></small><small class="address"><span></span><button class="alt">Copy</button></small>');
+    explainFailure();
     // Paying the lightning address directly also works, without the zap.
     box.querySelector('.address span')!.textContent = recipient.lightning;
     box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(recipient.lightning));
     const row = box.querySelector('.row')!;
+    let balanceSats: number | undefined;
+    let method: HTMLSelectElement | undefined;
     if (recipient.walletEnabled) {
       void send({type: 'tipBalance'}).then(result => {
         const sats = result?.value;
         if (dialog !== popover || !row.isConnected || !result?.ok || typeof sats !== 'number' || !Number.isSafeInteger(sats) || sats < 0) return;
+        balanceSats = sats;
+        if (sats > 0) {
+          const label = doc.createElement('label');
+          label.className = 'method';
+          label.innerHTML = 'Pay with <select><option value="cashu">Cashu wallet</option><option value="external">External wallet</option></select>';
+          method = label.querySelector('select')!;
+          row.before(label);
+        }
         const balance = doc.createElement('button');
         balance.type = 'button';
         balance.className = 'balance';
@@ -271,7 +402,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
           if (opened?.ok && dialog === popover) close();
           else balance.textContent = opened?.error ?? 'Could not open wallet';
         });
-        row.after(balance);
+        box.querySelector('.amountError')!.after(balance);
       }).catch(() => {});
     }
     const currentRate = rate ??= send({ type: 'tipRate', currency })
@@ -300,65 +431,95 @@ export function createTipButtons(send: Send, doc: Document = document) {
     void history().then(found => {
       if (found) { display(found, null); void currentRate.then(perBitcoin => display(found, perBitcoin)); }
     });
-    void currentRate.then((perBitcoin) => {
+    let choosing = false;
+    const choose = async (sats: number, label: string) => {
+      if (choosing || dialog !== popover) return;
+      choosing = true;
+      const selected = method?.value;
+      const review = selected === 'cashu' && balanceSats !== undefined && sats <= balanceSats;
+      show('<p>Getting an invoice…</p>');
+      const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
       if (dialog !== popover) return;
+      const issued = reply?.value as Pick<IssuedInvoice, 'invoice' | 'kind'> | undefined;
+      if (!reply?.ok || typeof issued?.invoice !== 'string') {
+        box.textContent = '';
+        const error = doc.createElement('p');
+        error.textContent = reply?.error ?? 'Social Backup is unavailable.';
+        box.append(error);
+        return;
+      }
+      const invoice = issued.invoice;
+      if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
+      // The ordinary menu always opens a review before a Cashu payment can proceed.
+      let reviewStatus = '';
+      if (review) {
+        const opened = await send({ type: 'openTipWallet', invoice }).catch(() => undefined);
+        if (dialog !== popover) return;
+        reviewStatus = opened?.ok ? 'Review this payment in Social Backup.' : opened?.error ?? 'Could not open the wallet. You can use the invoice below.';
+      }
+      // Scan with a phone wallet, or open the wallet on this computer.
+      let image = '';
+      try {
+        const qr = qrcode(0, 'M');
+        qr.addData('LIGHTNING:' + invoice.toUpperCase(), 'Alphanumeric');
+        qr.make();
+        image = '<div class="qr" role="img" aria-label="Invoice QR code">' + qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) + '</div>';
+      } catch { /* A long invoice can still be opened or copied. */ }
+      show('<p>Pay <b></b> to @' + handle + '</p>' +
+        (issued.kind === 'lightning' ? '<small class="kind">Lightning tip · no public zap receipt</small>' : '') +
+        (recipient.walletEnabled && selected !== 'external' ? '<button class="cashu">Review in Cashu</button>' : '') +
+        image + '<div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div><small role="status"></small>');
+      box.querySelector('b')!.textContent = label;
+      box.querySelector('[role=status]')!.textContent = reviewStatus;
+      box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
+      box.querySelector('.alt')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
+      const cashu = box.querySelector<HTMLButtonElement>('.cashu');
+      cashu?.addEventListener('click', async () => {
+        cashu.disabled = true;
+        const opened = await send({ type: 'openTipWallet', invoice }).catch(() => undefined);
+        cashu.disabled = false;
+        const status = box.querySelector('[role=status]');
+        if (status) status.textContent = opened?.ok ? 'Review this payment in Social Backup.' : opened?.error ?? 'Could not open the wallet.';
+      });
+      // A new tip by someone else is never evidence that this particular invoice was paid.
+      let remaining = 24;
+      const check = async () => {
+        if (dialog !== popover) return;
+        const found = await history(invoice);
+        if (dialog !== popover) return;
+        if (found) {
+          display(found, await currentRate);
+          if (found.paid) return show('<p>Your tip arrived.</p>');
+        }
+        if (--remaining > 0) poll = setTimeout(() => void check(), 5000);
+      };
+      poll = setTimeout(() => void check(), 5000);
+    };
+    const form = box.querySelector<HTMLFormElement>('.custom')!, input = form.querySelector('input')!;
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const raw = input.value.trim(), sats = Number(raw);
+      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(sats) || sats < 1 || sats > 1_000_000) {
+        input.setAttribute('aria-invalid', 'true');
+        box.querySelector('.amountError')!.textContent = 'Enter a whole number from 1 to 1,000,000 sats.';
+        input.focus();
+        return;
+      }
+      void choose(sats, satLabel(sats));
+    });
+    input.addEventListener('input', () => {
+      input.removeAttribute('aria-invalid');
+      box.querySelector('.amountError')!.textContent = '';
+    });
+    void currentRate.then((perBitcoin) => {
+      if (dialog !== popover || !row.isConnected) return;
       if (!perBitcoin) rate = undefined;
       const presets = perBitcoin ? tipPresets(currency, perBitcoin).map(({ sats, fiat }) => ({ sats, label: formatFiat(fiat, currency) }))
         : [21, 100, 1000].map(sats => ({ sats, label: satLabel(sats) }));
       presets.forEach(({ sats, label }, i) => {
         const choice = doc.createElement('button');
         choice.textContent = EMOJI[i] + ' ' + label;
-        choice.addEventListener('click', async () => {
-          show('<p>Getting an invoice…</p>');
-          const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
-          if (dialog !== popover) return;
-          const issued = reply?.value as Pick<IssuedInvoice, 'invoice' | 'kind'> | undefined;
-          if (!reply?.ok || typeof issued?.invoice !== 'string') {
-            box.textContent = '';
-            const error = doc.createElement('p');
-            error.textContent = reply?.error ?? 'Social Backup is unavailable.';
-            box.append(error);
-            return;
-          }
-          const invoice = issued.invoice;
-          if (!/^ln[a-z0-9]+$/i.test(invoice)) return show('<p>The invoice is not valid.</p>');
-          // Scan with a phone wallet, or open the wallet on this computer.
-          let image = '';
-          try {
-            const qr = qrcode(0, 'M');
-            qr.addData('LIGHTNING:' + invoice.toUpperCase(), 'Alphanumeric');
-            qr.make();
-            image = '<div class="qr" role="img" aria-label="Invoice QR code">' + qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }) + '</div>';
-          } catch { /* A long invoice can still be opened or copied. */ }
-          show('<p>Pay <b></b> to @' + handle + '</p>' +
-            (issued.kind === 'lightning' ? '<small class="kind">Lightning tip · no public zap receipt</small>' : '') +
-            (recipient.walletEnabled ? '<button class="cashu">Pay with Cashu</button>' : '') +
-            image + '<div class="row"><a>Open wallet</a><button class="alt">Copy invoice</button></div><small role="status"></small>');
-          box.querySelector('b')!.textContent = label;
-          box.querySelector('a')!.setAttribute('href', 'lightning:' + invoice);
-          box.querySelector('.alt')!.addEventListener('click', () => void navigator.clipboard.writeText(invoice));
-          const cashu = box.querySelector<HTMLButtonElement>('.cashu');
-          cashu?.addEventListener('click', async () => {
-            cashu.disabled = true;
-            const opened = await send({ type: 'openTipWallet', invoice }).catch(() => undefined);
-            cashu.disabled = false;
-            const status = box.querySelector('[role=status]');
-            if (status) status.textContent = opened?.ok ? 'Review this payment in Social Backup.' : opened?.error ?? 'Could not open the wallet.';
-          });
-          // A new tip by someone else is never evidence that this particular invoice was paid.
-          let remaining = 24;
-          const check = async () => {
-            if (dialog !== popover) return;
-            const found = await history(invoice);
-            if (dialog !== popover) return;
-            if (found) {
-              display(found, perBitcoin);
-              if (found.paid) return show('<p>Your tip arrived.</p>');
-            }
-            if (--remaining > 0) poll = setTimeout(() => void check(), 5000);
-          };
-          poll = setTimeout(() => void check(), 5000);
-        });
+        choice.addEventListener('click', () => void choose(sats, label));
         row.append(choice);
       });
     });
@@ -410,7 +571,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       if (post) visible.push({ pubkey: target.pubkey, post: post.id });
       if (current) continue;
       const bar = Array.from(article.querySelectorAll('[role="group"]')).filter((g) => g.closest('article') === article).at(-1);
-      (bar ?? article).append(button(handle, post, 'post'));
+      (bar ?? article).append(button(handle, post, 'post', article, bar ?? article));
     }
     // On the name row, after the name and badges, rather than on a line of its own.
     if (name) for (const old of name.querySelectorAll('button[' + MARK + ']'))
@@ -424,7 +585,10 @@ export function createTipButtons(send: Send, doc: Document = document) {
     }
     markVisible(visible);
   }
-  function reset() {
+  function reset(nextQuickTip?: CaptureConfig['quickTip']) {
+    quickTip = nextQuickTip;
+    cancelGesture();
+    started.clear();
     close();
     targets.clear();
     asking.clear();
@@ -444,5 +608,9 @@ export function createTipButtons(send: Send, doc: Document = document) {
     rate = undefined;
     totals.clear();
   }
-  return { scan, reset, useCurrency };
+  function useQuickTip(next: CaptureConfig['quickTip']) {
+    if (quickTip?.account === next?.account && quickTip?.sats === next?.sats) return;
+    reset(next);
+  }
+  return { scan, reset, useCurrency, useQuickTip };
 }

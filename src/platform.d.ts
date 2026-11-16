@@ -3,6 +3,7 @@ import type { TabReport } from './site-status.ts';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
 
 export interface Tab {
+  windowId?: number;
   id?: number;
   index?: number;
   url?: string;

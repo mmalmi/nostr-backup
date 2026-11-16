@@ -211,6 +211,7 @@ function startCapture() {
         return;
       }
       const next = reply.value;
+      const quickTip = next.tips && next.quickTip?.account === next.pubkey ? next.quickTip : undefined;
       if (
         !config ||
         config.capture !== next.capture ||
@@ -220,7 +221,7 @@ function startCapture() {
         config.pubkey !== next.pubkey ||
         config.handle !== next.handle
       ) {
-        tips?.reset();
+        tips?.reset(quickTip);
         tips?.useCurrency(next.tipCurrency);
         marks.reset();
         pending.clear();
@@ -232,7 +233,7 @@ function startCapture() {
           const accept = (posts: SocialCapture[]) => { if (config === next) enqueue(posts); };
           collector = network === 'instagram' ? createInstagramCollector(accept) : createFacebookCollector(accept);
         }
-      }
+      } else tips?.useQuickTip(quickTip);
       collect();
       if (config?.tips) tips?.scan(config.handle);
       look();

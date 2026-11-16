@@ -28,6 +28,7 @@ export interface Settings {
   tipButtons?: boolean;
   walletEnabled?: boolean;
   walletAutoReceive?: boolean;
+  quickTipSats?: number;
   /** Mark the user's own posts on X, Facebook and Instagram once they are in the backup. On unless turned off. */
   markSaved?: boolean;
   /** The currency tip amounts are shown in. Empty or missing follows the browser's region. */
@@ -222,6 +223,7 @@ export interface CaptureConfig {
   capture: boolean;
   pubkey?: string;
   tips?: boolean;
+  quickTip?: {account: string; sats: number};
   /** Mark the account's own posts that are in the backup. */
   marks?: boolean;
   tipCurrency?: string;
@@ -248,6 +250,7 @@ export interface Payloads extends WalletRPC {
   receivingAddress: { enabled: boolean };
   openTipWallet: { invoice?: string };
   tipBalance: {};
+  quickTip: {account: string; handle: string; pubkey: string; post: string; sats: number};
   tipMarks: { targets: {pubkey: string; post?: string}[] };
   resolveImage: { url: string };
   status: {};
@@ -298,6 +301,7 @@ export type Message<K extends Action = Action> = {
 }[K];
 interface ActionResults extends WalletResults {
   tipBalance: number;
+  quickTip: {state: 'opened' | 'already'};
   tipMarks: number[];
   resolveImage: string;
   exportPrivateKey: string;

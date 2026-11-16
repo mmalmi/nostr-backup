@@ -5,8 +5,18 @@
   import type { Result } from '../types.ts';
   import { api, downloadBlob, send } from '../ui.ts';
   import { paymentConsent } from '../tip-consent.ts';
+  import { quickTipFeeLimit } from '../quick-tip.ts';
 
-  const tipId = location.hash.slice(1);
+  const [tipId, ...quickParts] = location.hash.slice(1).split('?');
+  let quickToken = quickParts.length === 1 && /^[0-9a-f-]{36}$/.test(tipId)
+    ? /^quick=([0-9a-f]{32})$/.exec(quickParts[0])?.[1] : undefined;
+  const quickPopup = !!quickToken;
+  // The grant belongs to this opening only. Reloads and history entries get ordinary review.
+  if (quickToken) {
+    try { history.replaceState(history.state, '', '#' + tipId); }
+    catch { quickToken = undefined; }
+  }
+  const initialHash = location.hash;
   const amount = (sats: number) => sats.toLocaleString() + (sats === 1 ? ' sat' : ' sats');
   let account = '';
   let identity = $state<Result<'walletIdentity'>>();
@@ -22,6 +32,11 @@
   let withdrawal = $state(''), backupPass = $state(''), confirmPass = $state('');
   let restorePass = $state(''), restoreFile = $state<File>();
   let generation = 0, quotedOnOpen = false;
+  let quickAmount = $state<number | undefined>(), secondsLeft = $state(0);
+  let quickTimer: number | undefined, quickPending = false;
+  let feeNotice = $state('');
+  const validQuickAmount = $derived(quickAmount !== undefined && Number.isSafeInteger(quickAmount) &&
+    quickAmount >= 1 && quickAmount <= 1_000_000);
 
   const payment = $derived(wallet?.payments.find(item => item.id === paymentId));
   const funding = $derived(wallet?.funding.find(item => item.id === fundingId));
@@ -41,6 +56,7 @@
   });
 
   function forget() {
+    stopQuick();
     wallet = undefined;
     tip = undefined;
     incoming = undefined;
@@ -58,6 +74,8 @@
     const version = ++generation;
     const current = await send('walletIdentity');
     if (version !== generation) return;
+    if (identity && (current.pubkey !== identity.pubkey || current.quickTipSats !== identity.quickTipSats ||
+        current.enabled !== identity.enabled || current.unlocked !== identity.unlocked)) stopQuick();
     identity = current;
     if (account && current.pubkey !== account) switched = true;
     if (!current.pubkey || !current.unlocked || !current.enabled || switched) {
@@ -78,7 +96,11 @@
       const review = await send('walletReview', { id: tipId, account });
       if (version === generation && review.account === account) tip = review;
     }
-    // Opening this trusted confirmation page asks the mint for a fee. Only Confirm can pay it.
+    if (quickPending && status.payments.some(item => item.id === tipId && item.state === 'paid')) {
+      quickPending = false;
+      window.close();
+    }
+    // Preparing a quote never pays it.
     if (version === generation && tip && !quotedOnOpen && !busy && status.mint &&
         status.balance >= tip.sats && !status.payments.some(item => item.id === tipId)) {
       quotedOnOpen = true;
@@ -97,7 +119,7 @@
     busy = true;
     failure = message = '';
     try { await action(); }
-    catch (error) { failure = (error as Error).message; }
+    catch (error) { stopQuick(); failure = (error as Error).message; }
     finally { await refresh(); busy = false; }
   }
 
@@ -105,7 +127,10 @@
     void refresh();
     // An approval from a previous profile must disappear when the active account changes.
     api.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.settingsChanged) void refresh();
+      if (area === 'local' && changes.settingsChanged) {
+        stopQuick();
+        void refresh();
+      }
     });
     const onFocus = () => { if (!busy) void refresh(); };
     // Status reads stay on device. A visible, explicitly opened invoice can check its own mint quote.
@@ -127,15 +152,94 @@
       } catch { /* Manual checks remain available if the mint is offline. */ }
       finally { checking = false; }
     }, 15000);
-    const onHash = () => location.reload();
+    const onHash = () => {
+      if (location.hash !== initialHash) { stopQuick(); location.reload(); }
+    };
+    const onVisibility = () => { if (document.visibilityState !== 'visible') stopQuick(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && secondsLeft && !busy) cancel();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', stopQuick);
+    window.addEventListener('pagehide', stopQuick);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', onFocus);
     window.addEventListener('hashchange', onHash);
     return () => {
+      stopQuick();
       window.clearInterval(timer);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', stopQuick);
+      window.removeEventListener('pagehide', stopQuick);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('hashchange', onHash);
     };
   });
+
+  function stopQuick() {
+    quickToken = undefined;
+    if (quickTimer !== undefined) window.clearInterval(quickTimer);
+    quickTimer = undefined;
+    secondsLeft = 0;
+  }
+
+  function inForeground() {
+    return document.visibilityState === 'visible' && document.hasFocus();
+  }
+
+  // Wait for the complete recipient and quote to be rendered before starting the cancel window.
+  $effect(() => {
+    if (!quickToken || busy || loading) return;
+    if (tip && identity?.quickTipSats === tip.sats && payment?.state === 'ready' &&
+        payment.fee > quickTipFeeLimit(tip.sats)) {
+      feeNotice = 'The fee exceeds your one-click limit of ' + amount(quickTipFeeLimit(tip.sats)) + '.';
+    }
+    if (!inForeground() || !canOpen || !tip?.post || tip.id !== tipId || tip.account !== account ||
+        tip.sats !== identity?.quickTipSats || !wallet?.mint || !payment ||
+        payment.id !== tipId || payment.state !== 'ready' || payment.invoice !== tip.invoice ||
+        payment.sats !== tip.sats || !Number.isSafeInteger(payment.fee) || payment.fee < 0 ||
+        payment.fee > quickTipFeeLimit(tip.sats)) {
+      stopQuick();
+      return;
+    }
+    if (quickTimer !== undefined) return;
+    const fee = payment.fee, sats = tip.sats, invoice = payment.invoice, owner = account;
+    let elapsed = 0, previous = Date.now();
+    secondsLeft = 3;
+    quickTimer = window.setInterval(() => {
+      const now = Date.now(), step = now - previous;
+      // A suspended tab, sleeping computer, or stalled event loop must not finish the countdown.
+      if (!inForeground() || step < 0 || step > 750 || busy || !quickToken || !canOpen ||
+          identity?.pubkey !== owner || identity.quickTipSats !== sats || payment?.id !== tipId ||
+          payment.state !== 'ready' || payment.fee !== fee || payment.invoice !== invoice) {
+        stopQuick();
+        return;
+      }
+      previous = now;
+      elapsed += step;
+      if (elapsed < 2500) {
+        secondsLeft = Math.ceil((2500 - elapsed) / 1000);
+        return;
+      }
+      const token = quickToken;
+      stopQuick();
+      void act(async () => {
+        const result = await send('walletQuickConfirm', { account: owner, id: tipId, token, maxFee: fee });
+        if (result.state === 'paid') window.close();
+        else quickPending = result.state === 'pending';
+      });
+    }, 100);
+  });
+
+  function setQuickAmount(sats: number) {
+    void act(async () => {
+      if (!Number.isSafeInteger(sats) || sats < 0 || sats > 1_000_000) throw Error('Choose 1 to 1,000,000 sats.');
+      await send('walletSetQuickTip', { account, sats });
+      quickAmount = sats || undefined;
+      message = sats ? 'One-click tips saved.' : 'One-click tips turned off.';
+    });
+  }
 
   function preferences(enabled: boolean, autoReceive: boolean) {
     void act(async () => {
@@ -166,6 +270,7 @@
       withdrawal = '';
     }
     section = section === next ? undefined : next;
+    if (section === 'settings') quickAmount = identity?.quickTipSats || undefined;
     failure = message = '';
     if (next === 'fund') fundingId = '';
     if (!tipId && next === 'withdraw') paymentId = '';
@@ -197,6 +302,7 @@
   }
 
   function confirm() {
+    stopQuick();
     if (!payment || payment.state !== 'ready') return;
     const { id, fee } = payment;
     void act(async () => { await send('walletConfirm', { account, id, maxFee: fee }); });
@@ -209,11 +315,13 @@
   }
 
   function cancel() {
+    stopQuick();
     if (!payment) return;
     const { id } = payment;
     void act(async () => {
       await send('walletCancel', { account, id });
       message = 'Payment canceled.';
+      if (quickPopup && id === tipId) window.close();
     });
   }
 
@@ -297,9 +405,9 @@
       {:else}
         <p>{wallet.mint ? 'Add sats to cover this tip and its fee.' : 'Choose a mint and add sats to pay this tip.'}</p>
       {/if}
-      {#if wallet.mint && (payment || wallet.balance >= tip.sats)}
+      {#if !secondsLeft && wallet.mint && (payment || wallet.balance >= tip.sats)}
         <div class="tipFooter"><small>Available balance · {amount(wallet.balance)}</small>
-          <button class="quiet" aria-expanded={manageVisible} disabled={busy} onclick={() => manage = !manage}>Manage wallet</button>
+          <button class="quiet" aria-expanded={manageVisible} disabled={busy} onclick={() => { stopQuick(); manage = !manage; }}>Manage wallet</button>
         </div>
       {/if}
     </section>
@@ -368,6 +476,19 @@
 
   {#if section === 'settings'}
     <section><h2>Wallet settings</h2>
+      <h3>One-click post tips</h3>
+      <p>Click a post’s flower to send your saved amount after a short countdown. Hold the flower to choose an amount. Profiles always open the tip menu.</p>
+      {#if identity.quickTipSats}<p>One-click tips are on at <strong>{amount(identity.quickTipSats)}</strong> per post.</p>{/if}
+      <form onsubmit={(e) => { e.preventDefault(); if (validQuickAmount && quickAmount) setQuickAmount(quickAmount); }}>
+        <label>Sats per tip <input type="number" min="1" max="1000000" step="1" inputmode="numeric" placeholder="21" required bind:value={quickAmount} /></label>
+        {#if validQuickAmount && quickAmount}<p>Maximum fee per tip is {amount(quickTipFeeLimit(quickAmount))}.</p>{/if}
+        <div class="actions">
+          <button disabled={busy || !validQuickAmount || quickAmount === identity.quickTipSats}>
+            {identity.quickTipSats ? 'Save tip amount' : 'Enable one-click tips'}
+          </button>
+          {#if identity.quickTipSats}<button type="button" class="secondary" disabled={busy} onclick={() => setQuickAmount(0)}>Turn off one-click tips</button>{/if}
+        </div>
+      </form>
       <h3>Incoming tips</h3>
       <p>Your npub.cash inbox can receive Lightning payments for this Nostr account. Checking it signs a request to npub.cash.</p>
       <label class="check"><input type="checkbox" checked={identity.autoReceive} disabled={busy}
@@ -459,9 +580,11 @@
       <div><dt>Maximum fee</dt><dd>{amount(payment.fee)}</dd></div>
       <div><dt>Maximum total</dt><dd><strong>{amount(payment.sats + payment.fee)}</strong></dd></div>
     </dl>
+    {#if feeNotice}<p>{feeNotice}</p>{/if}
+    {#if secondsLeft}<p class="quickCountdown" role="status">Sending in {secondsLeft} {secondsLeft === 1 ? 'second' : 'seconds'}…</p>{/if}
     <div class="actions">
-      <button disabled={busy} onclick={confirm}>{tip ? 'Confirm tip' : 'Confirm payment'}</button>
-      <button class="secondary" disabled={busy} onclick={cancel}>Cancel</button>
+      {#if !secondsLeft}<button disabled={busy} onclick={confirm}>{tip ? 'Confirm tip' : 'Confirm payment'}</button>{/if}
+      <button class:secondary={!secondsLeft} disabled={busy} onclick={cancel}>Cancel</button>
     </div>
   {:else if payment?.state === 'pending'}
     <p role="status">Payment in progress. You can close this tab and check it again in wallet activity.</p>
@@ -496,6 +619,7 @@
   details { margin: .8rem 0; }
   summary { color: var(--brand); font-weight: 600; cursor: pointer; }
   h3 { font-size: 1rem; margin-bottom: .3rem; }
+  .quickCountdown { color: var(--ink); font-weight: 600; }
   .paid { color: var(--ok); font-weight: 650; }
   .feedback { position: sticky; bottom: .6rem; margin: .5rem 0; padding: .7rem .9rem; border-radius: 8px; background: var(--ink); color: var(--card); }
   .feedback.error { border-inline-start: .35rem solid var(--danger); }

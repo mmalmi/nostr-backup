@@ -6,6 +6,7 @@ export interface WalletIdentity {
   unlocked: boolean;
   enabled: boolean;
   autoReceive: boolean;
+  quickTipSats?: number;
   lastIncoming?: IncomingSummary;
 }
 export interface IncomingSummary {
@@ -17,6 +18,8 @@ export interface IncomingSummary {
 export interface WalletRPC {
   walletIdentity: {};
   walletPreferences: { enabled: boolean; autoReceive: boolean };
+  walletSetQuickTip: {sats: number};
+  walletQuickConfirm: {id: string; token: string; maxFee: number};
   walletIncoming: {};
   walletDiscoverMint: {};
   walletReview: { id: string };
@@ -37,6 +40,8 @@ type Payment = Awaited<ReturnType<typeof engine.prepareWalletPayment>>;
 export interface WalletResults {
   walletIdentity: WalletIdentity;
   walletPreferences: WalletIdentity;
+  walletSetQuickTip: WalletIdentity;
+  walletQuickConfirm: Payment;
   walletIncoming: IncomingSummary;
   walletDiscoverMint: string;
   walletReview: WalletIntent;

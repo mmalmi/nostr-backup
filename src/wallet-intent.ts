@@ -20,7 +20,7 @@ export async function issuedTip(db: Archive, hash: string) {
   return (await db.get('meta', ['issuedTip', hash])) as WalletIntent | undefined;
 }
 
-export async function rememberInvoice(db: Archive, hash: string, tip: Omit<WalletIntent, 'id'>) {
+export async function rememberInvoice(db: Archive, hash: string, tip: Omit<WalletIntent, 'id'>, quick = false) {
   const tx = db.transaction('meta', 'readwrite');
   const key = ['issuedTip', hash];
   const old = (await tx.store.get(key)) as WalletIntent | undefined;
@@ -35,13 +35,17 @@ export async function rememberInvoice(db: Archive, hash: string, tip: Omit<Walle
       old.sats !== tip.sats
     )
       throw Error('The provider reused an invoice. Choose a new tip.');
-    return;
+    if (quick && tip.post) await tx.store.put([old.id], ['quickPost', tip.post]);
+    await tx.done;
+    return old;
   }
   const id = crypto.randomUUID();
   await tx.store.put({ ...tip, id }, key);
   await tx.store.put([hash], ['walletTip', id]);
+  if (quick && tip.post) await tx.store.put([id], ['quickPost', tip.post]);
   if (tip.verifyUrl) await tx.store.put(true, ['pendingTip', tip.pubkey, tip.post ?? '', hash]);
   await tx.done;
+  return {...tip, id};
 }
 
 // Rotate through pending invoices so an older external payment is still found after later
@@ -99,6 +103,14 @@ export async function reconcileTipInvoices(
       // Retain unsettled records for later checks even if settlement or the provider is slow.
     }),
   );
+}
+
+export async function savedQuickTip(db: Archive, post: string) {
+  const row = (await db.get('meta', ['quickPost', post])) as string[] | undefined;
+  if (!row) return;
+  const tip = await tipById(db, row[0]);
+  if (!tip || tip.post !== post) throw Error('The saved tip could not be reopened. Review wallet activity.');
+  return tip;
 }
 
 export async function tipById(db: Archive, id: string) {

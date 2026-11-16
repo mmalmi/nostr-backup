@@ -10,7 +10,7 @@ Keep a copy of your social posts that you can take with you. Choose your account
 
 When you turn on backup for a social profile, Social Backup can automatically sign and publish confirmed public posts to your Nostr relays and upload public media to your chosen servers. Private or unverified captures stay in your browser and can be exported. Creating a new Nostr profile publishes your chosen name and public key. A public key alone gives you read-only access.
 
-You can use the same Nostr profile to approve sign-ins and signatures on websites, open supported archive images, link your X account, or find people you follow on X. Optional Bitcoin tips on X use Lightning. Turn them on in Sources to see tip buttons. Scrolling matches accounts on your device. Opening a tip checks the X proof and looks up the current Lightning address. You can use an external wallet or enable a local Cashu wallet and confirm the payment and fee in the extension. The flower shows your settled tips. All backup features are free.
+You can use the same Nostr profile to approve sign-ins and signatures on websites, open supported archive images, link your X account, or find people you follow on X. Optional Bitcoin tips on X use Lightning. Turn them on in Sources to see tip buttons. Scrolling matches accounts on your device. Opening a tip checks the X proof and looks up the current Lightning address. Pay a preset or custom amount using a Lightning wallet or the optional local Cashu wallet. For one-click tips on posts, choose your amount in Wallet settings. Hold the flower for other amounts and payment methods. The flower shows your settled tips. All backup features are free.
 
 ## Listing fields
 
