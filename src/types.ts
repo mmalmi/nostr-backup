@@ -1,3 +1,5 @@
+import type { WalletIntent } from './wallet-intent.ts';
+import type { WalletRPC, WalletResults, IncomingSummary } from './wallet-actions.ts';
 import type { RelayDelivery as Delivery } from 'nostr-pubsub';
 import type { XMatch } from './x-identity.ts';
 import type { PageReport } from './site-status.ts';
@@ -24,6 +26,8 @@ export interface Settings {
   skipCrossposts?: boolean;
   /** Show tip buttons on X for people with a verified Nostr profile. Off until enabled. */
   tipButtons?: boolean;
+  walletEnabled?: boolean;
+  walletAutoReceive?: boolean;
   /** Mark the user's own posts on X, Facebook and Instagram once they are in the backup. On unless turned off. */
   markSaved?: boolean;
   /** The currency tip amounts are shown in. Empty or missing follows the browser's region. */
@@ -109,7 +113,7 @@ export interface ArchiveSchema extends DBSchema {
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
   xDirectory: { key: [string, number]; value: import('./x-directory.ts').DirectoryRow; indexes: { handles: string } };
   blocks: { key: string; value: Uint8Array };
-  meta: { key: string | string[]; value: CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink | (Partial<TipTarget> & { at: number }) | { value: number; at: number } };
+  meta: { key: string | string[]; value: IncomingSummary | WalletIntent | CID | IndexPointer | RelayPoll | number | boolean | string[] | XLink | (Partial<TipTarget> & { at: number }) | { value: number; at: number } };
   events: { key: string; value: Event; indexes: { created_at: number } };
   drafts: { key: string; value: Capture | SocialCapture };
   localCaptures: { key: string; value: Capture | SocialCapture };
@@ -169,6 +173,7 @@ export interface Profile {
   picture?: string;
   about?: string;
   lightning?: string;
+  hasLightning?: boolean;
 }
 /** The public profile a new account publishes: a name, and details such as those of its X profile. */
 export interface NewProfile {
@@ -239,7 +244,10 @@ export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' 
   relays: string;
   mediaMiB?: string | number;
 };
-export interface Payloads {
+export interface Payloads extends WalletRPC {
+  receivingAddress: { enabled: boolean };
+  openTipWallet: { invoice: string };
+  tipMarks: { targets: {pubkey: string; post?: string}[] };
   resolveImage: { url: string };
   status: {};
   /** A page asks for its settings and says how the backup of the user's own posts on it is going. */
@@ -278,7 +286,7 @@ export interface Payloads {
   nostrCard: { handle: string };
   xProof: { id?: string; url?: string };
   tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
-  tipPost: { handle: string; post: string; time?: number; text?: string };
+  tipPost: { handle: string; post?: string; time?: number; text?: string; invoice?: string };
   tipRate: { currency: string };
   findXFollows: {};
   followOnNostr: { pubkeys: string[] };
@@ -287,7 +295,8 @@ export type Action = keyof Payloads;
 export type Message<K extends Action = Action> = {
   [T in K]: { type: T; account?: string } & Payloads[T];
 }[K];
-interface ActionResults {
+interface ActionResults extends WalletResults {
+  tipMarks: number[];
   resolveImage: string;
   exportPrivateKey: string;
   listPermissions: { origin: string; kind: number; allow: boolean; label: string }[];
@@ -306,15 +315,15 @@ interface ActionResults {
   followOnNostr: number;
   tipTargets: Record<string, TipTarget | null>;
   unlinkX: void;
-  tipProfile: { pubkey: string; lightning: string };
+  tipProfile: { pubkey: string; lightning: string; walletEnabled?: true };
   nostrLink: { pubkey: string };
   nostrCard: NostrCard | null;
   xProof: void;
   detectAccounts: { x?: string; instagram?: string; instagramProfile?: NewProfile };
   xProfile: Omit<NewProfile, 'name'> & { name: string } | null;
-  tipInvoice: string;
+  tipInvoice: {invoice: string; kind: 'zap' | 'lightning'};
   /** The post's Nostr copy by the verified author, and the tips it has received. */
-  tipPost: { note?: string; sats: number; tips: number };
+  tipPost: import('./tip-history.ts').TipSummary;
   /** Units of the currency per bitcoin, for showing tips in fiat. */
   tipRate: number | null;
 }

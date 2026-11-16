@@ -1,12 +1,19 @@
+import 'fake-indexeddb/auto';
 import test from 'node:test';
+import { PropertySymbol } from 'happy-dom';
+import { signedInvoice, signedZap } from './tip-fixtures.ts';
 import assert from 'node:assert/strict';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { lightningAddress, matchingNote, tipInvoice, zapTotal } from '../src/x-tips.ts';
+import { invoiceDetails, lightningAddress, matchingNote, tipInvoice, verifyTipInvoice } from '../src/x-tips.ts';
 
 const secret = generateSecretKey(), tipper = generateSecretKey();
 const profile = (content: object) => finalizeEvent({ kind: 0, created_at: 1, tags: [], content: JSON.stringify(content) }, secret);
-// A 21 sat invoice: amount 210n in the human-readable part. The rest only needs the right length.
-const invoice = (amount: string) => 'lnbc' + amount + '1p' + 'q'.repeat(60);
+const privateRoot = (element: Element) => Reflect.get(element, PropertySymbol.shadowRoot) as ShadowRoot;
+function userClick(element: Element) {
+  const event = new element.ownerDocument.defaultView!.MouseEvent('click', { bubbles: true, composed: true });
+  Object.defineProperty(event, 'isTrusted', { value: true });
+  element.dispatchEvent(event);
+}
 
 test('a lightning address must look like name@domain', () => {
   assert.equal(lightningAddress(profile({ lud16: 'Alice@Wallet.example' })), 'alice@wallet.example');
@@ -27,7 +34,7 @@ test('a tip zaps the recipient with a signed request and checks the invoice amou
     assert.deepEqual(zap.tags.find(([t]: string[]) => t === 'p'), ['p', getPublicKey(secret)]);
     assert.equal(zap.content, '');
     assert.equal(zap.pubkey, getPublicKey(tipper));
-    return Response.json({ pr: invoice(url.searchParams.get('lie') ? '1000n' : '210n') });
+    return Response.json({ pr: signedInvoice(url.searchParams.get('lie') ? 100 : 21, url.searchParams.get('nostr')!) });
   };
   const options = {
     profile: profile({ lud16: 'alice@wallet.example' }),
@@ -36,11 +43,55 @@ test('a tip zaps the recipient with a signed request and checks the invoice amou
     sign: (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, tipper),
     fetcher,
   };
-  assert.equal(await tipInvoice(options), invoice('210n'));
+  assert.equal(invoiceDetails((await tipInvoice(options)).invoice)?.msats, 21000);
   assert.equal(requests[0], 'https://wallet.example/.well-known/lnurlp/alice');
   // An invoice for a different amount than chosen is refused.
   await assert.rejects(tipInvoice({ ...options, fetcher: (i, init) => fetcher(String(i).includes('/pay') ? String(i) + '&lie=1' : i, init) }), /amount/);
   await assert.rejects(tipInvoice({ ...options, sats: 0 }), /amount/);
+});
+
+test('a text-only Cashu mint invoice is explicitly reissued as ordinary Lightning and authenticated against its exact provider status', async () => {
+  const address = 'alice@wallet.example', verifyUrl = 'https://wallet.example/status';
+  let crossOrigin = false, badCommitment = false, latest = '', substituted = false, settled = false, preimage: string | null = null;
+  const calls: string[] = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    assert.equal(init?.credentials, 'omit');
+    assert.equal(init?.redirect, 'error');
+    if (url.pathname.startsWith('/.well-known/')) return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay',
+      minSendable: 1000, maxSendable: 100000, metadata: '[]', allowsNostr: true, nostrPubkey: getPublicKey(secret) });
+    if (url.pathname === '/pay') {
+      const zap = url.searchParams.has('nostr');
+      calls.push(zap ? 'zap' : 'lightning');
+      latest = signedInvoice(21, zap ? 'Mint quote one' : 'Mint quote two', undefined, !badCommitment);
+      return Response.json({ pr: latest, verify: crossOrigin ? 'https://other.example/status' : verifyUrl });
+    }
+    assert.equal(url.href, verifyUrl);
+    calls.push('verify');
+    return Response.json({ status: 'OK', settled, preimage, pr: substituted ? signedInvoice(21, 'wrong invoice') : latest });
+  };
+  const options = { profile: profile({ lud16: address }), sats: 21, relays: [], fetcher,
+    sign: (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, tipper) };
+  const result = await tipInvoice(options);
+  assert.deepEqual(result, { invoice: latest, kind: 'lightning', verifyUrl });
+  assert.deepEqual(calls, ['zap', 'lightning', 'verify']);
+  settled = true;
+  assert.equal(await verifyTipInvoice(verifyUrl, latest, fetcher), true);
+  preimage = '00'.repeat(32);
+  await assert.rejects(verifyTipInvoice(verifyUrl, latest, fetcher), /invalid payment proof/);
+  preimage = null;
+  await assert.rejects(tipInvoice(options), /new unpaid invoice/);
+  settled = false;
+  substituted = true;
+  await assert.rejects(tipInvoice(options), /confirm this invoice/);
+  substituted = false;
+  crossOrigin = true;
+  await assert.rejects(tipInvoice(options), /signed zap request/);
+  crossOrigin = false;
+  badCommitment = true;
+  calls.length = 0;
+  await assert.rejects(tipInvoice(options), /signed zap request/);
+  assert.deepEqual(calls, ['zap']);
 });
 
 test('tip buttons appear only for verified accounts and open the wallet with a checked invoice', async () => {
@@ -55,11 +106,12 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
   const target = { pubkey: getPublicKey(secret), lightning: 'alice@wallet.example' };
   const tips = createTipButtons(async (message) => {
     sent.push(message as Record<string, unknown>);
+    if (message.type === 'tipMarks') return { ok: true, value: message.targets.map(() => 0) };
     if (message.type === 'tipTargets') return { ok: true, value: { alice: target, bob: null, me: { ...target, lightning: 'me@wallet.example' } } };
-    if (message.type === 'tipProfile') return { ok: true, value: { ...target, lightning: message.handle === 'me' ? 'me@wallet.example' : target.lightning } };
+    if (message.type === 'tipProfile') return { ok: true, value: { ...target, walletEnabled: true, lightning: message.handle === 'me' ? 'me@wallet.example' : target.lightning } };
     if (message.type === 'tipRate') return { ok: true, value: 100000 };
-    if (message.type === 'tipPost') return { ok: true, value: { note: 'ab'.repeat(32), sats: 1234, tips: 3 } };
-    return { ok: true, value: 'lnbc210n1pinvoice' };
+    if (message.type === 'tipPost') return { ok: true, value: { note: 'ab'.repeat(32), sats: 1234, tips: 3, ownSats: 0, ownTips: 0 } };
+    return { ok: true, value: { invoice: 'lnbc210n1pinvoice', kind: 'zap' } };
   }, doc);
   try {
     tips.scan('me');
@@ -75,9 +127,11 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     // Scanning again adds nothing and asks about nothing new.
     tips.scan('me');
     assert.equal(doc.querySelectorAll('[data-social-backup-tip]').length, 1);
-    assert.equal(sent.length, 1);
+    assert.deepEqual(sent.map(m => m.type), ['tipTargets', 'tipMarks']);
     (buttons[0] as HTMLElement).click();
-    const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    assert.equal(sent.length, 2); // X cannot initiate a lookup with a synthetic click.
+    userClick(buttons[0]);
+    const box = () => privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
     await new Promise((resolve) => setTimeout(resolve, 10));
     // Amounts are in the page's currency, here 0.10 at 100,000 per bitcoin, with no secondary amount.
     assert.match(box().querySelector('.row button')!.textContent!, /^👍 \D?0[.,]10/);
@@ -88,21 +142,24 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     assert.equal(lookup.post, '9');
     assert.equal(lookup.text, 'Great post');
     assert.equal(lookup.time, Math.floor(Date.parse('2024-01-02T03:04:05Z') / 1000));
-    assert.match(box().querySelector('.onNostr')!.textContent!, /^On Nostr · \D?1[.,]23\D* from 3 tips$/);
+    assert.match(box().querySelector('.onNostr')!.textContent!, /^\D?1[.,]23\D* from 3 other tips$/);
     // Once the popover found the post's tips, its button shows their total.
-    assert.match(buttons[0].textContent!, /^\D?1[.,]23\D*$/);
+    assert.match(privateRoot(buttons[0].querySelector('span')!).textContent!, /^\D?1[.,]23\D*$/);
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'alice', ...target, sats: 100, post: '9' });
     assert.match(box().querySelector('p b')!.textContent!, /^\D?0[.,]10\D*$/);
     assert.doesNotMatch(box().textContent!, /sats/i);
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
+    (box().querySelector('.cashu') as HTMLElement).click();
+    assert.deepEqual(sent.at(-1), { type: 'openTipWallet', invoice: 'lnbc210n1pinvoice' });
     // A QR code lets a phone wallet pay the same invoice.
     assert.ok(box().querySelector('.qr svg'));
     // A click elsewhere closes the popover, which also ends its check for the payment.
     doc.body.click();
     assert.equal(doc.body.lastElementChild!.shadowRoot, null);
   } finally {
+    tips.reset();
     await window.happyDOM.abort();
   }
 });
@@ -121,7 +178,8 @@ test('your own profile keeps a Tip button that pays your own wallet, and your po
     if (message.type === 'tipTargets') return { ok: true, value: { me: target } };
     if (message.type === 'tipProfile') return { ok: true, value: target };
     if (message.type === 'tipRate') return { ok: true, value: 100000 };
-    return { ok: true, value: 'lnbc210n1pinvoice' };
+    if (message.type === 'tipPost') return { ok: true, value: { sats: 0, tips: 0, ownSats: 0, ownTips: 0 } };
+    return { ok: true, value: { invoice: 'lnbc210n1pinvoice', kind: 'zap' } };
   }, doc);
   try {
     tips.scan('me');
@@ -130,15 +188,16 @@ test('your own profile keeps a Tip button that pays your own wallet, and your po
     assert.deepEqual(buttons.map((b) => b.textContent), ['Tip']);
     assert.ok(buttons[0].closest('[data-testid="UserName"]'));
     assert.equal(buttons[0].getAttribute('title'), 'Tip @me with Bitcoin');
-    (buttons[0] as HTMLElement).click();
+    userClick(buttons[0]);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    const box = () => privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
     assert.match(box().querySelector('.address')!.textContent!, /me@wallet\.example/);
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'me', ...target, sats: 100 });
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
   } finally {
+    tips.reset();
     await window.happyDOM.abort();
   }
 });
@@ -164,19 +223,20 @@ test('a verified profile links to its Nostr profile once the proof is checked ag
     assert.deepEqual(pills.map((b) => b.textContent), ['Tip', 'Nostr ↗']);
     // Both pills are the same height, whether or not they have an icon.
     assert.deepEqual(pills.map((b) => (b as HTMLElement).style.height), ['28px', '28px']);
-    const box = () => doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
-    (pills[1] as HTMLElement).click();
+    const box = () => privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
+    userClick(pills[1]);
     await new Promise((resolve) => setTimeout(resolve, 10));
     const link = box().querySelector('a')!;
     assert.equal(link.getAttribute('href'), 'https://iris.to/' + npubEncode(pubkey));
     assert.equal(link.getAttribute('rel'), 'noopener noreferrer');
     // A revoked or changed link shows why instead of linking.
     linked = false;
-    (pills[1] as HTMLElement).click();
+    userClick(pills[1]);
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(box().querySelector('a'), null);
     assert.match(box().textContent!, /changed/);
   } finally {
+    tips.reset();
     await window.happyDOM.abort();
   }
 });
@@ -199,13 +259,14 @@ test('tip amounts use the currency chosen in the Tips settings', async () => {
     tips.useCurrency('JPY');
     tips.scan('me');
     await new Promise((resolve) => setTimeout(resolve, 10));
-    (doc.querySelector('[data-testid="UserName"] button') as HTMLElement).click();
+    userClick(doc.querySelector('[data-testid="UserName"] button')!);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const box = doc.body.lastElementChild!.shadowRoot!.querySelector('.box')!;
+    const box = privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
     // Yen presets are scaled: about ¥10, ¥100 and ¥500.
     assert.match(box.querySelector('.row button')!.textContent!, /¥\s?10\b/);
     assert.deepEqual(rates, ['JPY']);
   } finally {
+    tips.reset();
     await window.happyDOM.abort();
   }
 });
@@ -228,8 +289,42 @@ test('tip buttons still appear if X drops its test IDs and action bar', async ()
     // With no action bar, the button goes at the end of the post.
     assert.equal(doc.querySelector('article > button[data-social-backup-tip]')?.getAttribute('data-social-backup-tip'), 'alice');
   } finally {
+    tips.reset();
     await window.happyDOM.abort();
   }
+});
+
+test('a settled tip marks only its own flower on a new page; scrolling stays local and account changes clear it', async () => {
+  const { Window } = await import('happy-dom');
+  const { article } = await import('./fixtures.ts');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/home' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = article('alice', '9', 'Tipped once') + article('alice', '10', 'Another post');
+  const pubkey = getPublicKey(secret);
+  const actions: string[] = [];
+  let paid = true;
+  const tips = createTipButtons(async message => {
+    actions.push(message.type);
+    if (message.type === 'tipTargets') return { ok: true, value: { alice: { pubkey, proof: '1' } } };
+    if (message.type === 'tipMarks') return { ok: true, value: message.targets.map(t => paid && t.post === '9' ? 21 : 0) };
+    return { ok: false };
+  }, doc);
+  const label = (post: string) => privateRoot(doc.querySelector('[data-social-backup-post="' + post + '"] span')!);
+  try {
+    tips.scan();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(label('9').textContent, '✓');
+    assert.equal(label('9').firstElementChild!.getAttribute('title'), 'You tipped 21 sats');
+    assert.equal(label('10').textContent, '');
+    assert.doesNotMatch(doc.body.innerHTML, /You tipped|✓/);
+    tips.reset();
+    paid = false;
+    tips.scan();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(label('9').textContent, '');
+    assert.deepEqual(actions, ['tipTargets', 'tipMarks', 'tipTargets', 'tipMarks']);
+  } finally { tips.reset(); await window.happyDOM.abort(); }
 });
 
 test('a post matches its tagged Nostr copy, or one from the same minute with the same opening text', () => {
@@ -245,12 +340,70 @@ test('a post matches its tagged Nostr copy, or one from the same minute with the
   assert.equal(matchingNote([near], url, 1000, 'Great'), undefined);
 });
 
-test('only zap receipts signed by the recipient lightning provider count', () => {
-  const provider = generateSecretKey(), faker = generateSecretKey();
-  const receipt = (key: Uint8Array, bolt11: string) => finalizeEvent({ kind: 9735, created_at: 1, content: '', tags: [['bolt11', bolt11]] }, key);
-  const pad = 'q'.repeat(60);
-  assert.deepEqual(zapTotal([receipt(provider, 'lnbc210n1p' + pad), receipt(provider, 'lnbc1u1p' + pad), receipt(faker, 'lnbc1m1p' + pad)], getPublicKey(provider)),
-    { sats: 121, tips: 2 });
+test('verified own receipts and Cashu settlements merge by payment hash and persist offline', async () => {
+  const { openArchive } = await import('../src/archive.ts');
+  const { readTipMarks, settleOwnTip, summarizeTips } = await import('../src/tip-history.ts');
+  const name = 'tip-test-' + crypto.randomUUID();
+  let db = await openArchive(name);
+  const owner = getPublicKey(tipper), pubkey = getPublicKey(secret), provider = generateSecretKey(), note = 'ab'.repeat(32);
+  const target = { pubkey, post: '9', note };
+  const own = signedZap(tipper, provider, pubkey, 21, note), other = signedZap(secret, provider, pubkey, 5, note);
+  const forged = signedZap(tipper, generateSecretKey(), pubkey, 10, note).receipt;
+  const mismatched = finalizeEvent({ ...own.receipt, tags: own.receipt.tags.map(tag =>
+    tag[0] === 'bolt11' ? ['bolt11', other.invoice] : tag) }, provider);
+  const missingRequest = finalizeEvent({ ...own.receipt, tags: own.receipt.tags.filter(t => t[0] !== 'description') }, provider);
+  try {
+    let result = await summarizeTips(db, { ...target, invoice: own.invoice }, owner, [other.receipt, forged, mismatched, missingRequest], getPublicKey(provider));
+    assert.deepEqual(result, { note, tips: 1, sats: 5, ownSats: 0, ownTips: 0, paid: false });
+    const tip = { ...target, paymentHash: invoiceDetails(own.invoice)!.paymentHash, sats: 21 };
+    await Promise.all([settleOwnTip(db, tip), settleOwnTip(db, tip)]);
+    result = await summarizeTips(db, { ...target, invoice: own.invoice }, owner, [own.receipt, other.receipt, own.receipt, other.receipt], getPublicKey(provider));
+    assert.deepEqual(result, { note, tips: 2, sats: 26, ownSats: 21, ownTips: 1, paid: true });
+    db.close();
+    db = await openArchive(name);
+    assert.deepEqual(await readTipMarks(db, [target, { pubkey, post: '10' }, { pubkey }]), [21, 0, 0]);
+    const profileZap = signedZap(tipper, provider, pubkey, 3);
+    const issued = async () => ({ pubkey, post: '10' });
+    const profile = await summarizeTips(db, { pubkey }, owner, [profileZap.receipt], getPublicKey(provider), issued);
+    assert.equal(profile.ownTips, 0);
+    assert.deepEqual(await readTipMarks(db, [{ pubkey, post: '10' }]), [3]);
+    // A profile receipt by somebody else must not mark a post without a matching Nostr copy.
+    assert.equal((await summarizeTips(db, { pubkey, post: '11' }, owner, [profileZap.receipt], getPublicKey(provider))).tips, 0);
+  } finally { db.close(); }
+});
+
+test('external invoice checks rotate across outstanding payments and bind their account and exact target', async () => {
+  const { openArchive } = await import('../src/archive.ts');
+  const { rememberInvoice, reconcileTipInvoices } = await import('../src/wallet-intent.ts');
+  const { readTipMarks } = await import('../src/tip-history.ts');
+  const db = await openArchive('tip-pending-' + crypto.randomUUID());
+  const account = getPublicKey(tipper), pubkey = getPublicKey(secret);
+  const target = { account, pubkey, post: '9' };
+  const invoices: string[] = [], seen: number[] = [];
+  const fetcher = async (input: RequestInfo | URL) => {
+    const index = Number(new URL(String(input)).pathname.slice(1));
+    seen.push(index);
+    return Response.json({ status: 'OK', settled: index === 0, pr: invoices[index], preimage: null });
+  };
+  try {
+    for (let i = 0; i < 9; i++) {
+      const invoice = signedInvoice(21, 'invoice-' + i);
+      invoices.push(invoice);
+      await rememberInvoice(db, invoiceDetails(invoice)!.paymentHash, { ...target, tab: 1, handle: 'alice', lightning: 'alice@wallet.example',
+        sats: 21, invoice, verifyUrl: 'https://wallet.example/' + i });
+    }
+    await reconcileTipInvoices(db, { ...target, post: '10', invoice: invoices[0] }, fetcher);
+    await reconcileTipInvoices(db, { ...target, account: pubkey, invoice: invoices[0] }, fetcher);
+    assert.equal(seen.length, 0);
+    await reconcileTipInvoices(db, { ...target, invoice: invoices[8] }, fetcher);
+    assert.deepEqual(seen, [8]);
+    seen.length = 0;
+    await reconcileTipInvoices(db, target, fetcher);
+    assert.equal(seen.length, 6);
+    await reconcileTipInvoices(db, target, fetcher);
+    assert.equal(new Set(seen).size, 9);
+    assert.deepEqual(await readTipMarks(db, [target]), [21]);
+  } finally { db.close(); }
 });
 
 test('Firefox tips need payment consent, including after revocation', async t => {

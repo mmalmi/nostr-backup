@@ -1,3 +1,4 @@
+import { signedInvoice, signedZap } from './tip-fixtures.ts';
 import type { Filter } from 'nostr-tools/filter';
 import type { Event as NostrEvent } from 'nostr-tools/pure';
 import type { Action, Result, Reply, Message } from '../src/types.ts';
@@ -1408,6 +1409,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const profile = await latestProfile();
   assert.deepEqual(JSON.parse(profile.content), {
     name: 'Example',
+    lud16: npubEncode(owner) + '@npub.cash',
     about: 'Potter. Shop: https://shop.example/',
     picture: copy,
     banner: copy,
@@ -1800,6 +1802,58 @@ test('signing in with an existing key keeps its published X link and profile', a
   }
 });
 
+test('wallet access, automatic inbox checks and public address edits follow account settings', async (t) => {
+  const previous = await success('status');
+  if (previous.conf.pubkey) await success('logout', { pubkey: previous.conf.pubkey });
+  const key = generateSecretKey(), owner = getPublicKey(key);
+  const walletPage = { ...ui, url: ext + 'wallet.html' };
+  const account = { account: owner };
+  const relay = 'wss://wallet-profile.example/';
+  const original = finalizeEvent({kind:0, created_at:100, tags:[['custom','tag']],
+    content:JSON.stringify({name:'Receiver', extra:{color:'green'}})}, key);
+  fixtureRelay(relay).stored.set(original.id, original);
+  let inboxCalls = 0;
+  const oldFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(input).startsWith('https://npub.cash/')) return oldFetch(input, init);
+    inboxCalls++;
+    return Response.json({error:false,data:{quotes:[]},metadata:{total:0}});
+  });
+  await success('login', {key: nsecEncode(key)});
+  try {
+    await success('settings', {pubkey:owner, handle:'',capture:false,relaySync:false,relays:relay});
+    assert.deepEqual(await success('walletIdentity', {}, walletPage), {pubkey:owner, unlocked:true, enabled:false, autoReceive:false});
+    assert.equal((await call('walletPreferences', {...account, enabled:true, autoReceive:true}, x)).ok, false);
+    assert.equal((await call('walletStatus', account, walletPage)).ok, false);
+    assert.equal((await call('walletPreferences', {enabled:true,autoReceive:false}, walletPage)).ok, false);
+    await success('walletPreferences', {...account,enabled:true,autoReceive:false},walletPage);
+    assert.equal((await success('walletStatus',account,walletPage)).balance, 0);
+    api.alarms.onAlarm.list[0]({name:'cashu-wallet'});
+    await success('walletStatus', account, walletPage);
+    assert.equal(inboxCalls,0);
+    await success('walletPreferences',{...account,enabled:true,autoReceive:true},walletPage);
+    api.alarms.onAlarm.list[0]({name:'cashu-wallet'});
+    await until(()=>inboxCalls === 1);
+    assert.equal((await success('walletIdentity',{},walletPage)).enabled,true);
+    await success('walletPreferences',{...account,enabled:false,autoReceive:false},walletPage);
+    assert.equal((await call('walletIncoming',account,walletPage)).ok,false);
+    assert.equal((await call('walletConfirm',{...account,id:'no-payment',maxFee:0},x)).ok,false);
+    assert.equal((await call('walletExport',{...account,passphrase:'test recovery password'},x)).ok,false);
+    assert.equal((await call('receivingAddress',{...account,enabled:true},x)).ok,false);
+    await success('receivingAddress',{...account,enabled:true});
+    assert.equal((await success('status')).profile?.lightning,npubEncode(owner)+'@npub.cash');
+    await success('receivingAddress',{...account,enabled:false});
+    const db = await openArchive((await success('status')).conf.archiveName);
+    try {
+      const latest = (await db.getAll('events')).filter(e=>e.kind===0).sort((a,b)=>b.created_at-a.created_at)[0];
+      assert.deepEqual(JSON.parse(latest.content),JSON.parse(original.content));
+      assert.deepEqual(latest.tags,original.tags);
+    } finally { db.close(); }
+    await success('lock');
+    assert.equal((await call('walletPreferences',{...account,enabled:true,autoReceive:true},walletPage)).ok,false);
+  } finally { await success('logout',{pubkey:owner}); }
+});
+
 test('tips on X go to verified Nostr profiles with a lightning address and can be turned off', async (t) => {
   const secret = generateSecretKey(), owner = getPublicKey(secret);
   const carol = generateSecretKey(), carolKey = getPublicKey(carol);
@@ -1807,8 +1861,8 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
   const relay = fixtureRelay(url);
   const provider = generateSecretKey();
   const copy = finalizeEvent({ kind: 1, created_at: 1700000000, content: 'Hello', tags: [['i', 'https://x.com/carol/status/42']] }, carol);
-  const receipt = (key: Uint8Array) =>
-    finalizeEvent({ kind: 9735, created_at: 6, content: '', tags: [['e', copy.id], ['bolt11', 'lnbc210n1p' + 'q'.repeat(60)]] }, key);
+  const receipt = (key: Uint8Array) => signedZap(carol, key, carolKey, 21, copy.id).receipt;
+  let issuedInvoice = '', settledExternally = false, verificationReads = 0;
   for (const event of [
     finalizeEvent({ kind: 10011, created_at: 5, content: '', tags: [['i', 'twitter:carol', '88']] }, carol),
     finalizeEvent({ kind: 0, created_at: 5, content: JSON.stringify({ name: 'Carol', lud16: 'carol@wallet.example' }), tags: [] }, carol),
@@ -1824,7 +1878,12 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
       return Response.json({ tag: 'payRequest', callback: 'https://wallet.example/pay', minSendable: 1000, maxSendable: 1e9, allowsNostr: true, nostrPubkey: getPublicKey(provider) });
     if (target.pathname === '/pay') {
       zaps.push(JSON.parse(target.searchParams.get('nostr')!));
-      return Response.json({ pr: 'lnbc1u1p' + 'q'.repeat(60) });
+      issuedInvoice = signedInvoice(100, target.searchParams.get('nostr')!);
+      return Response.json({ pr: issuedInvoice, verify: 'https://wallet.example/verify' });
+    }
+    if (target.pathname === '/verify') {
+      verificationReads++;
+      return Response.json({ status: 'OK', settled: settledExternally, pr: issuedInvoice, preimage: null });
     }
     if (target.hostname === 'api.coinbase.com') return Response.json({ data: { currency: 'BTC', rates: { EUR: '90000' } } });
     throw Error('Unexpected fetch ' + target.href);
@@ -1862,12 +1921,21 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
     const recipient = await success('tipProfile', { handle: 'carol' }, page);
     assert.equal(recipient.lightning, 'carol@wallet.example');
     // Opening the popover finds the post's Nostr copy; only the provider's receipt counts.
-    assert.deepEqual(await success('tipPost', { handle: 'carol', post: '42' }, page), { note: copy.id, sats: 21, tips: 1 });
+    assert.deepEqual(await success('tipPost', { handle: 'carol', post: '42' }, page), { note: copy.id, sats: 21, tips: 1, ownSats: 0, ownTips: 0 });
     // 100 sats is 1u in an invoice. The zap goes to the post's note.
-    assert.equal(await success('tipInvoice', { ...recipient, handle: 'carol', sats: 100, post: '42' }, page), 'lnbc1u1p' + 'q'.repeat(60));
+    assert.deepEqual(await success('tipInvoice', { ...recipient, handle: 'carol', sats: 100, post: '42' }, page), { invoice: issuedInvoice, kind: 'zap' });
     assert.equal(zaps[0].pubkey, owner);
     assert.deepEqual((zaps[0].tags as string[][]).find(([t]) => t === 'e'), ['e', copy.id]);
     assert.equal(zaps[0].content, '');
+    // Closing the invoice and reopening the menu still recovers a payment from an external wallet.
+    assert.equal((await success('tipPost', { handle: 'carol', post: '42', invoice: issuedInvoice }, page)).paid, false);
+    settledExternally = true;
+    const history = await success('tipPost', { handle: 'carol', post: '42' }, page);
+    assert.equal(history.ownSats, 100);
+    assert.equal(history.sats, 121);
+    const beforeMarks = [verificationReads, relay.reads.length];
+    assert.deepEqual(await success('tipMarks', {targets: [{pubkey: carolKey, post: '42'}, {pubkey: carolKey}]}, page), [100, 0]);
+    assert.deepEqual([verificationReads, relay.reads.length], beforeMarks);
     const updated = finalizeEvent({ kind: 0, created_at: 6, content: '{"lud16":"other@wallet.example"}', tags: [] }, carol);
     relay.stored.set(updated.id, updated);
     const changed = await call('tipInvoice', { ...recipient, handle: 'carol', sats: 100 }, page);

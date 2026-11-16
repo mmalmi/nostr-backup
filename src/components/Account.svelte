@@ -1,5 +1,7 @@
 <script lang="ts">
   import { npubEncode } from 'nostr-tools/nip19';
+  import { paymentConsent } from '../tip-consent.ts';
+  import { receivingAddress } from '../receiving-address.ts';
   import { secretKey } from '../model.ts';
   import { notice, send } from '../ui.ts';
   import { app, page } from './page.svelte.ts';
@@ -11,6 +13,16 @@
   const unlocked = $derived(!!status?.unlocked);
   const open = $derived(page.section === 'account');
 
+  let updatingAddress = $state(false);
+  async function changeAddress(enabled: boolean) {
+    updatingAddress = true;
+    try {
+      if (enabled && !await paymentConsent(true)) throw Error('Payment permission is needed to publish the address.');
+      await send('receivingAddress', { account: pubkey, enabled });
+      await app.refresh(true);
+      notice(enabled ? 'Receiving address added to your public profile.' : 'Receiving address removed from your public profile.');
+    } finally { updatingAddress = false; }
+  }
   let secret = $state('');
   let unlocking = $state(false);
   let confirmingLogout = $state<string>();
@@ -86,6 +98,14 @@
   <p class="hint">
     Your user ID is safe to share. Keep a copy of your secret key somewhere private. Anyone with it can use your account.
   </p>
+  {#if pubkey && unlocked}
+    {#if status?.profile?.lightning === receivingAddress(pubkey)}
+      <p class="hint">Your public receiving address is {status.profile.lightning}.</p>
+      <button class="secondary" disabled={updatingAddress} onclick={() => run(() => changeAddress(false))}>Remove npub.cash from profile</button>
+    {:else if !status?.profile?.lightning && !status?.profile?.hasLightning}
+      <button class="secondary" disabled={updatingAddress} onclick={() => run(() => changeAddress(true))}>Add npub.cash address to public profile</button>
+    {/if}
+  {/if}
   <form id="unlock" hidden={unlocked} onsubmit={(e) => (e.preventDefault(), run(unlock))}>
     <label
       >Secret key<input

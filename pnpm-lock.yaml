@@ -15,6 +15,15 @@ importers:
 
   .:
     dependencies:
+      '@cashu/cashu-ts':
+        specifier: 5.0.0-rc.4
+        version: 5.0.0-rc.4
+      '@cashu/coco-core':
+        specifier: 2.0.0
+        version: 2.0.0(typescript@5.9.3)
+      '@cashu/coco-indexeddb':
+        specifier: 2.0.0
+        version: 2.0.0(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(typescript@5.9.3))(typescript@5.9.3)
       '@hashtree/core':
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
@@ -30,6 +39,15 @@ importers:
       '@iris/svelte-ui':
         specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz
         version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz(svelte@5.57.3)
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@scure/base':
+        specifier: 2.4.0
+        version: 2.4.0
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -81,6 +99,23 @@ importers:
         version: 8.21.1
 
 packages:
+
+  '@cashu/cashu-ts@5.0.0-rc.4':
+    resolution: {integrity: sha512-6ck7cHdGnvg+ZNGQduaJ5YyNMrLh9Qf1534GR6IxEXX1OuF0SS7I2qXo8p6zD3kRaemynnjJPqjaHgs1EJhAWg==}
+    engines: {node: '>=22.4.0'}
+    deprecated: 'Superseded by a newer release candidate: upgrade with: npm i @cashu/cashu-ts@next'
+
+  '@cashu/coco-core@2.0.0':
+    resolution: {integrity: sha512-pUdY+kygjD0biXz+JsezRt7Hej0JcJteFaX9mBt7mPyhLjRZvwV5XSYkDrzOi4IY22286T44yEiml3wjKTC1Mw==}
+    peerDependencies:
+      typescript: ^5
+
+  '@cashu/coco-indexeddb@2.0.0':
+    resolution: {integrity: sha512-yJnV7OT0AjP2Q51Cn/NEx+SNlnbiWXKc1kLx92AMh6uqQYGVbcF3kfdu42t36rCNMPVROirEr9njr3WSrHqeuw==}
+    peerDependencies:
+      '@cashu/cashu-ts': 5.0.0-rc.4
+      '@cashu/coco-core': 2.0.0
+      typescript: ^5
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -239,11 +274,11 @@ packages:
     os: [win32]
 
   '@fips/tcp@https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz':
-    resolution: {integrity: sha512-0j7ucAgb7SFLkHHKMjJmR4v29psVmGoShiSgpba5IgJqAT/lJGTTKlHoAItKie+oNsiPGf/ww4YMuLTRYov2TA==, tarball: https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz}
+    resolution: {tarball: https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz}
     version: 0.2.3
 
   '@hashtree/collection@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-collection-0.2.11.tgz':
-    resolution: {integrity: sha512-FI6cVBneXSgOEAEeZH6Yv12eC+pZpG2kTCHc9Bt4+bW6Vu0nVNo5V3Gtt5Dk9p8l7G47sq/R9CBbo6A0D+dVwA==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-collection-0.2.11.tgz}
+    resolution: {tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-collection-0.2.11.tgz}
     version: 0.2.11
 
   '@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz':
@@ -255,7 +290,7 @@ packages:
     version: 0.1.13
 
   '@hashtree/index@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz':
-    resolution: {integrity: sha512-EnXs4hE0fxCzQfruEsjO9YVBTpzb3Rr1k1vF6p7gLgpZ2oIEg4DEv/pZji9uj7/qJYqOa+EsZTjA0lT0SZozdA==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz}
+    resolution: {tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz}
     version: 0.1.15
 
   '@hashtree/nostr-pubsub@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz':
@@ -302,6 +337,10 @@ packages:
     resolution: {integrity: sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==}
     engines: {node: '>= 20.19.0'}
 
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@2.0.1':
     resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
     engines: {node: '>= 20.19.0'}
@@ -318,6 +357,9 @@ packages:
 
   '@scure/bip32@2.0.1':
     resolution: {integrity: sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA==}
+
+  '@scure/bip32@2.4.0':
+    resolution: {integrity: sha512-i3DS0CptAocyvqE4n3SUkpzeQK4vJMFwWLofTwRiiKo2aWojBOfyMCgfKw9HVpO6fSY5AK86sHS/Uzn8kK9Few==}
 
   '@scure/bip39@2.0.1':
     resolution: {integrity: sha512-PsxdFj/d2AcJcZDX1FXN3dDgitDDTmwf78rKZq1a6c1P1Nan1X/Sxc7667zU3U+AN60g7SxxP0YCVw2H/hBycg==}
@@ -597,6 +639,28 @@ packages:
 
 snapshots:
 
+  '@cashu/cashu-ts@5.0.0-rc.4':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
+      '@scure/bip32': 2.4.0
+
+  '@cashu/coco-core@2.0.0(typescript@5.9.3)':
+    dependencies:
+      '@cashu/cashu-ts': 5.0.0-rc.4
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/bip32': 2.0.1
+      typescript: 5.9.3
+
+  '@cashu/coco-indexeddb@2.0.0(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(typescript@5.9.3))(typescript@5.9.3)':
+    dependencies:
+      '@cashu/cashu-ts': 5.0.0-rc.4
+      '@cashu/coco-core': 2.0.0(typescript@5.9.3)
+      dexie: 4.4.2
+      typescript: 5.9.3
+
   '@esbuild/aix-ppc64@0.28.1':
     optional: true
 
@@ -748,6 +812,10 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.0.1
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
   '@noble/hashes@2.0.1': {}
 
   '@noble/hashes@2.4.0': {}
@@ -761,6 +829,12 @@ snapshots:
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/base': 2.0.0
+
+  '@scure/bip32@2.4.0':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
 
   '@scure/bip39@2.0.1':
     dependencies:

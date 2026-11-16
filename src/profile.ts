@@ -31,7 +31,7 @@ export function profileFromEvent(event: Event): Profile | undefined {
     const lightning = lightningAddress(event);
     // Enough of the description for a short card; the page clamps it to a few lines.
     const about = typeof data.about === 'string' ? data.about.trim().slice(0, 400) : '';
-    return { name, displayName: text(data.display_name) || name, picture, ...(about ? { about } : {}), ...(lightning ? { lightning } : {}) };
+    return { name, displayName: text(data.display_name) || name, picture, ...(about ? { about } : {}), ...(lightning ? { lightning } : {}), ...(data.lud06 || (data.lud16 && !lightning) ? { hasLightning: true } : {}) };
   } catch {
     return;
   }

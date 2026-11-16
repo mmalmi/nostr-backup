@@ -61,4 +61,5 @@
     X accounts are matched on this device. Opening a tip checks the X proof and the current Lightning address, and
     choosing an amount sends the recipient and amount to their payment provider.
   </p>
+  <a class="button secondary" href="wallet.html" target="_blank" rel="noopener">Open Cashu wallet</a>
 </section>

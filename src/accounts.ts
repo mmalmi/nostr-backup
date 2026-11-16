@@ -9,6 +9,8 @@ import { DEFAULT_BLOSSOM_SERVER, mediaServers, publicMediaURL } from './media-re
 import { DEFAULT_RELAYS } from './default-relays.ts';
 import { accountRecord, writeAccountRecords } from './account-storage.ts';
 
+import { paymentConsent } from './tip-consent.ts';
+import { receivingAddress } from './receiving-address.ts';
 import { saveKey, forgetPermissions } from './signer-storage.ts';
 
 // Post backup starts on for every platform. It begins once the user enters a username.
@@ -94,6 +96,7 @@ export async function login(value: string, profile?: NewProfile) {
   let published: Event | undefined;
   if (profile !== undefined) {
     const content = profileContent(profile);
+    if (await paymentConsent()) content.lud16 = receivingAddress(pubkey);
     const db = await openArchive(conf.archiveName);
     try {
       if (await db.count('events'))

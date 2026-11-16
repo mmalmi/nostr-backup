@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { paymentConsent } from '../tip-consent.ts';
   import { tick } from 'svelte';
   import { handlePattern, loginKey } from '../model.ts';
   import { socialSettings } from '../social.ts';
@@ -22,6 +23,7 @@
   const touched = new Set<keyof NewProfile>();
   let filledFrom = '';
   let loading = $state(false);
+  let publishAddress = $state(false);
   let signingIn = false;
   let keyDisabled = $state(false);
   // A pasted user ID waits here until you choose read-only mode or your secret key instead.
@@ -88,6 +90,7 @@
   async function show(next: typeof step) {
     if (step !== 'signin') previous = step;
     step = next;
+    if (next === 'profile') publishAddress = await paymentConsent().catch(() => false);
     notice('');
     await tick();
     focus();
@@ -281,7 +284,7 @@
       </p>
     {/if}
   </div>
-  <p class="hint">Signing up publishes this profile to Nostr, with its own copies of your pictures. Your secret key is stored on this device.</p>
+  <p class="hint">Signing up publishes this profile to Nostr. {#if publishAddress}It includes your npub.cash receiving address, which you can remove in Account.{:else}You can add a receiving address later in Account.{/if} Your secret key is stored on this device.</p>
   <div class="setupActions">
     <button type="button" class="quiet" id="backToAccounts" onclick={run(() => show('accounts'))}>Back</button>
     <button type="submit" id="signUp">Sign up</button>
