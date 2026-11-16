@@ -32,7 +32,7 @@ import { compareEvents } from './reconcile.ts';
 import { lightningAddress, matchingNote, payInfo, tipInvoice } from './x-tips.ts';
 import { invoiceDetails, readTipMarks, summarizeTips } from './tip-history.ts';
 import { issuedTip, rememberInvoice, reconcileTipInvoices } from './wallet-intent.ts';
-import { isWalletAction, walletIdentity, walletOperation, recoverPayments, checkIncoming } from './wallet-service.ts';
+import { isWalletAction, menuWalletBalance, walletIdentity, walletOperation, recoverPayments, checkIncoming } from './wallet-service.ts';
 import { updateReceivingAddress } from './receiving-address.ts';
 import { paymentConsent } from './tip-consent.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES, TIP_CURRENCIES } from './rates.ts';
@@ -865,6 +865,12 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     throw Error('The active profile is changing. Try again.');
   if (msg.account !== undefined && msg.account !== conf.pubkey)
     throw Error('The active profile changed.');
+  if (msg.type === 'tipBalance') {
+    const popup = page === api.runtime.getURL('popup.html') && msg.account === conf.pubkey;
+    const tipMenu = conf.tipButtons === true && sender.tab && captureNetwork(sender.url) === 'x';
+    if (!conf.pubkey || (!popup && !tipMenu)) throw Error('Open the wallet balance in Social Backup.');
+    return menuWalletBalance(conf.pubkey);
+  }
   if (isWalletAction(msg)) {
     if (page !== api.runtime.getURL('wallet.html')) throw Error('Open the extension wallet.');
     if (msg.type === 'walletIdentity') return walletIdentity(conf);
@@ -1086,6 +1092,10 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       }
       if (msg.type === 'openTipWallet') {
         if (!conf.walletEnabled) throw Error('Enable the Cashu wallet in Social Backup first.');
+        if (msg.invoice === undefined) {
+          await api.tabs.create({url: api.runtime.getURL('wallet.html')});
+          return;
+        }
         const details = invoiceDetails(msg.invoice);
         const tip = details && await issuedTip(db, details.paymentHash);
         if (!tip || tip.account !== conf.pubkey || tip.tab !== sender.tab.id || tip.invoice !== msg.invoice)

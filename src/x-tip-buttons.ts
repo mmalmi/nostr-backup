@@ -187,6 +187,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       button,a{flex:1;font:600 13px system-ui;border-radius:8px;padding:7px 0;cursor:pointer;
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
       button.alt{background:none;color:inherit;border-color:#dce2ec}
+      button.balance{display:block;margin:8px 0 0;padding:2px 0;background:none;border:0;color:inherit;text-decoration:underline;text-underline-offset:3px}
       .qr{width:176px;height:176px;margin:4px auto 12px;background:#fff;border-radius:8px;padding:6px}
       .qr svg{width:100%;height:100%;display:block}
       .address{display:flex;align-items:center;gap:6px} .address button{flex:0;padding:2px 8px;font-weight:400}
@@ -255,6 +256,24 @@ export function createTipButtons(send: Send, doc: Document = document) {
     box.querySelector('.address span')!.textContent = recipient.lightning;
     box.querySelector('.address button')!.addEventListener('click', () => void navigator.clipboard.writeText(recipient.lightning));
     const row = box.querySelector('.row')!;
+    if (recipient.walletEnabled) {
+      void send({type: 'tipBalance'}).then(result => {
+        const sats = result?.value;
+        if (dialog !== popover || !row.isConnected || !result?.ok || typeof sats !== 'number' || !Number.isSafeInteger(sats) || sats < 0) return;
+        const balance = doc.createElement('button');
+        balance.type = 'button';
+        balance.className = 'balance';
+        balance.textContent = 'Wallet balance · ' + satLabel(sats);
+        balance.title = 'Open Cashu wallet';
+        balance.addEventListener('click', async event => {
+          if (!event.isTrusted) return;
+          const opened = await send({type: 'openTipWallet'}).catch(() => undefined);
+          if (opened?.ok && dialog === popover) close();
+          else balance.textContent = opened?.error ?? 'Could not open wallet';
+        });
+        row.after(balance);
+      }).catch(() => {});
+    }
     const currentRate = rate ??= send({ type: 'tipRate', currency })
       .then((reply) => (reply?.ok && typeof reply.value === 'number' ? reply.value : null))
       .catch(() => null);

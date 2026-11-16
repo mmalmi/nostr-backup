@@ -246,7 +246,8 @@ export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' 
 };
 export interface Payloads extends WalletRPC {
   receivingAddress: { enabled: boolean };
-  openTipWallet: { invoice: string };
+  openTipWallet: { invoice?: string };
+  tipBalance: {};
   tipMarks: { targets: {pubkey: string; post?: string}[] };
   resolveImage: { url: string };
   status: {};
@@ -296,6 +297,7 @@ export type Message<K extends Action = Action> = {
   [T in K]: { type: T; account?: string } & Payloads[T];
 }[K];
 interface ActionResults extends WalletResults {
+  tipBalance: number;
   tipMarks: number[];
   resolveImage: string;
   exportPrivateKey: string;

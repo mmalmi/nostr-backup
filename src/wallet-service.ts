@@ -53,6 +53,13 @@ async function walletAccess(owner: string, automatic = false) {
   return unhex(key);
 }
 
+export async function menuWalletBalance(owner: string) {
+  await walletAccess(owner);
+  const balance = await (await engine()).availableWalletBalance(owner);
+  await walletAccess(owner);
+  return balance;
+}
+
 export async function checkIncoming(db: Archive, owner: string, automatic = false): Promise<IncomingSummary> {
   const key = await walletAccess(owner, automatic);
   const cashu = await engine();

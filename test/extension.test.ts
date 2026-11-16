@@ -1828,6 +1828,16 @@ test('wallet access, automatic inbox checks and public address edits follow acco
     assert.equal((await call('walletPreferences', {enabled:true,autoReceive:false}, walletPage)).ok, false);
     await success('walletPreferences', {...account,enabled:true,autoReceive:false},walletPage);
     assert.equal((await success('walletStatus',account,walletPage)).balance, 0);
+    const popup = {...ui, url: ext + 'popup.html'};
+    assert.equal(await success('tipBalance', account, popup), 0);
+    assert.equal((await call('tipBalance', {}, popup)).ok, false);
+    assert.equal((await call('tipBalance', {}, x)).ok, false);
+    await success('settings', {pubkey:owner, handle:'',capture:false,relaySync:false,relays:relay,tipButtons:true});
+    assert.equal(await success('tipBalance', {}, x), 0);
+    assert.equal((await call('walletStatus', account, x)).ok, false);
+    await success('openTipWallet', {}, x);
+    assert.equal(tabURLs.at(-1), ext + 'wallet.html');
+    assert.equal((await call('openTipWallet', { invoice: 'invalid' }, x)).ok, false);
     api.alarms.onAlarm.list[0]({name:'cashu-wallet'});
     await success('walletStatus', account, walletPage);
     assert.equal(inboxCalls,0);
@@ -1836,6 +1846,9 @@ test('wallet access, automatic inbox checks and public address edits follow acco
     await until(()=>inboxCalls === 1);
     assert.equal((await success('walletIdentity',{},walletPage)).enabled,true);
     await success('walletPreferences',{...account,enabled:false,autoReceive:false},walletPage);
+    assert.equal((await call('tipBalance', account, popup)).ok, false);
+    assert.equal((await call('tipBalance', {}, x)).ok, false);
+    assert.equal((await call('openTipWallet', {}, x)).ok, false);
     assert.equal((await call('walletIncoming',account,walletPage)).ok,false);
     assert.equal((await call('walletConfirm',{...account,id:'no-payment',maxFee:0},x)).ok,false);
     assert.equal((await call('walletExport',{...account,passphrase:'test recovery password'},x)).ok,false);

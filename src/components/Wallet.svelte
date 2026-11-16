@@ -279,6 +279,7 @@
 {:else if !consent}
   <section><h2>Allow payment data</h2><p>Firefox requires this permission to use the wallet.</p>
     <button disabled={busy} onclick={() => preferences(true, identity!.autoReceive)}>Allow wallet access</button>
+    <button class="secondary" disabled={busy} onclick={() => preferences(false, false)}>Turn off wallet</button>
   </section>
 {:else if canOpen && wallet}
   {#if tipId && tip}

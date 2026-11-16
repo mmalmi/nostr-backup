@@ -147,15 +147,25 @@ function paymentView(d: Spend): Payment {
   const { id, invoice, sats, fee, state } = d;
   return { id, invoice, sats, fee, state, ...(d.tip && { tip: tipDetails(d.tip) }) };
 }
+async function spendableSats(manager: Manager) {
+  const balance = await manager.wallet.balances.total({ units: ['sat'] });
+  return balance.spendable.toNumber();
+}
+export function availableWalletBalance(owner: string) {
+  return locked(owner, async (db) => {
+    const cfg = await db.get('config', 'wallet');
+    return cfg ? core(cfg, ({ manager }) => spendableSats(manager)) : 0;
+  });
+}
 async function snapshot(db: DB, cfg: Config, manager: Manager): Promise<WalletStatus> {
   const [balance, deposits, spends] = await Promise.all([
-    manager.wallet.balances.total({ units: ['sat'] }),
+    spendableSats(manager),
     db.getAll('deposits'),
     db.getAll('spends'),
   ]);
   return {
     mint: cfg.mint,
-    balance: balance.spendable.toNumber(),
+    balance,
     funding: deposits.map(fundingView),
     payments: spends.map(paymentView),
   };

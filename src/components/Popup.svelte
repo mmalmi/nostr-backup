@@ -14,6 +14,16 @@
   let reported = $state<TabReport>();
   let card = $state<NostrCard | null>(null);
   let looked = false;
+  let balance = $state<number>();
+  const walletOwner = $derived(status?.unlocked && status.conf.walletEnabled ? status.conf.pubkey : undefined);
+  $effect(() => {
+    const account = walletOwner;
+    balance = undefined;
+    if (!account) return;
+    let active = true;
+    send('tipBalance', { account }).then(sats => { if (active) balance = sats; }, () => {});
+    return () => { active = false; };
+  });
 
   async function openBackup() {
     await api.runtime.openOptionsPage();
@@ -71,6 +81,9 @@
   </header>
   <p id="siteState" data-level={shown?.level ?? 'off'} hidden={!shown}>{shown?.text}</p>
   <p id="summary">{summary}</p>
+  {#if walletOwner && balance !== undefined}
+    <a class="walletBalance" href="wallet.html" target="_blank" rel="noopener" title="Open Cashu wallet">Wallet balance · {count(balance, 'sat', 'sats')}</a>
+  {/if}
   <button id="open" onclick={openBackup}>Open backup</button>
   {#if card}<NostrCardView {card} canFollow={!!status?.unlocked} />{/if}
 </div>

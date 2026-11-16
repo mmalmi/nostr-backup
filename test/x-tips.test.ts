@@ -109,6 +109,7 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     if (message.type === 'tipMarks') return { ok: true, value: message.targets.map(() => 0) };
     if (message.type === 'tipTargets') return { ok: true, value: { alice: target, bob: null, me: { ...target, lightning: 'me@wallet.example' } } };
     if (message.type === 'tipProfile') return { ok: true, value: { ...target, walletEnabled: true, lightning: message.handle === 'me' ? 'me@wallet.example' : target.lightning } };
+    if (message.type === 'tipBalance') return { ok: true, value: 0 };
     if (message.type === 'tipRate') return { ok: true, value: 100000 };
     if (message.type === 'tipPost') return { ok: true, value: { note: 'ab'.repeat(32), sats: 1234, tips: 3, ownSats: 0, ownTips: 0 } };
     return { ok: true, value: { invoice: 'lnbc210n1pinvoice', kind: 'zap' } };
@@ -135,7 +136,13 @@ test('tip buttons appear only for verified accounts and open the wallet with a c
     await new Promise((resolve) => setTimeout(resolve, 10));
     // Amounts are in the page's currency, here 0.10 at 100,000 per bitcoin, with no secondary amount.
     assert.match(box().querySelector('.row button')!.textContent!, /^👍 \D?0[.,]10/);
-    assert.doesNotMatch(box().textContent!, /sats/i);
+    assert.equal(box().querySelector('.balance')!.textContent, 'Wallet balance · 0 sats');
+    assert.equal(doc.body.textContent!.includes('Wallet balance'), false);
+    userClick(box().querySelector('.balance')!);
+    assert.deepEqual(sent.at(-1), {type: 'openTipWallet'});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    userClick(buttons[0]);
+    await new Promise(resolve => setTimeout(resolve, 10));
     assert.match(box().querySelector('.address')!.textContent!, /alice@wallet\.example/);
     // Opening the popover looks for this post's Nostr copy, with its time and opening text.
     const lookup = sent.find((m) => m.type === 'tipPost')!;
@@ -191,10 +198,15 @@ test('your own profile keeps a Tip button that pays your own wallet, and your po
     userClick(buttons[0]);
     await new Promise((resolve) => setTimeout(resolve, 10));
     const box = () => privateRoot(doc.body.lastElementChild!).querySelector('.box')!;
+    assert.equal(box().querySelector('.balance'), null);
+    assert.equal(sent.some(m => m.type === 'tipBalance'), false);
     assert.match(box().querySelector('.address')!.textContent!, /me@wallet\.example/);
     (box().querySelector('.row button') as HTMLElement).click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.deepEqual(sent.find((m) => m.type === 'tipInvoice'), { type: 'tipInvoice', handle: 'me', ...target, sats: 100 });
+    assert.equal(box().querySelector('.cashu'), null);
+    assert.ok(box().querySelector('.qr svg'));
+    assert.equal(box().querySelector('.alt')!.textContent, 'Copy invoice');
     assert.equal(box().querySelector('a')!.getAttribute('href'), 'lightning:lnbc210n1pinvoice');
   } finally {
     tips.reset();

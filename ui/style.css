@@ -420,6 +420,10 @@ ul:empty {
   margin: 12px 0 0;
   padding: 10px 14px;
 }
+.popup .walletBalance {
+  font-size: 0.9rem;
+  text-underline-offset: 3px;
+}
 .popup .hint {
   font-size: 0.8rem;
 }
