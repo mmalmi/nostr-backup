@@ -268,7 +268,8 @@ function startCapture() {
   void configure();
 }
 
-if (!globalThis.nostrBackupCapture) {
-  globalThis.nostrBackupCapture = true;
+// An already-open tab can still have the previous capture script attached.
+if (!globalThis.socialBackupCapture && !globalThis.nostrBackupCapture) {
+  globalThis.socialBackupCapture = true;
   startCapture();
 }

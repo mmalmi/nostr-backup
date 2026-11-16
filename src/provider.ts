@@ -1,6 +1,6 @@
 import type { Event as NostrEvent, EventTemplate } from 'nostr-tools/pure';
 function installProvider() {
-  if (window.nostr) return window.nostr === window.nostrBackupProvider;
+  if (window.nostr) return window.nostr === window.socialBackupProvider;
   function call(method: 'getPublicKey'): Promise<string>;
   function call(method: 'signEvent', event: EventTemplate): Promise<NostrEvent>;
   function call(method: string, event?: EventTemplate): Promise<string | NostrEvent> {
@@ -18,7 +18,7 @@ function installProvider() {
         if (
           e.source !== window ||
           e.origin !== location.origin ||
-          e.data?.channel !== 'nostr-backup-response' ||
+          e.data?.channel !== 'social-backup-response' ||
           e.data.id !== id
         )
           return;
@@ -26,14 +26,14 @@ function installProvider() {
         e.data.ok ? resolve(e.data.value) : reject(Error(e.data.error));
       }
       window.addEventListener('message', onMessage);
-      window.postMessage({ channel: 'nostr-backup-request', id, method, event }, location.origin);
+      window.postMessage({ channel: 'social-backup-request', id, method, event }, location.origin);
     });
   }
-  window.nostrBackupProvider = Object.freeze({
+  window.socialBackupProvider = Object.freeze({
     getPublicKey: () => call('getPublicKey'),
     signEvent: (event: EventTemplate) => call('signEvent', event),
   });
-  window.nostr = window.nostrBackupProvider;
+  window.nostr = window.socialBackupProvider;
   return true;
 }
 

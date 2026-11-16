@@ -1,8 +1,8 @@
 function installBridge(token: string) {
   const api = globalThis.browser ?? chrome;
-  globalThis.nostrBackupBridge?.abort();
+  globalThis.socialBackupBridge?.abort();
   const controller = new AbortController();
-  globalThis.nostrBackupBridge = controller;
+  globalThis.socialBackupBridge = controller;
   window.addEventListener(
     'message',
     async (e) => {
@@ -10,7 +10,7 @@ function installBridge(token: string) {
       if (
         e.source !== window ||
         e.origin !== location.origin ||
-        data?.channel !== 'nostr-backup-request' ||
+        data?.channel !== 'social-backup-request' ||
         typeof data.id !== 'string' ||
         data.id.length > 64
       )
@@ -25,13 +25,13 @@ function installBridge(token: string) {
           event: data.event,
         });
         window.postMessage(
-          { channel: 'nostr-backup-response', id: data.id, ...reply },
+          { channel: 'social-backup-response', id: data.id, ...reply },
           location.origin,
         );
       } catch {
         window.postMessage(
           {
-            channel: 'nostr-backup-response',
+            channel: 'social-backup-response',
             id: data.id,
             ok: false,
             error: 'Account access is unavailable.',

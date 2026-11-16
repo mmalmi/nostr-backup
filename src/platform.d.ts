@@ -109,9 +109,10 @@ declare global {
   var chrome: ExtensionAPI;
   var browser: ExtensionAPI | undefined;
   var nostrBackupCapture: boolean | undefined;
-  var nostrBackupBridge: AbortController | undefined;
+  var socialBackupCapture: boolean | undefined;
+  var socialBackupBridge: AbortController | undefined;
   interface Window {
     nostr?: Provider;
-    nostrBackupProvider?: Provider;
+    socialBackupProvider?: Provider;
   }
 }
