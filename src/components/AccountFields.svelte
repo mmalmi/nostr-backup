@@ -45,8 +45,10 @@
           title="Clear"
           onclick={(event) => clear(account.id, event.currentTarget)}>×</button
         >{/if}</span
-    >{#if detected[account.id] && clean(usernames[account.id]) === detected[account.id]}<small class="detected"
-        >Signed in on {account.label} in this browser</small
-      >{/if}</label
+    ><small class="detected">
+      {#if detected[account.id] && clean(usernames[account.id]) === detected[account.id]}
+        Signed in on {account.label} in this browser
+      {/if}
+    </small></label
   >
 {/each}

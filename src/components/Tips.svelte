@@ -40,10 +40,9 @@
 </script>
 
 <section class="source" aria-labelledby="tipsTitle">
-  <h3 id="tipsTitle">Tips</h3>
+  <h3 id="tipsTitle">Bitcoin tips on X</h3>
   <p class="hint">
-    Tip people in Bitcoin when their X account has a verified Nostr link, straight to their own wallet. Works even if X
-    doesn't pay them.
+    Send tips to people who have linked their X account to a Nostr profile with a Lightning address.
   </p>
   <label class="check"><input type="checkbox" id="tipButtons" checked={enabled} onchange={toggle} /> Show tip buttons on X</label>
   <label for="tipCurrency">Show amounts in</label>

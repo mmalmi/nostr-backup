@@ -133,7 +133,9 @@
   </nav>
   <div class="panels">
     <div data-panel="archive" hidden={page.section !== 'archive'}><Backup {save} /></div>
-    <div data-panel="sources" hidden={page.section !== 'sources'}><Sources bind:this={sources} {save} /></div>
+    <div data-panel="sources" hidden={page.section !== 'sources'}>
+      <Sources bind:this={sources} {save} activeAccount={page.section === 'sources' && !page.setup ? status?.conf.pubkey : undefined} />
+    </div>
     <div data-panel="media" hidden={page.section !== 'media'}><Media {save} /></div>
     <div data-panel="storage" hidden={page.section !== 'storage'}><Storage /></div>
     <div data-panel="account" hidden={page.section !== 'account'}><Account /></div>

@@ -12,8 +12,8 @@ what the code does; update it with any change to what is read, stored or sent.
   meant for them, when fresh data matters: opening a tip (their current Lightning address and identity list, so you
   never pay a stale or changed address), following (your latest follow list), finding the people you follow, and
   setup.
-- **Read only what the user configured.** Capture reads the user's own profiles. Sign-up reads only the account
-  signed in on tabs that are already open and never opens tabs.
+- **Read only what the user configured.** Capture reads the user's own profiles. Account suggestions in setup and Sources read only the
+  signed-in account on tabs that are already open.
 - **Nothing becomes public by accident.** Publishing posts, profiles, follow lists and X links follows an explicit
   choice. Private and unverified posts stay on the device. Secret keys never end up in public fields.
 - **Trust checks, not pages.** Anything that links identities or moves money is confirmed independently: X proofs on

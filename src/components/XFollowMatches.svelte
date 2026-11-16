@@ -37,12 +37,12 @@
 </script>
 
 <p class="hint">
-  {read} read so far. Open
-  <a href={'https://x.com/' + handle + '/following'} target="_blank" rel="noopener noreferrer">your following list</a> and scroll
-  to add more.
+  {#if read}Found {read} {read === 1 ? 'account' : 'accounts'} you follow on X.{/if}
+  Open <a href={'https://x.com/' + handle + '/following'} target="_blank" rel="noopener noreferrer">@{handle}’s following list</a>
+  and scroll to {read ? 'find more' : 'load the accounts you follow'}.
 </p>
 <button class="secondary" id="findXFollows" disabled={finding || !read} onclick={find}
-  >{finding ? 'Checking…' : 'Find them on Nostr'}</button
+  >{finding ? 'Checking…' : 'Find matching Nostr profiles'}</button
 >
 {#if found}
   {#if found.matches.length}

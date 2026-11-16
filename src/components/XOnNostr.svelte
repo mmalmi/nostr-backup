@@ -22,18 +22,22 @@
 </script>
 
 <details class="xNostr">
-  <summary>On Nostr</summary>
+  <summary>{view?.xLink ? 'Manage your X account link to Nostr' : 'Link your X account to Nostr'}</summary>
   {#if !handle}
     <p class="hint">Save your X username first.</p>
   {:else}
-    <h4>Your X account</h4>
     <XLinkPost {pubkey} xLink={view?.xLink} {handle} />
     {#if view?.xLink}
       <button class="secondary" disabled={!view.unlocked} onclick={unlink}>Unlink X account</button>
       <p class="hint">Lost your Nostr key? Delete the proof post on X. To switch keys, post a new proof for your new profile.</p>
     {/if}
-
-    <h4>People you follow on X</h4>
+  {/if}
+</details>
+<details class="xNostr">
+  <summary>Find your X follows on Nostr</summary>
+  {#if handle}
     <XFollowMatches {handle} read={view?.xFollows} unlocked={view?.unlocked} />
+  {:else}
+    <p class="hint">Save your X username first.</p>
   {/if}
 </details>

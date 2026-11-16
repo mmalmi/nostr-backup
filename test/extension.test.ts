@@ -1277,11 +1277,15 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   const receipt = Promise.withResolvers<void>();
   destinations[0].holdPublish = receipt.promise;
   t.after(() => receipt.resolve());
-  // The accounts signed in on open X and Instagram tabs fill the first screen.
-  t.mock.method(api.tabs, 'query', async (query?: { url?: string[] }) =>
-    query?.url?.some((url) => url.includes('instagram')) ? [{ id: 8, url: 'https://www.instagram.com/' }] : [{ id: 7, url: 'https://x.com/home' }]);
+  // Only the signed-in accounts on already-open tabs fill the first screen.
+  t.mock.method(api.tabs, 'query', async (query?: { url?: string[] }) => {
+    const url = query?.url?.[0] ?? '';
+    if (url.includes('instagram')) return [{ id: 8, url: 'https://www.instagram.com/' }];
+    if (url.includes('facebook')) return [{ id: 9, url: 'https://www.facebook.com/' }];
+    return [{ id: 7, url: 'https://x.com/home' }];
+  });
   t.mock.method(api.scripting, 'executeScript', async ({ target }: Injection) => [{
-    result: target.tabId === 7 ? '/Example' : {
+    result: target.tabId === 7 ? '/Example' : target.tabId === 9 ? '123456789' : {
       username: 'Example.IG', name: 'Example on Instagram', about: 'Pots and plants', website: '',
       picture: 'https://scontent.cdninstagram.com/v/face.jpg?oe=1',
     },
@@ -1307,6 +1311,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await until(() => setupX().value === 'example');
   assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
   assert.equal((page.document.getElementById('setup-instagram') as unknown as HTMLInputElement).value, 'example.ig');
+  assert.equal((page.document.getElementById('setup-facebook') as unknown as HTMLInputElement).value, '123456789');
   // Progress dots count the slides that apply: accounts, profile, Nostr, "You're set" and the key.
   const stepLabel = (selector: string) => page.document.querySelector(selector + ' .wizardSteps')?.getAttribute('aria-label');
   assert.equal(stepLabel('#accountsForm'), 'Step 1 of 5');
@@ -1706,6 +1711,56 @@ test('sources save switches at once but keep a typed username unsaved until Save
     assert.equal((await conf()).handle, 'alice');
     assert.equal(id('handle').value, 'not valid!');
     assert.ok(page.document.querySelector('.unsaved'));
+  } finally {
+    await idle();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('Sources offers differing signed-in accounts on demand and stages a selection until Save', async (t) => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret), relay = 'wss://suggestions.example/';
+  fixtureRelay(relay);
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: 'alice', relaySync: false, relays: relay,
+      social: { facebook: { handle: 'old.name', capture: true } } });
+    const queried: string[][] = [];
+    const later = Promise.withResolvers<void>();
+    t.after(() => later.resolve());
+    t.mock.method(api.tabs, 'query', async ({url}: {url: string[]}) => {
+      queried.push(url);
+      return [{id: url[0].includes('facebook') ? 2 : url[0].includes('instagram') ? 3 : 1}];
+    });
+    t.mock.method(api.scripting, 'executeScript', async ({target, args}: Injection) => {
+      if (target.tabId === 1) return [{result: '/Alice'}];
+      if (target.tabId === 2) return [{result: '123456789'}];
+      assert.deepEqual(args, [false]);
+      await later.promise;
+      return [{result: {username: 'alice.ig'}}];
+    });
+    const page = await archivePage(t), id = pageElements(page);
+    await until(() => id('handle').value === 'alice');
+    assert.equal(queried.length, 0);
+    page.location.hash = 'sources';
+    page.dispatchEvent(new page.Event('hashchange'));
+    await until(() => !!page.document.getElementById('facebookHandleSuggestion'));
+    assert.equal(page.document.getElementById('handleSuggestion'), null);
+    assert.equal(id('facebookHandle').value, 'old.name');
+    // A slow reply never replaces a username being typed.
+    id('instagramHandle').value = 'manual';
+    id('instagramHandle').dispatchEvent(new page.Event('input', { bubbles: true }) as unknown as Event);
+    later.resolve();
+    await until(() => !!page.document.getElementById('instagramHandleSave'));
+    id('facebookHandleSuggestion').click();
+    await until(() => id('facebookHandle').value === '123456789');
+    assert.equal((await success('status')).conf.social?.facebook?.handle, 'old.name');
+    id('facebookHandleSave').click();
+    await until(async () => (await success('status')).conf.social?.facebook?.handle === '123456789');
+    assert.equal(page.document.getElementById('facebookHandleSuggestion'), null);
+    assert.equal(page.document.getElementById('instagramHandleSuggestion'), null);
+    assert.equal(id('instagramHandle').value, 'manual');
+    assert.equal((await success('status')).conf.social?.instagram?.handle, '');
+    assert.equal((await call('suggestAccount', {source: 'facebook'}, x)).ok, false);
   } finally {
     await idle();
     await success('logout', { pubkey: owner });

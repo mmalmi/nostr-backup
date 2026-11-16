@@ -2,7 +2,7 @@ import { neventEncode } from 'nostr-tools/nip19';
 import type { EventTemplate } from 'nostr-tools/pure';
 import type { Archive, Capture, Settings, SocialCapture, SocialNetwork } from './types.ts';
 import { instagramPermalink, instagramProfile } from './instagram.ts';
-import { facebookPermalink } from './facebook.ts';
+import { facebookPermalink, facebookPostURL } from './facebook.ts';
 import { xPermalink } from './x.ts';
 
 const postLinks = /https?:\/\/[^\s<>"`]+/gi;
@@ -41,7 +41,7 @@ export function quoteTargets(post: Capture | SocialCapture, conf: Settings): Quo
       }
     } else if (network === 'facebook') {
       id = facebookPermalink(link, handle);
-      canonical = 'https://www.facebook.com/' + handle + '/posts/' + id;
+      if (id) canonical = facebookPostURL(handle, id);
     } else {
       id = instagramPermalink(link, handle);
       attributed = instagramProfile(link) === handle;

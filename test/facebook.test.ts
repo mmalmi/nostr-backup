@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Window } from 'happy-dom';
 import { captureFacebookPosts, createFacebookCollector, publicFacebookPost, facebookPermalink, facebookProfile } from '../src/facebook.ts';
+import { verifySocialCapture } from '../src/quote-originals.ts';
 import type { SocialCapture } from '../src/types.ts';
 
 const handle = 'example.page', owner = '123456789', id = 'pfbidExample123';
@@ -131,6 +132,37 @@ test('unavailable embeds, wrong authors or IDs, and cancelled in-flight reads ne
   await settled(); assert.deepEqual(captures, []);
 });
 
+test('numeric personal profiles back up virtualized posts using Facebook’s public permalink and verified byline', async (t) => {
+  const profile = 'https://www.facebook.com/profile.php?id=' + owner;
+  const postURL = 'https://www.facebook.com/permalink.php?story_fbid=' + id + '&id=' + owner;
+  const doc = documentAt(mounted(owner, postURL).replace('role="article"', 'data-virtualized="false"')
+    .replace('href="/' + owner + '"', 'href="' + profile + '"'), profile);
+  const body = embed(owner, '654321').replace('href="/' + owner + '"', 'href="/people/Example-Person/' + owner + '/"')
+    .replace('/' + owner + '/posts/654321', '/permalink.php?story_fbid=654321&amp;id=' + owner);
+  const posts: SocialCapture[] = [];
+  const read: typeof fetch = async (input, options) => {
+    assert.equal(options?.credentials, 'omit');
+    const url = new URL(String(input));
+    if (url.pathname === '/plugins/post.php') {
+      assert.equal(url.searchParams.get('href'), postURL);
+      return response('<!DOCTYPE html>\n<html><body>' + body + '</body></html>');
+    }
+    assert.equal(url.href, postURL);
+    return response('<!DOCTYPE html><html><head><link rel="canonical" href="https://www.facebook.com/' +
+      owner + '/posts/my-caption/654321/"></head><body></body></html>');
+  };
+  const collector = createFacebookCollector(batch => posts.push(...batch), read);
+  collector.collect(doc, profile, owner);
+  await settled();
+  assert.deepEqual(posts.map(p => [p.url, p.author, p.text, p.visibility, p.media]),
+    [[postURL, owner, 'Public text.\nSecond line.', 'public', [photo]]]);
+  collector.stop();
+  // The background independently parses both full public documents before signing.
+  t.mock.method(globalThis, 'fetch', read);
+  const confirmed = await verifySocialCapture({ ...posts[0], text: 'Unverified browser text' });
+  assert.deepEqual(confirmed, posts[0]);
+});
+
 test('opaque post IDs require independent canonical proof when an embed has a numeric timestamp link', async () => {
   for (const [canonical, expected] of [[url + 'posts/sample-post/654321/', 1], [url + 'posts/sample-post/98765/', 0],
     ['https://evil.test/' + handle + '/posts/sample-post/654321/', 0], [url.replace(handle, 'another.page') + 'posts/sample-post/654321/', 0],
@@ -199,6 +231,6 @@ test('public Facebook embed separates nested own quote text, media, and original
     '/posts/100"><abbr data-utime="1500000000"></abbr></a><div data-testid="post_message">Quoted only</div></article>';
   const body = embed().replace('<div role="feed">','<div role="feed"><article>').replace('</div></div></div>',
     '</div>' + nested + '</article></div></div>');
-  const parsed = await publicFacebookPost(documentAt(''),permalink,handle,async()=>response(body),new AbortController().signal);
+  const parsed = await publicFacebookPost(documentAt,permalink,handle,async()=>response(body),new AbortController().signal);
   assert.equal(parsed?.text, 'Public text.\nSecond line.\n\nhttps://www.facebook.com/' + handle + '/posts/100');
 });

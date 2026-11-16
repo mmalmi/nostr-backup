@@ -14,7 +14,7 @@
   let step = $state<'welcome' | 'accounts' | 'profile' | 'signin'>('welcome');
   let previous: 'welcome' | 'accounts' | 'profile' = 'welcome';
   let usernames = $state<Usernames>({ x: '', facebook: '', instagram: '' });
-  // Accounts signed in on open X and Instagram tabs, and the Instagram profile found there.
+  // Accounts signed in on open tabs, and the Instagram profile found there.
   let detected = $state<Partial<Usernames>>({});
   let instagramProfile: NewProfile | undefined;
   const edited = new Set<keyof Usernames>();
@@ -79,9 +79,9 @@
   async function detect() {
     const found = await send('detectAccounts').catch(() => undefined);
     if (!found || (step !== 'welcome' && step !== 'accounts')) return;
-    detected = { x: found.x, instagram: found.instagram };
+    detected = { x: found.x, facebook: found.facebook, instagram: found.instagram };
     instagramProfile = found.instagramProfile;
-    for (const id of ['x', 'instagram'] as const) {
+    for (const id of ['x', 'facebook', 'instagram'] as const) {
       const value = found[id];
       if (value && !edited.has(id)) usernames[id] = value;
     }

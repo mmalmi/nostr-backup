@@ -265,7 +265,8 @@ export interface Payloads extends WalletRPC {
   unlock: { key: string };
   login: { key: string };
   createProfile: NewProfile;
-  detectAccounts: {};
+  detectAccounts: { includeProfile?: boolean };
+  suggestAccount: { source: 'x' | SocialNetwork };
   xProfile: { handle: string };
   exportPrivateKey: {};
   listPermissions: {};
@@ -325,7 +326,8 @@ interface ActionResults extends WalletResults {
   nostrLink: { pubkey: string };
   nostrCard: NostrCard | null;
   xProof: void;
-  detectAccounts: { x?: string; instagram?: string; instagramProfile?: NewProfile };
+  detectAccounts: { x?: string; facebook?: string; instagram?: string; instagramProfile?: NewProfile };
+  suggestAccount: string | undefined;
   xProfile: Omit<NewProfile, 'name'> & { name: string } | null;
   tipInvoice: {invoice: string; kind: 'zap' | 'lightning'};
   /** The post's Nostr copy by the verified author, and the tips it has received. */

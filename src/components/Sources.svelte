@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SocialNetwork } from '../types.ts';
+  import { send } from '../ui.ts';
   import type { SourceSettings, SourcesView } from './views.ts';
   import XStats from './XStats.svelte';
   import XOnNostr from './XOnNostr.svelte';
@@ -7,7 +8,7 @@
 
   // Switches save as they change. A username saves only when the user chooses Save or presses
   // Enter, because a partial username would back up someone else's profile.
-  let { save }: { save: () => Promise<void> } = $props();
+  let { save, activeAccount }: { save: () => Promise<void>; activeAccount?: string } = $props();
 
   type Source = 'x' | SocialNetwork;
   const sources = ['x', 'facebook', 'instagram'] as const;
@@ -26,6 +27,27 @@
   let markSaved = $state(true);
   let tipCurrency = $state('');
   let saving = $state<Source>();
+  let suggestions = $state<Partial<Record<Source, string>>>({});
+
+  $effect(() => {
+    if (!activeAccount) return;
+    let request = 0;
+    function detect() {
+      const current = ++request;
+      suggestions = {};
+      for (const source of sources) {
+        send('suggestAccount', { source }).then((handle) => {
+          if (current === request && handle) suggestions[source] = handle;
+        }, () => {});
+      }
+    }
+    detect();
+    window.addEventListener('focus', detect);
+    return () => {
+      ++request;
+      window.removeEventListener('focus', detect);
+    };
+  });
 
   // Matches how settings store a username.
   const normal = (value: string) => value.trim().replace(/^@/, '').toLowerCase();
@@ -116,6 +138,7 @@
 />
 
 {#snippet username(source: Source, label: string, placeholder: string)}
+  {@const suggestion = suggestions[source]}
   <label for={fieldId(source)}>{label}</label>
   <div class="usernameRow">
     <input
@@ -132,7 +155,17 @@
       >
     {/if}
   </div>
-  {#if dirty(source)}<p class="unsaved" role="status">Unsaved changes</p>{/if}
+  <div class="usernameNote" aria-live="polite">
+    {#if dirty(source)}
+      <span class="unsaved">Unsaved changes</span>
+    {:else if suggestion && normal(suggestion) !== normal(saved[source])}
+      <button type="button" class="suggestion" id={fieldId(source) + 'Suggestion'}
+        onclick={() => {
+          typed[source] = suggestion;
+          document.getElementById(fieldId(source))?.focus();
+        }}>Use signed-in account · {source === 'facebook' ? suggestion : '@' + suggestion}</button>
+    {/if}
+  </div>
 {/snippet}
 
 <h2>Sources</h2>

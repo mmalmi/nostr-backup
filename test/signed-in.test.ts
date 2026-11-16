@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { generateSecretKey } from 'nostr-tools/pure';
-import { instagramViewer, xProfileLink } from '../src/signed-in.ts';
+import { facebookViewer, instagramViewer, xProfileLink } from '../src/signed-in.ts';
 import { expiringImage, withCopiedImages } from '../src/profile-images.ts';
 
 function inPage<T>(html: string, read: () => T) {
@@ -35,6 +35,21 @@ test('the signed-in X and Instagram accounts are read from their own page data',
     username: 'alice.ig', name: 'Alice', about: 'Hi', website: 'https://alice.example/', picture: 'https://scontent.cdninstagram.com/a.jpg',
   });
   assert.equal(inPage('<script type="application/json">{"PolarisViewer":1}</script>', instagramViewer), null);
+  assert.deepEqual(inPage(html, () => instagramViewer(false)), { username: 'alice.ig' });
+});
+
+test('Facebook suggests the signed-in actor, never a visited profile or post author', () => {
+  const link = '<a href="/profile.php?id=999">Visited profile</a>';
+  const module = (id: string) => '<script type="application/json">' + JSON.stringify({define: [
+    ['CurrentUserInitialData', [], { USER_ID: id, ACCOUNT_ID: '567' }, 1],
+  ]}) + '</script>';
+  assert.equal(inPage(link + module('123'), facebookViewer), '123');
+  assert.equal(inPage(link + module('0'), facebookViewer), null);
+  assert.equal(inPage(link, facebookViewer), null);
+  const entry = encodeURIComponent(JSON.stringify({click_point: 'edit_profile_button', feature: 'profile_header'}));
+  const edit = '<a aria-label="Edit profile" href="/profile.php?id=123&amp;fb_profile_edit_entry_point=' + entry + '">Edit</a>';
+  assert.equal(inPage('<main role="main">' + edit + '</main>', facebookViewer), '123');
+  assert.equal(inPage('<main role="main"><div data-virtualized="false">' + edit + '</div></main>', facebookViewer), null);
 });
 
 test('profile pictures are copied to Blossom, and expiring ones are dropped if the copy fails', async () => {

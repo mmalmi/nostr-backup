@@ -5,7 +5,7 @@ const handlePath = /^\/([a-z0-9.]{1,80})\/?$/i;
 const postPath = /^\/([a-z0-9.]{1,80})\/posts\/(pfbid[a-z0-9]{8,100}|\d{1,25})\/?$/i;
 const postID = /^(?:pfbid[a-z0-9]{8,100}|\d{1,25})$/i;
 const reserved = new Set(('about ads business checkpoint events friends gaming groups help home ' +
-  'login logout marketplace messages notifications pages people photo photos privacy professional_dashboard ' +
+  'login logout marketplace me messages notifications pages people photo photos privacy professional_dashboard ' +
   'recover reel reels saved search settings share sharer stories video videos watch').split(' '));
 
 function facebookURL(value: string) {
@@ -23,6 +23,9 @@ export function facebookProfile(value: string): string | undefined {
     if (/^\d{1,25}$/.test(id) && !url.searchParams.has('sk')) return id;
     return;
   }
+  // Public embeds link numeric profiles by display name and ID.
+  const person = /^\/people\/[^/]+\/(\d{1,25})\/?$/.exec(url.pathname);
+  if (person && !url.searchParams.has('sk')) return person[1];
   const name = handlePath.exec(url.pathname)?.[1].toLowerCase();
   if (name && !name.endsWith('.php') && !reserved.has(name) && !url.searchParams.has('sk')) return name;
 }
@@ -48,12 +51,17 @@ function cdn(value: unknown): string | undefined {
   } catch { /* Incomplete media. */ }
 }
 
+export function facebookPostURL(handle: string, id: string, origin = base) {
+  return /^\d+$/.test(handle) ? origin + '/permalink.php?story_fbid=' + id + '&id=' + handle
+    : origin + '/' + handle + '/posts/' + id;
+}
+
 function post(handle: string, id: string, time: number, text: string, media: string[],
               visibility: SocialCapture['visibility'], posters: string[] = []): SocialCapture | undefined {
   const attachments = [...new Set(media)];
   if (!Number.isSafeInteger(time) || time < 1 || time > Date.now() / 1000 + 300 ||
       (!text && !attachments.length)) return;
-  return {source: 'facebook', id, author: handle, url: base + '/' + handle + '/posts/' + id, time,
+  return {source: 'facebook', id, author: handle, url: facebookPostURL(handle, id), time,
     text: text || attachments.join('\n\n'), visibility,
     ...(attachments.length ? {media: attachments} : {}), ...(posters.length ? {posters} : {})};
 }
@@ -194,13 +202,14 @@ export function captureFacebookPosts(doc: Document, url: string, handle?: string
 /** The account's posts mounted on the page, each with its permalink link. */
 export function facebookPostLinks(doc: Document, handle: string) {
   const result = new Map<string, Element>();
-  for (const article of doc.querySelectorAll('[role="article"]')) {
+  const container = '[role="article"], [data-virtualized]';
+  for (const article of doc.querySelectorAll(container)) {
     if (article.parentElement?.closest('[role="article"]')) continue;
     const name = article.querySelector('[data-ad-rendering-role="profile_name"] a[href]');
-    if (!name || name.closest('[role="article"]') !== article ||
+    if (!name || name.closest(container) !== article ||
         facebookProfile(name.getAttribute('href') ?? '') !== handle) continue;
     for (const link of article.querySelectorAll('a[href]')) {
-      if (link.closest('[role="article"]') !== article ||
+      if (link.closest(container) !== article ||
           link.closest('[data-ad-rendering-role="story_message"],[data-ad-preview="message"]') ||
           !(name.compareDocumentPosition(link) & 4)) continue;
       const id = facebookPermalink(link.getAttribute('href') ?? '', handle);
@@ -229,26 +238,25 @@ function embedText(element: Element): string {
   return (copy.textContent ?? '').trim();
 }
 
-async function anonymousPage(doc: Document, request: string, fetcher: typeof fetch, signal: AbortSignal) {
+type ParsePage = (html: string) => ParentNode;
+async function anonymousPage(parse: ParsePage, request: string, fetcher: typeof fetch, signal: AbortSignal) {
   const response = await fetcher(request, {credentials: 'omit', referrerPolicy: 'no-referrer',
     redirect: 'error', cache: 'no-store', signal});
   if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) return;
   const html = await response.text();
   if (html.length > 2000000) return;
-  const parsed = doc.createElement('template');
-  parsed.innerHTML = html;
-  return parsed.content;
+  return parse(html);
 }
 
 // Read only the public embed returned anonymously. Never combine its visibility with
 // signed-in caption or media bytes; an audience change cannot expose the older copy.
-export async function publicFacebookPost(doc: Document, url: string, handle: string, fetcher: typeof fetch, signal: AbortSignal) {
+export async function publicFacebookPost(parse: ParsePage, url: string, handle: string, fetcher: typeof fetch, signal: AbortSignal) {
   const id = facebookPermalink(url, handle);
   if (!id) return;
   const endpoint = new URL('/plugins/post.php', url);
   endpoint.searchParams.set('href', url);
   endpoint.searchParams.set('show_text', 'true');
-  const parsed = await anonymousPage(doc, endpoint.href, fetcher, signal);
+  const parsed = await anonymousPage(parse, endpoint.href, fetcher, signal);
   if (!parsed) return;
   const feeds = parsed.querySelectorAll('[data-testid="newsFeedStream"] [role="feed"]');
   if (feeds.length !== 1) return;
@@ -276,7 +284,7 @@ export async function publicFacebookPost(doc: Document, url: string, handle: str
     // Facebook resolves opaque post IDs to a numeric ID on the embed. Verify the
     // equivalence using the public permalink's own canonical URL.
     if (!id.startsWith('pfbid') || !/^\d+$/.test(returned)) return;
-    const page = await anonymousPage(doc, url, fetcher, signal);
+    const page = await anonymousPage(parse, url, fetcher, signal);
     const canonical = page?.querySelector('link[rel="canonical"]')?.getAttribute('href');
     const canonicalURL = canonical && facebookURL(canonical);
     if (!canonicalURL) return;
@@ -329,6 +337,11 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
     if (running) return;
     running = true;
     const signal = controller.signal;
+    const parse = (html: string) => {
+      const template = doc.createElement('template');
+      template.innerHTML = html;
+      return template.content;
+    };
     try {
       while (!signal.aborted && queued.size) {
         const [id, url] = queued.entries().next().value!;
@@ -336,7 +349,7 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
         remember(id, Date.now() + 60000);
         try {
           if (facebookProfile(doc.URL) !== handle) { queued.clear(); break; }
-          const captured = await publicFacebookPost(doc, url, handle, fetcher, AbortSignal.any([signal, AbortSignal.timeout(10000)]));
+          const captured = await publicFacebookPost(parse, url, handle, fetcher, AbortSignal.any([signal, AbortSignal.timeout(10000)]));
           if (!signal.aborted && !seen.has(id) && facebookProfile(doc.URL) === handle && captured) {
             remember(id, Infinity); onPosts([captured]);
           }
@@ -356,7 +369,7 @@ export function createFacebookCollector(onPosts: (posts: SocialCapture[]) => voi
     }
     const origin = new URL(url).origin;
     for (const id of facebookPostLinks(doc, handle).keys()) {
-      if ((known.get(id) ?? 0) <= Date.now() && queued.size < 20) queued.set(id, origin + '/' + handle + '/posts/' + id);
+      if ((known.get(id) ?? 0) <= Date.now() && queued.size < 20) queued.set(id, facebookPostURL(handle, id, origin));
     }
     void flush(doc, handle);
   }};
