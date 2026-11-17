@@ -18,10 +18,16 @@ import {
   walletStatus,
 } from '../src/cashu-wallet.ts';
 
-if (!navigator.locks)
+if (!navigator.locks) {
+  const locks = new Map<string, Promise<unknown>>();
   Object.defineProperty(navigator, 'locks', {
-    value: { request: (_name: string, task: () => Promise<unknown>) => task() },
+    value: { request: (name: string, task: () => Promise<unknown>) => {
+      const next = (locks.get(name) ?? Promise.resolve()).then(task);
+      locks.set(name, next.catch(() => undefined));
+      return next;
+    } },
   });
+}
 
 const owner = 'b'.repeat(64),
   other = 'a'.repeat(64);
@@ -57,26 +63,45 @@ test('wallet status and empty deletion stay local and account-scoped', async () 
 // Run with SOCIAL_BACKUP_FAKE_MINT pointing to a disposable loopback CDK mintd fakewallet.
 // The production URL validation and wallet logic run unchanged; only test transport maps to loopback.
 const fixture = process.env.SOCIAL_BACKUP_FAKE_MINT;
-if (fixture)
-  test(
+test(
     'fake mint funds, pays once after a dropped response, claims deposits and restores current proofs',
-    { timeout: 120000 },
+    { timeout: 120000, skip: !fixture && !process.env.SOCIAL_BACKUP_RELEASE_TESTS ? 'Set SOCIAL_BACKUP_FAKE_MINT to exercise the wallet integration' : false },
     async () => {
+      assert.ok(fixture, 'Release tests require SOCIAL_BACKUP_FAKE_MINT');
       const endpoint = new URL(fixture);
       assert.equal(endpoint.protocol, 'http:');
       assert.equal(endpoint.hostname, '127.0.0.1');
       const nativeFetch = globalThis.fetch;
       let dropResponse = false,
+        dropMintResponse = false,
+        blockMintRecovery = false,
+        minted = 0,
         blockChecks = false,
         submitted = 0;
       const requests: string[] = [];
+      const mintRequests = new Map<string, unknown>();
       globalThis.fetch = async (input, init) => {
         const url = String(input);
         assert.ok(url.startsWith(mint + '/'), 'Only the selected mint may receive wallet traffic');
         const path = url.slice(mint.length);
         requests.push(path);
         if (blockChecks && path.includes('/melt/quote/')) throw Error('Test mint is offline');
+        if (blockMintRecovery && (path.includes('/mint/quote/') || path === '/v1/restore')) throw Error('Test mint is offline');
         const response = await nativeFetch(endpoint.origin + path, init);
+        if (path === '/v1/mint/bolt11' && init?.method === 'POST') {
+          // Recovery may resend the same quote. It must reuse the original blinded
+          // outputs, and the balance below must include the deposit exactly once.
+          const body = JSON.parse(String(init.body));
+          const previous = mintRequests.get(body.quote);
+          if (previous) assert.deepEqual(body.outputs, previous, 'Recovery reuses the original blinded outputs');
+          else { mintRequests.set(body.quote, body.outputs); minted++; }
+          if (dropMintResponse) {
+            dropMintResponse = false;
+            blockMintRecovery = true;
+            await response.arrayBuffer();
+            throw Error('Lost mint response');
+          }
+        }
         if (path === '/v1/melt/bolt11' && init?.method === 'POST') {
           submitted++;
           if (dropResponse) {
@@ -162,8 +187,19 @@ if (fixture)
           async () => (await (await fetch(mint + '/v1/mint/quote/bolt11/' + incoming.quote)).json()).state,
           (state) => state === 'PAID',
         );
-        const claim = await claimWalletQuote(owner, mint, incoming.quote);
+        const mintedBefore = minted;
+        dropMintResponse = true;
+        await claimWalletQuote(owner, mint, incoming.quote).catch(() => undefined);
+        assert.equal((await walletStatus(owner)).balance, after, 'Lost mint signatures are not yet spendable');
+        blockMintRecovery = false;
+        // Each call reopens the persisted wallet, as after the popup or extension closes.
+        const [claim, concurrent] = await Promise.all([
+          claimWalletQuote(owner, mint, incoming.quote),
+          claimWalletQuote(owner, mint, incoming.quote),
+        ]);
         assert.equal(claim.state, 'paid');
+        assert.equal(concurrent.id, claim.id);
+        assert.equal(minted, mintedBefore + 1, 'A recovered deposit must not mint twice');
         assert.equal((await claimWalletQuote(owner, mint, incoming.quote)).id, claim.id);
         assert.equal((await walletStatus(owner)).balance, after + 16);
         const beforeReads = requests.length;

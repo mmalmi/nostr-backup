@@ -176,6 +176,22 @@ const following = /^\/([a-z\d_]{1,15})\/following\/?$/i;
 export function followingHandle(url?: string) {
   return following.exec(xPath(url))?.[1].toLowerCase();
 }
+/** Exact count from the configured profile. Abbreviations such as 1.2K are deliberately left unknown. */
+export function followingTotal(doc: Document, url: string, handle?: string) {
+  if (!handle || (profileHandle(url) !== handle && followingHandle(url) !== handle)) return;
+  for (const link of doc.querySelectorAll('[data-testid="primaryColumn"] a[href]')) {
+    if (followingHandle(link.getAttribute('href') ?? '') !== handle ||
+        link.closest('article, [data-testid="UserCell"]')) continue;
+    const values = Array.from(link.querySelectorAll('[title], span'))
+      .flatMap(node => [node.getAttribute('title'), node.textContent]);
+    for (const value of values) {
+      const text = value?.trim();
+      if (!text || !/^(?:\d+|\d{1,3}(?:[,\.\s]\d{3})+)$/.test(text)) continue;
+      const count = Number(text.replace(/[,\.\s]/g, ''));
+      if (Number.isSafeInteger(count) && count >= 0) return count;
+    }
+  }
+}
 /** Handles listed on the user's own following page, not suggestions elsewhere on the page. */
 export function captureFollows(doc: Document, url: string, handle?: string) {
   if (!handle || followingHandle(url) !== handle) return [];

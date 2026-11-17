@@ -9,6 +9,7 @@ export interface SourcesView {
   localX?: number;
   xLink?: Status['xLink'];
   xFollows?: number;
+  xFollowingTotal?: number;
   /** The user's own lightning address, needed to receive tips. */
   lightning?: string;
 }

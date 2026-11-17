@@ -2,6 +2,7 @@ import type { Event, EventTemplate } from 'nostr-tools/pure';
 import { npubEncode } from 'nostr-tools/nip19';
 import { handlePattern } from './model.ts';
 import { readPublicXOriginal } from './x-audience.ts';
+import { xPermalink } from './x.ts';
 
 // NIP-39 links an X account to a Nostr key with an `i` tag and a proof tweet.
 // Claims are self-asserted, so every proof is checked against X before it is trusted.
@@ -43,8 +44,12 @@ export function xClaims(event: Event): XClaim[] {
   return event.tags.flatMap(([name, identity, proof]) => {
     if (name !== 'i' || typeof identity !== 'string' || !identity.toLowerCase().startsWith('twitter:')) return [];
     const handle = identity.slice('twitter:'.length).toLowerCase();
-    if (!handlePattern.test(handle) || !/^\d{1,20}$/.test(proof ?? '')) return [];
-    return [{ pubkey: event.pubkey, handle, proof, created_at: event.created_at }];
+    if (!handlePattern.test(handle)) return [];
+    // Some clients write the complete X/Twitter URL instead of NIP-39's tweet ID.
+    const link = typeof proof === 'string' ? xPermalink(proof) : undefined;
+    const id = /^\d{1,20}$/.test(proof ?? '') ? proof : link?.author === handle ? link.id : undefined;
+    if (!id) return [];
+    return [{ pubkey: event.pubkey, handle, proof: id, created_at: event.created_at }];
   });
 }
 

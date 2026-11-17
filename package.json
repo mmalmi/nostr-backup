@@ -1,6 +1,6 @@
 {
   "name": "social-backup",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "homepage": "https://socialbackup.org/",
   "private": true,
   "license": "MIT",
@@ -11,10 +11,11 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "build": "pnpm typecheck && node --experimental-strip-types scripts/build.ts",
-    "package:stores": "python3 scripts/store-package.py",
+    "package:stores": "pnpm test:release && python3 scripts/store-package.py",
     "build:site": "pnpm build && node --experimental-strip-types scripts/build-site.ts",
-    "deploy:site": "pnpm run build:site && wrangler deploy --config website/wrangler.jsonc",
+    "deploy:site": "pnpm test:release && pnpm run build:site && wrangler deploy --config website/wrangler.jsonc",
     "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:release": "node --experimental-strip-types scripts/test-release.ts",
     "test:browser": "node --experimental-strip-types scripts/browser-smoke.ts",
     "test:page": "node --experimental-strip-types scripts/browser-check.ts",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings --output machine"

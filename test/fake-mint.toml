@@ -1,0 +1,17 @@
+# Disposable CDK mintd 0.18.3 fixture. No real Lightning backend or funds.
+[info]
+url = "http://127.0.0.1:48163"
+listen_host = "127.0.0.1"
+listen_port = 48163
+mnemonic = "env:CDK_MINTD_MNEMONIC"
+[database]
+engine = "sqlite"
+[payment_backend]
+backend = "fakewallet"
+[onchain]
+onchain_backend = "none"
+[fake_wallet]
+min_delay_time = 1
+max_delay_time = 2
+fee_percent = 0.02
+reserve_fee_min = 1

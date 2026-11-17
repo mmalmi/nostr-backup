@@ -19,7 +19,7 @@ The extension stores an unlocked signing key unencrypted in the browser profile.
 ## Optional X links and tips
 
 - **Link X and find who you follow.** In sign-up's "Find each other on Nostr" step, or later under **Sources → X → Link your X account to Nostr**, post the verification that links your X account. It links as soon as the post shows on X, or when you paste its link. Under **Find your X follows on Nostr**, open your X following list and scroll, then find those people's verified Nostr profiles and follow them.
-- **See people on Nostr.** On an X profile with a verified link, the toolbar popup shows that Nostr profile, its known followers and a Follow button, and the profile header gets a **Nostr** link. Both work from local data, so relays don't learn what you browse.
+- **See people on Nostr.** On an X profile with a verified link, the toolbar popup shows that Nostr profile, its known followers and a Follow button. Following-list rows get a flower when the local directory knows a Nostr link, even with tips off. Clicking a flower rechecks the public X proof and current Nostr identity list before opening the profile. Scrolling only uses local data, so relays don't learn what you browse.
 - **Tips.** Turn on tip buttons and choose a currency under **Sources → Bitcoin tips on X**. Tip buttons match X handles locally. Opening one checks the X proof and the current Lightning address. Scan the QR code, open the Lightning link or copy the invoice to pay from an external wallet. To pay from this device, open **Cashu wallet** to enable a local balance. Choose a mint you trust, fund the wallet and review the recipient, amount and fee before paying. Click the balance in the toolbar popup or tip menu to open the wallet. **Wallet settings → Turn off wallet** keeps your funds on this device. Choose a preset or enter a custom amount in sats. To tip posts in one click, save an amount in **Wallet settings**. A short click sends that amount, and holding the flower opens the usual menu. Profile tips always open the menu. A check on the flower marks your settled tips. Opening its menu shows your total and verified public receipts for that post or profile.
 
 New profiles publish their public-key address at npub.cash when payment data is permitted. **Account** lets you add it to a profile without an existing Lightning address, or remove it. In the Cashu wallet, you can check incoming npub.cash payments manually or enable a check every 15 minutes while unlocked. The wallet can claim unlocked payments from its selected mint. Make an encrypted wallet backup before clearing browser storage or uninstalling.
@@ -44,6 +44,22 @@ pnpm build
 ```
 
 Load `dist/chrome` as an unpacked extension in Chrome. In Firefox 140+, load `dist/firefox/manifest.json` through `about:debugging` for a temporary install. Normal Firefox distribution requires Mozilla signing. The Safari build is experimental.
+
+### Required release tests
+
+`pnpm test` explicitly reports the wallet integration as skipped unless a test mint is configured. Every release must run `pnpm test:release`, which requires a reachable local fake mint, runs type checking and the complete test suite, and cannot skip wallet integration. `pnpm deploy:site` and `pnpm package:stores` run this gate automatically. Wallet tests cover funding, payment and deposit response loss, reopening and concurrent retries, duplicate prevention, fees, account isolation, and encrypted backup restoration against current mint proofs. All funds are simulated.
+
+Use [CDK mintd 0.18.3](https://github.com/cashubtc/cdk/releases/tag/v0.18.3) with [the checked-in fakewallet configuration](test/fake-mint.toml). The official `cdk-mintd-0.18.3-aarch64-apple-darwin` binary used for release testing has SHA-256 `5ad74388ba0825a18e26f6bcd69a66ed5fed4d95c7b69cfb1802886263f5d2b9`; verify it before execution.
+
+```sh
+mint_test_dir=$(mktemp -d)
+cp test/fake-mint.toml "$mint_test_dir/config.toml"
+CDK_MINTD_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' cdk-mintd -w "$mint_test_dir"
+```
+
+In another terminal, run `SOCIAL_BACKUP_FAKE_MINT=http://127.0.0.1:48163 pnpm test:release`. Keep this disposable fixture running for deployment or packaging. Browser smoke tests and visible UI checks remain required for affected flows. For a release, install with `pnpm install --frozen-lockfile` and verify that two `pnpm build:site` runs produce identical ZIPs.
+
+Legacy discovery uses only public handle, public-key and proof-post references from nostr.directory's August 10, 2024 snapshot. They are hints, never proof by themselves: X is checked live, and a signed kind 10011 identity list supersedes them, including an empty list. `scripts/legacy-x-proofs.ts` verifies the snapshot checksum and regenerates the compact index. Current claims refresh from selected Nostr relays; **Refresh Nostr matches** also rechecks the candidates' identity lists and X proofs. Identity verification currently supports X; Facebook and Instagram backup does not imply identity verification there.
 
 ## Package for the stores
 

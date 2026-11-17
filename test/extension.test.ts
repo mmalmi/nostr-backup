@@ -1813,9 +1813,18 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     await success('xFollows', { handles: ['bob', 'carol'] }, { ...following, url: x.url });
     assert.equal((await call('xFollows', { handles: ['dave'] }, { ...following, tab: x.tab })).ok, false);
     assert.equal((await success('status')).xFollows, 2);
+    await success('xFollows', { handles: [], total: 1234 }, x);
+    assert.equal((await success('status')).xFollowingTotal, 1234);
+    assert.equal((await call('xFollows', { handles: [], total: -1 }, x)).ok, false);
+    await success('settings', { pubkey: owner, handle: 'different', capture: false, relaySync: false, relays: url });
+    assert.equal((await success('status')).xFollows, 0);
+    assert.equal((await success('status')).xFollowingTotal, undefined);
+    await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
+    assert.equal((await success('status')).xFollows, 2);
+    assert.equal((await success('status')).xFollowingTotal, 1234);
     // Looking people up checks each proof: the impostor fails.
-    // The first look starts filling the directory from relays in the background and says so.
-    assert.equal((await success('findXFollows')).loading, true);
+    // Refresh starts filling the directory again without clearing the local matches.
+    await success('findXFollows', { refresh: true });
     let found = await success('findXFollows');
     await until(async () => !(found = await success('findXFollows')).loading && found.matches.length > 0);
     assert.deepEqual(found.matches.map((m) => m.pubkey), [getPublicKey(bob)]);
@@ -1824,6 +1833,15 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     await success('followOnNostr', { pubkeys: [getPublicKey(bob)] });
     await until(() => relay.sent.some((e) => e.kind === 3));
     assert.deepEqual(relay.sent.find((e) => e.kind === 3)!.tags, [['p', friend], ['p', getPublicKey(bob)]]);
+    // Deleting the X proof removes the match on the next search.
+    const bobProof = tweets['77'];
+    delete tweets['77'];
+    assert.equal((await success('findXFollows', { refresh: true })).matches.length, 0);
+    tweets['77'] = bobProof;
+    assert.equal((await success('findXFollows')).matches.length, 1);
+    // A newer signed identity list that no longer lists X revokes it too.
+    store(finalizeEvent({ kind: 10011, created_at: 6, content: '', tags: [['i', 'instagram:bob', 'other-proof']] }, bob));
+    assert.equal((await success('findXFollows', { refresh: true })).matches.length, 0);
     await success('unlinkX');
     await until(() => relay.sent.some(e => e.kind === 10011 && !e.tags.some(([t]) => t === 'i')));
     assert.equal((await success('status')).xLink, undefined);
@@ -2192,7 +2210,11 @@ test('tips on X go to verified Nostr profiles with a lightning address and can b
     assert.equal(await success('tipRate', { currency: 'EUR' }, page), 90000);
     await success('settings', { pubkey: owner, handle: '', capture: true, relaySync: false, relays: url, tipButtons: false });
     assert.equal((await success('captureConfig', {}, page)).tips, false);
-    assert.equal((await call('tipTargets', { handles: ['carol'] }, page)).ok, false);
+    const beforeLocal = [verificationReads, relay.reads.length];
+    assert.equal((await call('tipTargets', { handles: ['carol'] }, page)).ok, true);
+    assert.deepEqual([verificationReads, relay.reads.length], beforeLocal);
+    assert.equal((await call('tipProfile', { handle: 'carol' }, page)).ok, false);
+    assert.equal((await call('tipInvoice', { ...recipient, handle: 'carol', sats: 100 }, page)).ok, false);
   } finally {
     await idle();
     await success('logout', { pubkey: owner });

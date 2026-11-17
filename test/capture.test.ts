@@ -240,7 +240,7 @@ test('a quote card points to its own permalink, separate from the outer commenta
 });
 
 test('following list reads only cells in the main column of your own following page', async () => {
-  const { captureFollows, followingHandle } = await import('../src/x.ts');
+  const { captureFollows, followingHandle, followingTotal } = await import('../src/x.ts');
   const cell = (handle: string) => '<div data-testid="UserCell"><a href="/' + handle + '">' + handle + '</a></div>';
   const html = '<div data-testid="primaryColumn">' + cell('Bob') + cell('carol') + cell('alice') + '</div>' +
     '<aside>' + cell('suggested') + '</aside>';
@@ -251,6 +251,15 @@ test('following list reads only cells in the main column of your own following p
     assert.equal(followingHandle('https://x.com/Alice/following'), 'alice');
     assert.deepEqual(captureFollows(doc, 'https://x.com/alice/following', 'alice'), ['bob', 'carol']);
     assert.deepEqual(captureFollows(doc, 'https://x.com/bob/following', 'alice'), []);
+    doc.body.innerHTML = '<div data-testid="primaryColumn"><a href="/alice/following"><span title="1,234">1.2K</span> Following</a></div>';
+    assert.equal(followingTotal(doc, 'https://x.com/alice', 'alice'), 1234);
+    assert.equal(followingTotal(doc, 'https://x.com/bob', 'alice'), undefined);
+    doc.querySelector('span')!.removeAttribute('title');
+    assert.equal(followingTotal(doc, 'https://x.com/alice', 'alice'), undefined);
+    doc.querySelector('span')!.textContent = '691';
+    assert.equal(followingTotal(doc, 'https://x.com/alice', 'alice'), 691);
+    doc.querySelector('a')!.setAttribute('href', '/other/following');
+    assert.equal(followingTotal(doc, 'https://x.com/alice', 'alice'), undefined);
   } finally {
     await window.happyDOM.abort();
   }

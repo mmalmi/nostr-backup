@@ -21,7 +21,9 @@ test('claims come from NIP-39 i tags in kind 10011 and older kind 0 profiles', (
     { pubkey, handle: 'alice', proof: '123', created_at: 1 },
   ]);
   assert.deepEqual(xClaims(event(0, [['i', 'twitter:bob', '456']])).map((c) => c.handle), ['bob']);
-  // A proof must be a tweet ID, and the handle a valid X username.
+  assert.deepEqual(xClaims(event(10011, [['i', 'twitter:Alice', 'https://twitter.com/Alice/status/789?s=20']])).map(c => c.proof), ['789']);
+  assert.deepEqual(xClaims(event(10011, [['i', 'twitter:alice', 'https://x.com/bob/status/789'], ['i', 'twitter:alice', 'https://evil.example/alice/status/789']])), []);
+  // A proof must be a tweet ID or a matching X permalink, and the handle a valid X username.
   assert.deepEqual(xClaims(event(10011, [['i', 'twitter:alice', 'allsocial.me'], ['i', 'twitter:not valid!', '1']])), []);
   assert.deepEqual(xClaims(event(1, [['i', 'twitter:alice', '123']])), []);
 });
@@ -69,5 +71,21 @@ test('newest verified X post wins across keys, including after the old key re-si
     await saveDirectory(db, [claim(replacement, '', 3), claim(replacement, '100', 4, 0)]);
     assert.equal((await directoryClaims(db, 'alice')).length, 1);
     assert.equal(await verifiedTarget(db, 'alice', verify), undefined);
+  } finally { db.close(); }
+});
+
+test('legacy directory references require a live proof and yield to a current identity list', async () => {
+  const { openArchive } = await import('../src/archive.ts');
+  const { directoryClaims, verifiedTarget } = await import('../src/x-directory.ts');
+  const db = await openArchive('legacy-proof-revocation');
+  try {
+    const [claim] = await directoryClaims(db, 'hodlonaut');
+    assert.ok(claim && /^\d+$/.test(claim.proof));
+    assert.equal(await verifiedTarget(db, 'hodlonaut', async () => false), undefined);
+    assert.equal((await verifiedTarget(db, 'hodlonaut', async () => true))?.pubkey, claim.pubkey);
+    // The derived directory row represents a newer, validated NIP-39 list without X.
+    await db.put('xDirectory', { pubkey: claim.pubkey, kind: 10011, created_at: 1, id: '1'.repeat(64), handles: [], claims: [] });
+    assert.deepEqual(await directoryClaims(db, 'hodlonaut'), []);
+    assert.equal(await verifiedTarget(db, 'hodlonaut', async () => true), undefined);
   } finally { db.close(); }
 });

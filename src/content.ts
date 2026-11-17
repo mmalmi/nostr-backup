@@ -1,6 +1,6 @@
 import type { Capture, CaptureConfig, SocialCapture } from './types.ts';
 import type { PageReport } from './site-status.ts';
-import { captureFollows, capturePosts, followingHandle, profileHandle, proofPostIds } from './x.ts';
+import { captureFollows, capturePosts, followingHandle, followingTotal, profileHandle, proofPostIds } from './x.ts';
 import { isProofPost } from './x-identity.ts';
 
 import { captureNetwork, socialProfile } from './social.ts';
@@ -92,15 +92,21 @@ function startCapture() {
   }
   // Handles from the user's own X following list, sent once each, to find them on Nostr later.
   const sentFollows = new Set<string>();
+  let sentFollowingTotal: number | undefined;
   function sendFollows() {
+    const session = config;
     const handles = captureFollows(document, location.href, config?.handle).filter((h) => !sentFollows.has(h)).slice(0, 200);
-    if (!handles.length) return;
+    const total = followingTotal(document, location.href, config?.handle);
+    if (!handles.length && (total === undefined || total === sentFollowingTotal)) return;
     for (const handle of handles) sentFollows.add(handle);
-    api.runtime.sendMessage({ type: 'xFollows', handles }).then((reply: { ok?: boolean } | undefined) => {
-      if (!reply?.ok) for (const handle of handles) sentFollows.delete(handle);
-    }, () => {
+    if (total !== undefined) sentFollowingTotal = total;
+    const retry = () => {
+      if (config !== session) return;
       for (const handle of handles) sentFollows.delete(handle);
-    });
+      if (sentFollowingTotal === total) sentFollowingTotal = undefined;
+    };
+    api.runtime.sendMessage({ type: 'xFollows', account: config?.pubkey, handles, total })
+      .then((reply: { ok?: boolean } | undefined) => { if (!reply?.ok) retry(); }, retry);
   }
   // Your X verification post links as soon as it shows on any X page, such as the timeline right after
   // posting. Each post is checked again on X's public page, and retried while X is still publishing it.
@@ -118,7 +124,10 @@ function startCapture() {
   }
   function collect() {
     sendProofs();
-    if (network === 'x' && config?.handle && followingHandle(location.href) === config.handle) return sendFollows();
+    if (network === 'x' && config?.handle) {
+      sendFollows();
+      if (followingHandle(location.href) === config.handle) return;
+    }
     if (!config?.capture || !onProfile(config.handle)) {
       pending.clear();
       return;
@@ -195,7 +204,7 @@ function startCapture() {
     frame = requestAnimationFrame(() => {
       frame = undefined;
       collect();
-      if (config?.tips) tips?.scan(config.handle);
+      if (config) tips?.scan(config.handle, config.tips);
       look();
     });
   }
@@ -229,6 +238,8 @@ function startCapture() {
         marks.reset();
         pending.clear();
         seen.clear();
+        sentFollows.clear();
+        sentFollowingTotal = undefined;
         collector?.stop();
         collector = undefined;
         failingSince = failureReason = undefined;
@@ -239,7 +250,7 @@ function startCapture() {
         }
       } else tips?.useQuickTip(quickTip);
       collect();
-      if (config?.tips) tips?.scan(config.handle);
+      if (config) tips?.scan(config.handle, config.tips);
       look();
     } catch {
       retryLater();

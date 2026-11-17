@@ -4,6 +4,16 @@ import { profileFromEvent } from './profile.ts';
 import { IDENTITY_KIND, checkXProof, xClaims, type XClaim } from './x-identity.ts';
 import { isOwnEvent } from './model.ts';
 import seed from './x-graph-seed.json' with { type: 'json' };
+import legacy from './x-legacy-proofs.json' with { type: 'json' };
+
+// This index is only a hint. X must still show the account's proof, and any newer NIP-39
+// identity list supersedes it. No request to a directory server reveals which handles are viewed.
+const legacyClaims = new Map<string, XClaim[]>();
+for (const [handle, pubkey, proof] of legacy) {
+  const claims = legacyClaims.get(handle) ?? [];
+  claims.push({ handle, pubkey, proof, created_at: 0 });
+  legacyClaims.set(handle, claims);
+}
 
 export interface DirectoryRow {
   pubkey: string;
@@ -44,6 +54,10 @@ export async function directoryClaims(db: Archive, handle: string) {
     // A dedicated identity list, including an empty replacement, supersedes legacy profile tags.
     if (row.kind === 0 && await db.getKey('xDirectory', [row.pubkey, IDENTITY_KIND])) continue;
     claims.push(...row.claims.filter(c => c.handle === handle));
+  }
+  for (const claim of legacyClaims.get(handle) ?? []) {
+    if (await db.getKey('xDirectory', [claim.pubkey, IDENTITY_KIND])) continue;
+    if (!claims.some(c => c.pubkey === claim.pubkey && c.proof === claim.proof)) claims.push(claim);
   }
   return claims.sort((a, b) => BigInt(a.proof) > BigInt(b.proof) ? -1 : BigInt(a.proof) < BigInt(b.proof) ? 1 : 0);
 }

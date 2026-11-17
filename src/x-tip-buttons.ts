@@ -1,7 +1,7 @@
 import type { CaptureConfig, Message, TipTarget } from './types.ts';
 import type { IssuedInvoice } from './x-tips.ts';
 import type { TipSummary, TipLocation } from './tip-history.ts';
-import { postArticles, profileHandle, xPermalink } from './x.ts';
+import { followingHandle, postArticles, profileHandle, xPermalink } from './x.ts';
 import { formatFiat, tipCurrency, tipPresets } from './rates.ts';
 import qrcode from 'qrcode-generator';
 import { npubEncode } from 'nostr-tools/nip19';
@@ -69,6 +69,14 @@ export function createTipButtons(send: Send, doc: Document = document) {
   const asking = new Set<string>();
   // A miss can be checked locally again after a directory refresh.
   const retryAt = new Map<string, number>();
+  const followingRows = new Map<HTMLElement, { direction: string; align: string }>();
+  function restoreFollowingRow(row: HTMLElement) {
+    const before = followingRows.get(row);
+    if (!before) return;
+    row.style.flexDirection = before.direction;
+    row.style.alignItems = before.align;
+    followingRows.delete(row);
+  }
   let generation = 0;
   let quickTip: CaptureConfig['quickTip'];
   const started = new Set<string>();
@@ -332,14 +340,16 @@ export function createTipButtons(send: Send, doc: Document = document) {
   }
 
   // "Nostr ↗" next to the Tip button on a profile.
-  function nostrButton(handle: string) {
+  function nostrButton(handle: string, flower = false) {
     const node = doc.createElement('button');
     node.type = 'button';
     node.setAttribute(MARK, handle);
-    node.textContent = 'Nostr ↗';
+    if (flower) node.innerHTML = FLOWER;
+    else node.textContent = 'Nostr ↗';
     node.title = 'Open @' + handle + '’s Nostr profile';
     node.setAttribute('aria-label', node.title);
     node.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;color:inherit;white-space:nowrap;' + PILL;
+    if (flower) node.style.cssText += ';width:22px;height:22px;margin-left:3px;padding:2px;border:0;justify-content:center;flex-shrink:0';
     node.addEventListener('click', (event) => {
       if (!event.isTrusted) return;
       event.preventDefault();
@@ -530,15 +540,22 @@ export function createTipButtons(send: Send, doc: Document = document) {
   doc.addEventListener('click', close);
 
   /** Adds buttons for known targets and asks about new handles. `own` is the user's X handle. */
-  function scan(own = '') {
-    const articles = postArticles(doc);
+  function scan(own = '', tipsEnabled = true) {
+    const articles = tipsEnabled ? postArticles(doc) : [];
     // Paths like /home look like profiles; a profile page also shows the profile name header.
-    const name = doc.querySelector('[data-testid="UserName"]');
+    const name = tipsEnabled ? doc.querySelector('[data-testid="UserName"]') : null;
     const profile = name ? profileHandle(doc.location?.href) : undefined;
-    const handles = new Set([...articles.map(author), profile].filter((h): h is string => !!h));
+    const cells = followingHandle(doc.location?.href)
+      ? Array.from(doc.querySelectorAll('[data-testid="primaryColumn"] [data-testid="UserCell"]')) : [];
+    const rows = cells.map(cell => {
+      const link = Array.from(cell.querySelectorAll('a[href]')).find(a =>
+        a.textContent?.trim() && profileHandle(a.getAttribute('href') ?? ''));
+      return { cell, link, handle: profileHandle(link?.getAttribute('href') ?? '') };
+    });
+    const handles = new Set([...articles.map(author), profile, ...rows.map(row => row.handle)].filter((h): h is string => !!h));
     const now = Date.now();
     const unknown = [...handles]
-      .filter((h) => !targets.has(h) && !asking.has(h) && (retryAt.get(h) ?? 0) <= now)
+      .filter((h) => !asking.has(h) && (retryAt.get(h) ?? 0) <= now)
       .slice(0, 50);
     if (unknown.length) {
       for (const handle of unknown) asking.add(handle);
@@ -549,17 +566,36 @@ export function createTipButtons(send: Send, doc: Document = document) {
           const found = reply?.ok ? (reply.value as Record<string, TipTarget | null>) : {};
           for (const handle of unknown) {
             if (Object.hasOwn(found, handle) && found[handle]) targets.set(handle, found[handle]);
-            else retryAt.set(handle, Date.now() + 60000);
+            else targets.delete(handle);
+            retryAt.set(handle, Date.now() + 60000);
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          if (active === generation) for (const handle of unknown) retryAt.set(handle, Date.now() + 60000);
+        })
         .finally(() => {
           if (active === generation) {
             for (const handle of unknown) asking.delete(handle);
-            scan(own);
+            scan(own, tipsEnabled);
           }
         });
     }
+    for (const { cell, link, handle } of rows) {
+      const existing = cell.querySelector('button[' + MARK + ']');
+      const known = handle && targets.get(handle);
+      if (existing && (!known || existing.getAttribute(MARK) !== handle)) {
+        if (existing.parentElement) restoreFollowingRow(existing.parentElement);
+        existing.remove();
+      }
+      const row = link?.parentElement;
+      if (known && row && handle && !cell.querySelector('button[' + MARK + ']')) {
+        if (!followingRows.has(row)) followingRows.set(row, { direction: row.style.flexDirection, align: row.style.alignItems });
+        row.style.flexDirection = 'row';
+        row.style.alignItems = 'center';
+        row.append(nostrButton(handle, true));
+      }
+    }
+    for (const row of followingRows.keys()) if (!row.isConnected) restoreFollowingRow(row);
     const visible: TipLocation[] = [];
     for (const article of articles) {
       const handle = author(article), target = handle && targets.get(handle), post = postInfo(article);
@@ -586,6 +622,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     markVisible(visible);
   }
   function reset(nextQuickTip?: CaptureConfig['quickTip']) {
+    for (const row of followingRows.keys()) restoreFollowingRow(row);
     quickTip = nextQuickTip;
     cancelGesture();
     started.clear();

@@ -414,6 +414,66 @@ test('a verified profile links to its Nostr profile once the proof is checked ag
   }
 });
 
+test('following rows show local Nostr flowers with tips off and recheck only on a trusted click', async () => {
+  const { Window } = await import('happy-dom');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/me/following' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<main data-testid="primaryColumn"><div data-testid="UserCell"><a href="/alice"></a><div><a href="/alice">Alice</a></div></div><div data-testid="UserCell"><div><a href="/bob">Bob</a></div></div></main>';
+  const calls: string[] = [];
+  const pubkey = getPublicKey(secret);
+  const tips = createTipButtons(async message => {
+    calls.push(message.type);
+    if (message.type === 'tipTargets') return { ok: true, value: { alice: { pubkey, proof: '9' } } };
+    if (message.type === 'nostrLink') return { ok: false, error: 'This link was revoked.' };
+    throw Error('Following rows must not request payment data');
+  }, doc);
+  try {
+    tips.scan('me', false);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const flower = doc.querySelector('button')!;
+    assert.ok(flower.querySelector('svg'));
+    assert.equal(flower.textContent, '');
+    assert.equal(flower.title, 'Open @alice’s Nostr profile');
+    assert.equal(doc.querySelectorAll('button').length, 1);
+    tips.scan('me', false);
+    assert.deepEqual(calls, ['tipTargets']);
+    flower.click();
+    assert.deepEqual(calls, ['tipTargets']);
+    userClick(flower);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(calls, ['tipTargets', 'nostrLink']);
+    assert.match(privateRoot(doc.body.lastElementChild!).textContent!, /revoked/);
+    const link = doc.querySelector('a[href="/alice"] + div a')!;
+    link.setAttribute('href', '/bob');
+    link.textContent = 'Bob';
+    tips.scan('me', false);
+    assert.equal(doc.querySelector('[data-testid="UserCell"] button'), null);
+  } finally {
+    tips.reset();
+    await window.happyDOM.abort();
+  }
+});
+
+test('a disconnected following lookup does not retry in a tight loop', async () => {
+  const { Window } = await import('happy-dom');
+  const { createTipButtons } = await import('../src/x-tip-buttons.ts');
+  const window = new Window({ url: 'https://x.com/me/following' });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = '<main data-testid="primaryColumn"><div data-testid="UserCell"><a href="/alice">Alice</a></div></main>';
+  let calls = 0;
+  const tips = createTipButtons(async () => { calls++; throw Error('Disconnected'); }, doc);
+  try {
+    tips.scan('me', false);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    tips.scan('me', false);
+    assert.equal(calls, 1);
+  } finally {
+    tips.reset();
+    await window.happyDOM.abort();
+  }
+});
+
 test('tip amounts use the currency chosen in the Tips settings', async () => {
   const { Window } = await import('happy-dom');
   const { createTipButtons } = await import('../src/x-tip-buttons.ts');

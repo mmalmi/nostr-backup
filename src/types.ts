@@ -205,6 +205,8 @@ export interface Status {
   xLink?: XLink;
   /** How many accounts were read from the user's X following list. */
   xFollows: number;
+  /** Exact following count last read from the configured X profile, when available. */
+  xFollowingTotal?: number;
   profile?: Profile;
   unlocked: boolean;
   events: number;
@@ -285,7 +287,7 @@ export interface Payloads extends WalletRPC {
   authorizeMediaUpload: { hash: string; server: string };
   nip07: { token: string; method: string; event?: unknown };
   approval: { id: string; decision?: boolean; remember?: boolean };
-  xFollows: { handles: string[] };
+  xFollows: { handles: string[]; total?: number };
   tipTargets: { handles: string[] };
   unlinkX: {};
   tipProfile: { handle: string };
@@ -295,7 +297,7 @@ export interface Payloads extends WalletRPC {
   tipInvoice: { handle: string; pubkey: string; lightning: string; sats: number; post?: string };
   tipPost: { handle: string; post?: string; time?: number; text?: string; invoice?: string };
   tipRate: { currency: string };
-  findXFollows: {};
+  findXFollows: { refresh?: boolean };
   followOnNostr: { pubkeys: string[] };
 }
 export type Action = keyof Payloads;

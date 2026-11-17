@@ -85,8 +85,11 @@
     <a class="walletBalance" href="wallet.html" target="_blank" rel="noopener" title="Open Cashu wallet">Wallet balance · {count(balance, 'sat', 'sats')}</a>
   {/if}
   <button id="open" onclick={openBackup}>Open backup</button>
-  {#if site === 'x' && status?.conf.handle && !status.xLink}
-    <p class="hint"><a href="archive.html#sources" target="_blank" rel="noopener">Link your X account to Nostr</a> · Optional</p>
+  {#if status?.conf.handle && !status.xLink}
+    <div class="linkAccount">
+      <a class="button primary" href="archive.html#sources" target="_blank" rel="noopener">Link your X account to Nostr</a>
+      <p class="hint">Optional · Help your followers find you</p>
+    </div>
   {/if}
   {#if card}<NostrCardView {card} canFollow={!!status?.unlocked} />{/if}
 </div>

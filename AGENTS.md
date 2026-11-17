@@ -31,4 +31,5 @@ what the code does; update it with any change to what is read, stored or sent.
 ## Delivery
 
 - Run `pnpm typecheck` and `pnpm test` before committing. Visible changes get a visual check.
+- Before every release, run `pnpm test:release` with a disposable local CDK fakewallet mint. This includes the wallet integration test and fails if its fixture is unavailable. Both deployment and store packaging enforce this gate.
 - Releases are reproducible: `pnpm install --frozen-lockfile`, then two `pnpm build:site` runs must give identical ZIPs.

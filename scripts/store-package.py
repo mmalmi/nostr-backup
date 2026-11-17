@@ -12,7 +12,7 @@ output = root / 'build' / f'store-{version}'
 output.parent.mkdir(exist_ok=True)
 
 inputs = ['package.json', 'pnpm-lock.yaml', 'tsconfig.json', 'LICENSE', 'src', 'test',
-          'ui', 'scripts/build.ts', 'scripts/svelte.ts']
+          'ui', 'scripts/build.ts', 'scripts/svelte.ts', 'scripts/test-release.ts', 'scripts/legacy-x-proofs.ts']
 paths = run(['git', 'ls-files', '-z', '--', *inputs], cwd=root, check=True,
             capture_output=True).stdout.decode().split('\0')
 sources = {name: root / name for name in paths if name}

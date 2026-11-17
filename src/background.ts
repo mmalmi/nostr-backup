@@ -510,12 +510,14 @@ async function tipTargets(db: Archive, handles: string[]) {
 // The verified Nostr key for an X handle, checked against its current identity list:
 // an empty or changed list revokes the link.
 async function currentLink(db: Archive, conf: Settings, handle: string) {
-  const target = await verifiedTarget(db, handle);
-  if (!target) throw Error('This X account has no current verified Nostr link.');
+  const authors = [...new Set((await directoryClaims(db, handle)).slice(0, 4).map(claim => claim.pubkey))];
+  if (!authors.length) throw Error('This X account has no current verified Nostr link.');
   const pool = new SimplePool();
   try {
-    const events = await pool.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], authors: [target.pubkey] }, { maxWait: 4000 });
+    const events = await pool.querySync(conf.relays, { kinds: [0, IDENTITY_KIND], authors }, { maxWait: 4000 });
     await saveDirectory(db, events);
+    const target = await verifiedTarget(db, handle);
+    if (!target) throw Error('This X account has no current verified Nostr link.');
     const claims = await directoryClaims(db, handle);
     if (!claims.some(c => c.pubkey === target.pubkey && c.proof === target.proof))
       throw Error('The Nostr link changed. Try again.');
@@ -868,6 +870,11 @@ async function configure(msg: Message<'settings'>) {
     throw Error('Choose a media file limit between 1 and 1024 MiB.');
   if (JSON.stringify(mediaServers(prev)) !== JSON.stringify(blossomServers) || prev.handle !== handle || !msg.capture || prev.mediaMiB !== mediaMiB)
     mediaController?.abort();
+  if (prev.handle && prev.handle !== handle) {
+    const db = await openArchive(prev.archiveName);
+    try { await readXFollows(db, prev.handle); }
+    finally { db.close(); }
+  }
   await saveSettings({
     ...prev,
     pubkey,
@@ -1219,7 +1226,9 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       return;
     }
     if (msg.type === 'tipProfile' || msg.type === 'tipTargets' || msg.type === 'tipInvoice' || msg.type === 'tipRate' || msg.type === 'tipPost' || msg.type === 'tipMarks' || msg.type === 'openTipWallet' || msg.type === 'nostrLink') {
-      if (captureNetwork(sender.url) !== 'x' || !sender.tab || (conf.tipButtons !== true || !await paymentConsent())) throw Error('Tips are off.');
+      if (captureNetwork(sender.url) !== 'x' || !sender.tab) throw Error('Open this on X.');
+      if (msg.type !== 'tipTargets' && msg.type !== 'nostrLink' && (conf.tipButtons !== true || !await paymentConsent()))
+        throw Error('Tips are off.');
       if (msg.type === 'tipMarks') {
         if (!Array.isArray(msg.targets) || msg.targets.length > 50 || msg.targets.some(t => !t || !/^[a-f0-9]{64}$/.test(t.pubkey) || (t.post !== undefined && !/^\d{1,20}$/.test(t.post))))
           throw Error('Invalid tip targets.');
@@ -1267,11 +1276,9 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       }
       const handle = typeof msg.handle === 'string' ? msg.handle.toLowerCase() : '';
       if (!handlePattern.test(handle)) throw Error('Invalid handle.');
-      // A link to the verified Nostr profile, from the X profile header.
-      // Opening a profile link only checks the proof on X; relays never learn which X profile you are on.
+      // An explicit click can check both the public proof and the latest signed identity list.
       if (msg.type === 'nostrLink') {
-        const target = await verifiedTarget(db, handle);
-        if (!target) throw Error('This X account has no current verified Nostr link.');
+        const { target } = await currentLink(db, conf, handle);
         return { pubkey: target.pubkey };
       }
       if (msg.type === 'tipProfile') {
@@ -1345,12 +1352,24 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     }
     if (msg.type === 'xFollows') {
       // Handles read from the user's own X following list, to find them on Nostr later.
-      const own = (url?: string) => captureNetwork(url) === 'x' && !!conf.handle && followingHandle(url) === conf.handle;
-      if (!own(capturePage(sender))) throw Error('Outside your X following list.');
       if (!Array.isArray(msg.handles) || msg.handles.length > 200 || !msg.handles.every((h) => typeof h === 'string' && handlePattern.test(h)))
         throw Error('Invalid following list.');
-      const known = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
-      await db.put('meta', [...new Set([...known, ...msg.handles.map((h) => h.toLowerCase())])].slice(0, 10000), 'xFollows');
+      if (msg.total !== undefined && (!Number.isSafeInteger(msg.total) || msg.total < 0))
+        throw Error('Invalid following count.');
+      const url = capturePage(sender);
+      const ownList = followingHandle(url) === conf.handle;
+      if (!conf.handle || captureNetwork(url) !== 'x' ||
+          (!ownList && (profileHandle(url) !== conf.handle || msg.handles.length || msg.total === undefined)))
+        throw Error('Outside your X following list.');
+      await write(async () => {
+        const current = await settings();
+        if (current.pubkey !== conf.pubkey || current.handle !== conf.handle) throw Error('Source account changed.');
+        const known = await readXFollows(db, conf.handle);
+        const tx = db.transaction('meta', 'readwrite');
+        await tx.store.put([...new Set([...known, ...msg.handles.map(h => h.toLowerCase())])].slice(0, 10000), ['xFollows', conf.handle]);
+        if (msg.total !== undefined) await tx.store.put(msg.total, ['xFollowingTotal', conf.handle]);
+        await tx.done;
+      });
       // You are about to look for them on Nostr, so the directory of X links fills meanwhile.
       void warmDirectory();
       return;
@@ -1444,7 +1463,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           pointer: await readPointer(db),
           lastRun,
           xLink: await currentXLink(),
-          xFollows: (((await db.get('meta', 'xFollows')) as string[] | undefined) ?? []).length,
+          xFollows: (await readXFollows(db, conf.handle)).length,
+          xFollowingTotal: await db.get('meta', ['xFollowingTotal', conf.handle]) as number | undefined,
         } satisfies Status;
       }
       case 'publishIndex': {
@@ -1507,25 +1527,53 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         return;
       case 'findXFollows': {
         // Matches come from the local directory at once; its refresh from relays runs in the background.
-        const handles = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
+        const handles = await readXFollows(db, conf.handle);
+        if (msg.refresh && !warming)
+          await db.put('meta', ['0', '0'], ['xDirectorySchedule', ...conf.relays]);
         const [, due = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
         const loading = conf.relays.length > 0 && Date.now() >= Number(due);
         if (loading) void warmDirectory();
-        const matches = [];
-        let unchecked = 0;
+        const candidates: { handle: string; claims: Awaited<ReturnType<typeof directoryClaims>> }[] = [];
         for (const handle of handles) {
-          try {
-            const target = await verifiedTarget(db, handle);
-            if (target) matches.push({ handle, pubkey: target.pubkey });
-          } catch (error) {
-            if (!(error instanceof XRateLimited)) throw error;
-            unchecked = handles.length - handles.indexOf(handle);
-            break;
-          }
+          const claims = await directoryClaims(db, handle);
+          if (claims.length) candidates.push({ handle, claims: claims.slice(0, 4) });
         }
+        // This explicit search can refresh the candidates' current identity lists in batches.
+        // Viewing/scrolling a following list never sends these requests.
+        const authors = [...new Set(candidates.flatMap(({ claims }) => claims.map(c => c.pubkey)))];
+        const pool = new SimplePool();
+        try {
+          for (let start = 0; start < authors.length; start += 128) {
+            const events = await pool.querySync(conf.relays, {
+              kinds: [0, IDENTITY_KIND], authors: authors.slice(start, start + 128), limit: 256,
+            }, { maxWait: 4000 });
+            await saveDirectory(db, events);
+          }
+        } finally { pool.destroy(); }
+        const matches: { handle: string; pubkey: string; name?: string }[] = [];
+        let unchecked = 0;
+        let next = 0, limited = false;
+        await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
+          while (!limited && next < candidates.length) {
+            const { handle } = candidates[next++];
+            try {
+              const target = await verifiedTarget(db, handle);
+              if (target) {
+                const profile = (await db.get('xDirectory', [target.pubkey, 0]))?.profile;
+                matches.push({ handle, pubkey: target.pubkey, ...(profile?.name ? { name: profile.name } : {}) });
+              } else unchecked++;
+            } catch (error) {
+              if (error instanceof XRateLimited) limited = true;
+              unchecked++;
+            }
+          }
+        }));
+        unchecked += candidates.length - next;
+        matches.sort((a, b) => handles.indexOf(a.handle) - handles.indexOf(b.handle));
         const contacts = (await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [3], limit: 1 }])).events[0]?.event;
         const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
-        return { matches, unchecked, loading, following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
+        const [, refreshedDue = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
+        return { matches, unchecked, loading: loading && Date.now() >= Number(refreshedDue), following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
       }
       case 'nostrCard': {
         // Only X accounts already in the local directory are checked, and only on X.
@@ -1621,6 +1669,21 @@ function capturePage(sender: Sender) {
   const current = sender.tab.url ?? sender.url;
   // A delayed message from a page replaced by another origin must never authorize capture there.
   if (new URL(current).origin === new URL(sender.url).origin) return current;
+}
+/** Migrate older lists once, while the configured handle still identifies their owner. */
+async function readXFollows(db: Archive, handle: string) {
+  if (!handle) return [];
+  const tx = db.transaction('meta', 'readwrite');
+  const key = ['xFollows', handle];
+  const saved = await tx.store.get(key) as string[] | undefined;
+  const legacy = await tx.store.get('xFollows') as string[] | undefined;
+  const handles = [...new Set([...(saved ?? []), ...(legacy ?? [])])];
+  if (legacy) {
+    await tx.store.put(handles, key);
+    await tx.store.delete('xFollows');
+  }
+  await tx.done;
+  return handles;
 }
 function pageReport(msg: PageReport): PageReport {
   return {

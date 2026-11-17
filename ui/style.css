@@ -304,6 +304,13 @@ a.button.secondary {
 a.button.secondary:hover {
   background: var(--soft);
 }
+a.button.primary {
+  background: var(--button);
+  color: var(--on-button);
+}
+a.button.primary:hover {
+  background: var(--button-hover);
+}
 button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -426,6 +433,20 @@ ul:empty {
 }
 .popup .hint {
   font-size: 0.8rem;
+}
+.popup .linkAccount {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+.popup .linkAccount .button {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.popup .linkAccount .hint {
+  margin: 8px 0 0;
 }
 
 /* Website request review */
