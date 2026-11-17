@@ -289,7 +289,8 @@ button {
 button:hover:not(:disabled) {
   background: var(--button-hover);
 }
-a.button {
+a.button,
+summary.button {
   display: inline-flex;
   align-items: center;
   border-radius: 7px;
@@ -304,11 +305,11 @@ a.button.secondary {
 a.button.secondary:hover {
   background: var(--soft);
 }
-a.button.primary {
+.button.primary {
   background: var(--button);
   color: var(--on-button);
 }
-a.button.primary:hover {
+.button.primary:hover {
   background: var(--button-hover);
 }
 button:disabled {
@@ -607,6 +608,51 @@ ul:empty {
   list-style: none;
   padding: 0;
   margin: 12px 0;
+}
+.xNostr summary.button {
+  list-style: none;
+}
+.xNostr summary.button::-webkit-details-marker {
+  display: none;
+}
+.matchResults {
+  margin-top: 16px;
+}
+.matchActions, .matchPages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.xMatches li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.xMatches input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+}
+.xMatches a {
+  min-width: 0;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.xMatches a:hover span {
+  text-decoration: underline;
+}
+.xMatches a small {
+  display: block;
+  font-weight: 400;
+}
+.xMatches .matchFollowing {
+  margin-left: auto;
 }
 .xMatches small {
   color: var(--muted);

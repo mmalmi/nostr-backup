@@ -1830,6 +1830,9 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     assert.deepEqual(found.matches.map((m) => m.pubkey), [getPublicKey(bob)]);
     assert.equal(found.unchecked, 0);
     assert.deepEqual(found.following, []);
+    // A follow made in another Nostr client is reflected without waiting for archive sync.
+    store(finalizeEvent({ kind: 3, created_at: 10, content: '', tags: [['p', friend], ['p', getPublicKey(bob)]] }, secret));
+    assert.deepEqual((await success('findXFollows')).following, [getPublicKey(bob)]);
     await success('followOnNostr', { pubkeys: [getPublicKey(bob)] });
     await until(() => relay.sent.some((e) => e.kind === 3));
     assert.deepEqual(relay.sent.find((e) => e.kind === 3)!.tags, [['p', friend], ['p', getPublicKey(bob)]]);

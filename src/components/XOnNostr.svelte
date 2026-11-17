@@ -21,8 +21,8 @@
   }
 </script>
 
-<details class="xNostr" open={!!handle && !view?.xLink}>
-  <summary>{view?.xLink ? 'Manage your X account link to Nostr' : 'Link your X account to Nostr'}</summary>
+<details class="xNostr">
+  <summary class:button={!view?.xLink} class:primary={!view?.xLink}>{view?.xLink ? 'Manage your X account link to Nostr' : 'Link your X account to Nostr'}</summary>
   {#if !handle}
     <p class="hint">Save your X username first.</p>
   {:else}

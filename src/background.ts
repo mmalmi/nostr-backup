@@ -1528,6 +1528,8 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       case 'findXFollows': {
         // Matches come from the local directory at once; its refresh from relays runs in the background.
         const handles = await readXFollows(db, conf.handle);
+        const contactsReady = latestOwn(db, conf, 3).catch(async () =>
+          (await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [3], limit: 1 }])).events[0]?.event);
         if (msg.refresh && !warming)
           await db.put('meta', ['0', '0'], ['xDirectorySchedule', ...conf.relays]);
         const [, due = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
@@ -1570,7 +1572,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         }));
         unchecked += candidates.length - next;
         matches.sort((a, b) => handles.indexOf(a.handle) - handles.indexOf(b.handle));
-        const contacts = (await archiveRouter(db, conf.pubkey).query([{ authors: [conf.pubkey], kinds: [3], limit: 1 }])).events[0]?.event;
+        const contacts = await contactsReady;
         const following = new Set(contacts?.tags.filter(([name]) => name === 'p').map(([, key]) => key));
         const [, refreshedDue = '0'] = ((await db.get('meta', ['xDirectorySchedule', ...conf.relays])) as string[] | undefined) ?? [];
         return { matches, unchecked, loading: loading && Date.now() >= Number(refreshedDue), following: matches.map(m => m.pubkey).filter(key => following.has(key)) };
