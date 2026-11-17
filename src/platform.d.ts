@@ -43,10 +43,7 @@ interface ExtensionAPI {
   action: {
     onClicked: Listener<() => void>;
     setPopup(details: { popup: string }): Promise<void>;
-    setBadgeText(details: { text: string; tabId: number }): Promise<void>;
-    setBadgeBackgroundColor(details: { color: string; tabId: number }): Promise<void>;
-    /** Missing in some browsers, which then choose the colour themselves. */
-    setBadgeTextColor?(details: { color: string; tabId: number }): Promise<void>;
+    setIcon(details: { path: Record<number, string>; tabId: number }): Promise<void>;
     setTitle(details: { title: string; tabId: number }): Promise<void>;
   };
   storage: {

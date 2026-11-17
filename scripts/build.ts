@@ -1,13 +1,16 @@
 import { build } from 'esbuild';
 import { svelte } from './svelte.ts';
 import { captureSites } from '../src/social.ts';
+import { siteIcon, type Level } from '../src/site-status.ts';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 
 const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 // Rasters of ui/icon.svg: resvg -w SIZE ui/icon.svg ui/icon-SIZE.png
 const icons = { 16: 'icon-16.png', 32: 'icon-32.png', 48: 'icon-48.png', 128: 'icon-128.png' };
-const assets = ['archive.html', 'popup.html', 'approve.html', 'wallet.html', 'style.css', 'icon.svg', 'graph-followers.bin', 'facebook-logo.png', ...Object.values(icons)];
+// Status icons add a circle at (438,438), radius 64, to the 512-unit flower before rasterizing.
+const levels: Level[] = ['on', 'attention', 'problem'];
+const assets = ['archive.html', 'popup.html', 'approve.html', 'wallet.html', 'style.css', 'icon.svg', 'graph-followers.bin', 'facebook-logo.png', ...Object.values(icons), ...levels.flatMap(level => Object.values(siteIcon(level)))];
 const common = {
   manifest_version: 3,
   name: 'Social Backup',

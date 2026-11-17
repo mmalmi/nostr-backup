@@ -50,6 +50,8 @@ export interface Capture {
   text: string;
   posters?: string[];
   hasQuoteCard?: boolean;
+  /** The X post this reply addresses, from its signed-out original. */
+  replyTo?: { author: string; id: string };
   /** The timeline showed Show more. The background reads the full public post instead. */
   truncated?: boolean;
   visibility?: 'public' | 'private' | 'unknown';

@@ -13,7 +13,8 @@ import {
   verifyEvent,
 } from 'nostr-tools/pure';
 import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
-import { profileHTML, publicTweetHTML } from '../test/fixtures.ts';
+import { startBrowserFixture } from './browser-fixture.ts';
+import { profileHTML } from '../test/fixtures.ts';
 import './build.ts';
 
 const browser = process.argv[2] ?? 'chrome';
@@ -46,13 +47,15 @@ async function http<T = unknown>(method: string, path: string, body?: unknown): 
   if (!r.ok) throw Error(result.value?.message ?? r.statusText);
   return result.value;
 }
+const fixture = await startBrowserFixture();
 const session = await http<{ sessionId: string; capabilities: { webSocketUrl: string } }>(
   'POST',
   '/session',
   {
-    capabilities: { alwaysMatch: { browserName: browser, webSocketUrl: true, ...vendor } },
+    capabilities: { alwaysMatch: { browserName: browser, webSocketUrl: true, acceptInsecureCerts: true,
+      proxy: { proxyType: 'manual', httpProxy: fixture.address, sslProxy: fixture.address, noProxy: ['127.0.0.1', 'localhost'] }, ...vendor } },
   },
-);
+).catch(error => { fixture.close(); throw error; });
 const path = '/session/' + session.sessionId;
 let relay: WebSocketServer | undefined, socket: WebSocket | undefined;
 try {
@@ -89,32 +92,8 @@ try {
     }
     if (m.method === 'log.entryAdded' && m.params.level === 'error')
       console.error('Browser error:', m.params.text);
-    if (m.method === 'network.beforeRequestSent' && m.params.isBlocked) {
-      const check = m.params.request.url === 'https://x.com/alice/status/123';
-      void bidi('network.provideResponse', {
-        request: m.params.request.request,
-        statusCode: 200,
-        headers: [
-          {
-            name: 'Content-Type',
-            value: { type: 'string', value: 'text/html; charset=utf-8' },
-          },
-        ],
-        body: {
-          type: 'string',
-          value: check ? publicTweetHTML('alice', '123', 'Hello\nbackup 🌲', 1704164645)
-            : '<!DOCTYPE html><html><body>' + profileHTML + '</body></html>',
-        },
-      });
-    }
   };
-  await bidi('session.subscribe', {
-    events: ['network.beforeRequestSent', 'log.entryAdded'],
-  });
-  await bidi('network.addIntercept', {
-    phases: ['beforeRequestSent'],
-    urlPatterns: [{ type: 'pattern', protocol: 'https', hostname: 'x.com' }],
-  });
+  await bidi('session.subscribe', { events: ['log.entryAdded'] });
   const { extension } = await bidi<{ extension: string }>('webExtension.install', {
     extensionData: { type: 'path', path: resolve('dist', browser) },
   });
@@ -160,7 +139,7 @@ try {
   }
   await go(options);
   await waitFor(
-    () => js("return !document.querySelector('#onboarding').hidden"),
+    () => js("return document.querySelector('#onboarding')?.hidden === false"),
     'options page ready',
   );
   await js(
@@ -170,7 +149,7 @@ try {
        request.onerror=()=>reject(request.error);
        request.onsuccess=()=>{
          const db=request.result,tx=db.transaction('records','readwrite');
-         tx.objectStore('records').put({pubkey:owner,handle:'',capture:false,relaySync:false,
+         tx.objectStore('records').put({pubkey:owner,handle:'',capture:true,relaySync:true,
            relays:[relay],relaysConfigured:true,archiveName:'nostr-backup-'+owner},'account:'+owner);
          tx.oncomplete=()=>{db.close();resolve(true)};
          tx.onabort=()=>{db.close();reject(tx.error)};
@@ -182,26 +161,43 @@ try {
     "document.querySelector('#existingProfile').click();const input=document.querySelector('#loginKey');input.value=arguments[0];input.dispatchEvent(new Event('input',{bubbles:true}))",
     npubEncode(pubkey),
   );
+  await waitFor(() => js("return !!document.querySelector('#watchConfirm')"), 'read-only confirmation');
+  await js("document.querySelector('#watchConfirm').click()");
   await waitFor(
     () =>
-      js("return !document.querySelector('#workspace').hidden && location.hash==='#archive'"),
+      js("return !document.querySelector('#workspace').hidden && !document.querySelector('[data-panel=archive]').hidden"),
     'read-only profile opened',
   );
+  await js("document.querySelector('a[href=\"#account\"]').click()");
+  await waitFor(() => js("return !document.querySelector('[data-panel=account]').hidden"), 'account settings');
   await js(
     "const input=document.querySelector('#secret');input.value=arguments[0];input.dispatchEvent(new Event('input',{bubbles:true}))",
     nsecEncode(key),
   );
   await waitFor(() => js("return !document.querySelector('#lock').hidden"), 'signer unlock');
-  await js(
-    // Usernames save only through their Save button. Backup is on by default.
-    "const u=arguments[0];const h=document.querySelector('#handle');h.value='alice';h.dispatchEvent(new Event('input',{bubbles:true}));const r=document.querySelector('#relays');r.value=u;r.dispatchEvent(new Event('input',{bubbles:true}));const s=document.querySelector('#relaySync');if(!s.checked)s.click();setTimeout(()=>document.querySelector('#handleSave').click())",
-    url,
-  );
+  await js("document.querySelector('a[href=\"#sources\"]').click()");
+  await waitFor(() => js("return !document.querySelector('[data-panel=sources]').hidden"), 'source settings');
+  await js("const h=document.querySelector('#handle');h.value='alice';h.dispatchEvent(new Event('input',{bubbles:true}))");
+  await waitFor(() => js("return !!document.querySelector('#handleSave')"), 'unsaved username');
+  await js("document.querySelector('#handleSave').click()");
   await waitFor(
     () => js("return document.querySelector('#notice').textContent==='Saved.'"),
     'settings save',
   );
-  await go('https://x.com/alice');
+  const following = await js("return document.querySelector('[data-panel=sources] a[href$=\"/following\"]')?.href");
+  assert.equal(following, 'https://x.com/alice/following');
+  await go(following as string);
+  await waitFor(() => js("return !!document.querySelector('[data-testid=UserCell]')"), 'X following list');
+  // Leave the following page open while checking what the extension collected.
+  const followingTab = await http<string>('GET', path + '/window');
+  const { handle: settingsTab } = await http<{ handle: string }>('POST', path + '/window/new', { type: 'tab' });
+  await http('POST', path + '/window', { handle: settingsTab });
+  await go(options + '#sources');
+  await waitFor(() => js("return document.querySelector('#findXFollows')?.disabled === false"), 'X follows ready without a self-verification');
+  await http('DELETE', path + '/window');
+  await http('POST', path + '/window', { handle: followingTab });
+  // X changes routes and content without replacing the document. Chrome retains the sender's first URL.
+  await js("history.pushState(null,'','/alice');document.body.innerHTML=arguments[0]", profileHTML);
   try {
     await waitFor(() => saved.length === 1, 'published X event');
   } catch (error) {
@@ -213,13 +209,13 @@ try {
     );
     await go(options);
     await waitFor(
-      () => js("return !document.querySelector('#workspace').hidden"),
+      () => js("return document.querySelector('#workspace')?.hidden === false"),
       'diagnostic page ready',
     );
     console.error(
       'Archive state:',
       await js(
-        "return Object.fromEntries(['events','drafts','pending','notice','activity','reports'].map(id=>[id,document.getElementById(id)?.textContent]))",
+        "return Object.fromEntries(['events','drafts','pending','notice','activity','reports','xCaptured','localXCount'].map(id=>[id,document.getElementById(id)?.textContent]))",
       ),
     );
     throw error;
@@ -229,17 +225,23 @@ try {
   await waitFor(
     () =>
       js(
-        "return document.querySelector('#events').textContent==='2' && document.querySelector('#pending').textContent==='0'",
+        "return document.querySelector('#events')?.textContent==='2' && document.querySelector('#pending')?.textContent==='0'",
       ),
     'two archived events and acknowledged delivery',
   );
+  await go(new URL('wallet.html', options).href);
+  await waitFor(() => js("return Array.from(document.querySelectorAll('button')).some(b => b.textContent.trim()==='Enable wallet')"), 'wallet opens for the signed-in account');
+  if (browser === 'chrome') {
+    await js("Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim()==='Enable wallet').click()");
+    await waitFor(() => js("return !!document.querySelector('#balanceTitle') && !!document.querySelector('input[type=url]')"), 'empty wallet and mint selection');
+  }
   console.log(
     browser +
-      ' passed: installed extension, imported a note, captured one own X post and received relay OK.',
+      ' passed: installed extension, read X follows, imported a note, captured one own X post, received relay OK and opened the wallet.',
   );
 } finally {
   socket?.close();
   for (const ws of relay?.clients ?? []) ws.terminate();
   relay?.close();
-  await http('DELETE', path);
+  try { await http('DELETE', path); } finally { fixture.close(); }
 }

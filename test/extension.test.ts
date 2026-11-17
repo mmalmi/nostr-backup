@@ -167,7 +167,7 @@ let winURL: string | undefined;
 // Tabs the extension opened.
 const tabURLs: string[] = [];
 // The badge and tooltip the extension last set on each tab's toolbar icon.
-const badges = new Map<number, { text?: string; color?: string; title?: string }>();
+const badges = new Map<number, { path?: Record<number, string>; title?: string }>();
 const badge = (tabId: number) => badges.get(tabId) ?? badges.set(tabId, {}).get(tabId)!;
 function approvalScreen() {
   assert.ok(winURL);
@@ -187,9 +187,7 @@ const api = {
     setPopup: async ({ popup }: { popup: string }) => {
       popupPath = popup;
     },
-    setBadgeText: async ({ text, tabId }: { text: string; tabId: number }) => void (badge(tabId).text = text),
-    setBadgeBackgroundColor: async ({ color, tabId }: { color: string; tabId: number }) => void (badge(tabId).color = color),
-    setBadgeTextColor: async () => {},
+    setIcon: async ({ path, tabId }: { path: Record<number, string>; tabId: number }) => void (badge(tabId).path = path),
     setTitle: async ({ title, tabId }: { title: string; tabId: number }) => void (badge(tabId).title = title),
   },
   scripting: {
@@ -1354,7 +1352,16 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await until(() => !!page.document.getElementById('nostrNext'));
   assert.equal(stepLabel('.setup'), 'Step 3 of 5');
   assert.match(page.document.getElementById('linkX')?.getAttribute('href') ?? '', /^https:\/\/x\.com\/intent\/post\?text=Verifying/);
-  assert.equal(page.document.querySelector('#findXFollows')?.hasAttribute('disabled'), true);
+  const setup = page.document.querySelector('.setup')!;
+  assert.equal(!!setup.querySelector('#findXFollows'), false);
+  const followingURL = 'https://x.com/example/following';
+  assert.equal(setup.querySelector('a[href$="/following"]')?.getAttribute('href'), followingURL);
+  await success('xFollows', { handles: ['bob'] }, { ...x, url: followingURL, tab: { id: 1, url: followingURL } });
+  page.dispatchEvent(new page.Event('hashchange'));
+  await until(() => !!setup.querySelector('#findXFollows'));
+  assert.match(setup.textContent ?? '', /1 account/);
+  assert.equal(setup.querySelector('#findXFollows')?.hasAttribute('disabled'), false);
+  assert.equal((await success('status')).xLink, undefined);
   id('nostrNext').click();
   await until(() => !!page.document.getElementById('finishSetup'));
   const latestProfile = async () => {
@@ -1543,7 +1550,11 @@ test('X captures sign locally even while the previous delivery has no reply', as
     await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: url });
     let third = '';
     const post = (id: string) => ({ author: 'alice', id, time: 1700000000, text: 'Post ' + id });
-    await success('capture', { posts: [post('1')] }, x);
+    // X navigates without reloading. Chrome keeps the original document URL but updates the tab URL.
+    const fromFollowing = { ...x, url: 'https://x.com/alice/following' };
+    await success('capture', { posts: [post('1')] }, fromFollowing);
+    assert.equal((await call('capture', { posts: [post('1')] }, { ...x, tab: { id: 1, url: 'https://x.com/bob' } })).ok, false);
+    assert.equal((await call('capture', { posts: [post('1')] }, { ...x, url: 'https://example.org/' })).ok, false);
     await until(() => relay.sent.length === 1);
     await success('capture', { posts: [post('2'), post('3'), post('2')] }, x);
     const status = await success('status');
@@ -1569,17 +1580,17 @@ test('X captures sign locally even while the previous delivery has no reply', as
     assert.equal((await success('captureConfig', {}, home)).marks, true);
     // The tab's toolbar icon gets a green dot while the backup is on, and its tooltip says what it does.
     await until(() => badges.get(1)?.title === 'Social Backup: Backing up @alice on X');
-    assert.deepEqual(badges.get(1), { text: ' ', color: '#12a15f', title: 'Social Backup: Backing up @alice on X' });
+    assert.deepEqual(badges.get(1)?.path, { 16: 'icon-on-16.png', 32: 'icon-on-32.png' });
     // The page reports posts that stay out of the backup: the dot becomes a red mark, and the popup can read why.
     await success('pageStatus', { unsaved: 2 }, home);
     await until(() => badges.get(1)?.title === 'Social Backup: 2 posts on this page could not be backed up');
-    assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#e5484d']);
+    assert.equal(badges.get(1)?.path?.[16], 'icon-problem-16.png');
     assert.deepEqual((await api.storage.session.get('site-1'))['site-1'], { site: 'x', unsaved: 2 });
     assert.equal((await success('captureConfig', { failed: true }, home)).capture, true);
     await until(() => badges.get(1)?.title === 'Social Backup: Your posts on this page could not be saved');
     await success('pageStatus', {}, home);
     await until(() => badges.get(1)?.title === 'Social Backup: Backing up @alice on X');
-    assert.equal(badges.get(1)?.text, ' ');
+    assert.equal(badges.get(1)?.path?.[16], 'icon-on-16.png');
     assert.deepEqual(await success('savedPosts', { ids: ['1', '9', '3'] }, home), [{ id: '1', onNostr: true }, { id: '3', onNostr: true }]);
     assert.equal(requests, (globalThis.fetch as unknown as { mock: { callCount(): number } }).mock.callCount());
     // A click on a mark has the extension open the post's signed copy on Iris. The page gets no note ID.
@@ -1597,12 +1608,12 @@ test('X captures sign locally even while the previous delivery has no reply', as
     // A site that is not set up gets no dot.
     await success('captureConfig', {}, { ...x, url: 'https://www.instagram.com/alice/', tab: { id: 31, url: 'https://www.instagram.com/alice/' } });
     await until(() => badges.get(31)?.title === 'Social Backup: Add your Instagram username in Sources');
-    assert.equal(badges.get(31)?.text, '');
+    assert.equal(badges.get(31)?.path?.[16], 'icon-16.png');
     // In read-only mode the backup is paused: a yellow mark.
     await success('lock');
     assert.equal((await success('captureConfig', {}, home)).capture, false);
     await until(() => badges.get(1)?.title === 'Social Backup: X backup is paused. Enter your secret key in Account');
-    assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#f5b301']);
+    assert.equal(badges.get(1)?.path?.[16], 'icon-attention-16.png');
     // A closed tab's state is forgotten.
     for (const closed of api.tabs.onRemoved.list) closed(1);
     await until(async () => !(await api.storage.session.get('site-1'))['site-1']);
@@ -1614,7 +1625,7 @@ test('X captures sign locally even while the previous delivery has no reply', as
   // Signed out, X shows a yellow mark that asks to sign in.
   await success('captureConfig', {}, x);
   await until(() => badges.get(1)?.title === 'Social Backup: Sign in to back up your posts');
-  assert.deepEqual([badges.get(1)?.text, badges.get(1)?.color], ['!', '#f5b301']);
+  assert.equal(badges.get(1)?.path?.[16], 'icon-attention-16.png');
 });
 
 test('new X captures reach a relay before its history import finishes', async (t) => {
@@ -1799,7 +1810,8 @@ test('X linking, follow lookup and following on Nostr are separate and keep exis
     // Your following list is read only from your own following page.
     const following = { ...x, url: 'https://x.com/alice/following', tab: { id: 1, url: 'https://x.com/alice/following' } };
     assert.equal((await call('xFollows', { handles: ['bob'] }, x)).ok, false);
-    await success('xFollows', { handles: ['bob', 'carol'] }, following);
+    await success('xFollows', { handles: ['bob', 'carol'] }, { ...following, url: x.url });
+    assert.equal((await call('xFollows', { handles: ['dave'] }, { ...following, tab: x.tab })).ok, false);
     assert.equal((await success('status')).xFollows, 2);
     // Looking people up checks each proof: the impostor fails.
     // The first look starts filling the directory from relays in the background and says so.
@@ -2693,7 +2705,9 @@ test('social profile backup only signs server-confirmed posts and keeps restrict
       : '<div class="Embed" data-permalink="' + link + '" data-media-type="GraphImage"><div class="Header">' +
         '<a class="Username" href="' + origin + '/alice/"></a></div><div class="Content"><a class="EmbeddedMedia" href="' +
         link + '"><img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/a.jpg"></a></div></div>';
-    const response = new Response(body, { headers: { 'content-type': 'text/html' } });
+    // Instagram returns full documents, including a doctype and head, to the background verifier.
+    const response = new Response('<!doctype html><html><head><title>Instagram</title></head><body>' + body + '</body></html>',
+      { headers: { 'content-type': 'text/html' } });
     Object.defineProperty(response, 'url', {value: url});
     return response;
   });
@@ -2707,7 +2721,8 @@ test('social profile backup only signs server-confirmed posts and keeps restrict
     await success('capture', { posts }, ig);
     const other = { ...base, source: 'facebook', id: '123456', url: fb.url + '/posts/123456', text: 'Facebook post' };
     assert.equal((await call('capture', { posts: [other] }, ig)).ok, false);
-    assert.equal((await call('capture', { posts }, { ...ig, url: origin + '/other/' })).ok, false);
+    assert.equal((await call('capture', { posts }, { ...ig, tab: { id: 17, url: origin + '/other/' } })).ok, false);
+    assert.equal((await call('capture', { posts }, { ...ig, url: 'https://instagram.com/alice/' })).ok, false);
     await success('capture', { posts: [other] }, fb);
     await until(() => relay.sent.length === 2);
     // All three posts are in the backup and get a mark. Only the public one has a copy on Nostr to open.

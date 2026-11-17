@@ -30,6 +30,14 @@ function extractedPost(html: string, author: string, id: string): Capture | unde
   )
     return;
   const details = record.details;
+  const parentId = record.reply_to_results?.rest_id ?? record.legacy?.in_reply_to_status_id_str;
+  const parentAuthor = record.reply_to_user_results?.result?.core?.screen_name ?? record.legacy?.in_reply_to_screen_name;
+  let replyTo: Capture['replyTo'];
+  if (record.reply_to_results || record.reply_to_user_results || parentId || parentAuthor) {
+    if (typeof parentId !== 'string' || !/^\d{1,20}$/.test(parentId) || parentId === id ||
+        typeof parentAuthor !== 'string' || !/^[a-z0-9_]{1,15}$/i.test(parentAuthor)) return;
+    replyTo = { author: parentAuthor.toLowerCase(), id: parentId };
+  }
   const timeMs = Number(details?.created_at_ms);
   if (
     !Number.isSafeInteger(timeMs) ||
@@ -93,6 +101,7 @@ function extractedPost(html: string, author: string, id: string): Capture | unde
     ...(timeMs % 1000 ? { timeMs } : {}),
     text: parts.join('\n\n'),
     visibility: 'public',
+    ...(replyTo && { replyTo }),
     ...(posters.length ? { posters } : {}),
   };
 }

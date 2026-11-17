@@ -44,7 +44,7 @@ import { createUploadAuth } from 'nostr-tools/nipb7';
 import { DEFAULT_BLOSSOM_SERVER, blossomOrigin, mediaServers, publicMediaURL } from './media-refs.ts';
 import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
 import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemplate, canDeliverCapture, validateSocialPost } from './social.ts';
-import { siteBadge, siteState, type PageReport, type TabReport } from './site-status.ts';
+import { siteIcon, siteState, type PageReport, type TabReport } from './site-status.ts';
 import { instagramPermalink } from './instagram.ts';
 import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
 import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
@@ -142,7 +142,7 @@ async function signDrafts(db: Archive) {
     for (let i = 0; i < pending.length; i += 50) {
       const batch = pending.slice(i, i + 50);
       const plainX = batch.filter(
-        (post) => !('source' in post) && !quoteTargets(post, conf).length,
+        (post) => !('source' in post) && !post.replyTo && !quoteTargets(post, conf).length,
       );
       const matches =
         conf.skipCrossposts === false || !plainX.length
@@ -1171,7 +1171,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const matchesPage = (url?: string) => !!url && !!handle && captureNetwork(url) === network &&
         (network === 'x' ? profileHandle(url) === handle : socialProfile(network, url) === handle ||
           (network === 'instagram' && !!instagramPermalink(url, handle)));
-      if (!selected?.capture || !handle || !matchesPage(sender.url) || !matchesPage(sender.tab.url ?? sender.url))
+      if (!selected?.capture || !handle || !matchesPage(capturePage(sender)))
         throw Error('Outside the selected profile.');
       if (!(await sessionKey())) throw Error('Capture is paused in read-only mode.');
       if (!Array.isArray(msg.posts) || msg.posts.length > 50) throw Error('Invalid capture batch.');
@@ -1346,7 +1346,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     if (msg.type === 'xFollows') {
       // Handles read from the user's own X following list, to find them on Nostr later.
       const own = (url?: string) => captureNetwork(url) === 'x' && !!conf.handle && followingHandle(url) === conf.handle;
-      if (!sender.tab || !own(sender.url) || !own(sender.tab.url ?? sender.url)) throw Error('Outside your X following list.');
+      if (!own(capturePage(sender))) throw Error('Outside your X following list.');
       if (!Array.isArray(msg.handles) || msg.handles.length > 200 || !msg.handles.every((h) => typeof h === 'string' && handlePattern.test(h)))
         throw Error('Invalid following list.');
       const known = ((await db.get('meta', 'xFollows')) as string[] | undefined) ?? [];
@@ -1606,19 +1606,26 @@ api.runtime.onMessage.addListener((msg, sender, respond) => {
 function showSiteState(tab: { id?: number }, report: TabReport, conf?: Settings, unlocked = false) {
   if (tab.id === undefined) return;
   const tabId = tab.id, key = `site-${tabId}` as const;
-  const state = siteState(report.site, conf, unlocked, report), badge = siteBadge(state.level);
-  // The dot is a hint. Nothing waits for it, and a closed tab or a browser without badges changes nothing else.
+  const state = siteState(report.site, conf, unlocked, report);
   void (async () => {
     await api.storage.session.set({ [key]: report });
-    await api.action.setBadgeText({ tabId, text: badge.text });
-    if (badge.color) await api.action.setBadgeBackgroundColor({ tabId, color: badge.color });
-    if (badge.textColor) await api.action.setBadgeTextColor?.({ tabId, color: badge.textColor });
-    await api.action.setTitle({ tabId, title: 'Social Backup: ' + state.text });
+    await Promise.all([
+      api.action.setIcon({ tabId, path: siteIcon(state.level) }),
+      api.action.setTitle({ tabId, title: 'Social Backup: ' + state.text }),
+    ]);
   })().catch(() => {});
+}
+/** Chrome can retain the original sender URL after same-document navigation. The tab has the current route. */
+function capturePage(sender: Sender) {
+  if (!sender.tab || !sender.url) return;
+  const current = sender.tab.url ?? sender.url;
+  // A delayed message from a page replaced by another origin must never authorize capture there.
+  if (new URL(current).origin === new URL(sender.url).origin) return current;
 }
 function pageReport(msg: PageReport): PageReport {
   return {
     ...(msg.failed === true ? { failed: true } : {}),
+    ...(msg.failed === true && typeof msg.reason === 'string' && { reason: msg.reason.slice(0, 180) }),
     ...(typeof msg.unsaved === 'number' && Number.isSafeInteger(msg.unsaved) && msg.unsaved > 0 ? { unsaved: Math.min(msg.unsaved, 999) } : {}),
   };
 }

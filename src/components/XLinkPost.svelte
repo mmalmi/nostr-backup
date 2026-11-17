@@ -33,7 +33,7 @@
     <a href={'https://x.com/' + xLink.handle + '/status/' + xLink.proof} target="_blank" rel="noopener noreferrer">proof post</a>
   </p>
 {:else}
-  <p class="hint">Post a short verification on X so people can find you on Nostr.</p>
+  <p class="hint">Optional. Post your Nostr public key on X so people can find you. Social Backup checks the post and publishes the matching account link on Nostr.</p>
   <a class="button secondary" id="linkX" href={postURL} target="_blank" rel="noopener noreferrer" onclick={() => (posted = true)}
     >Post verification on X</a
   >

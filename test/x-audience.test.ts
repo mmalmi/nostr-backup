@@ -7,6 +7,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { Window } from 'happy-dom';
 import { readPublicXOriginal } from '../src/x-audience.ts';
 import { capturePosts } from '../src/x.ts';
+import { xTemplate } from '../src/model.ts';
 import { shareableMediaHashes } from '../src/legacy-x.ts';
 import { openArchive, readPointer, inventory, queueBroadcast, dump } from '../src/archive.ts';
 import { article, publicTweetHTML } from './fixtures.ts';
@@ -26,6 +27,15 @@ test('X signing fields come from the anonymous permalink and its author-scoped r
   const html = publicTweetHTML('alice', '321', draft.text, draft.time);
   const original = await fetchPost(html);
   assert.deepEqual(original, { ...draft, visibility: 'public' });
+  const reply = { reply_to_results: { rest_id: '456' }, reply_to_user_results: { result: { core: { screen_name: 'Bob' } } } };
+  const verified = await fetchPost(publicTweetHTML('alice', '321', draft.text, draft.time, [], reply));
+  assert.ok(verified);
+  const comment = xTemplate(verified, 'alice');
+  assert.equal(comment.kind, 1111);
+  assert.deepEqual(comment.tags.slice(0, 5), [['r', url], ['I', 'https://x.com/bob/status/456'],
+    ['K', 'web'], ['i', 'https://x.com/bob/status/456'], ['k', 'web']]);
+  assert.equal(await fetchPost(publicTweetHTML('alice', '321', draft.text, draft.time, [],
+    { reply_to_results: { rest_id: '456' } })), undefined);
   assert.equal(await fetchPost(publicTweetHTML('bob', '321', draft.text, draft.time)), undefined);
   assert.equal(await fetchPost(publicTweetHTML('alice', '123', draft.text, draft.time)), undefined);
   assert.equal(await fetchPost(html, url + '5'), undefined);

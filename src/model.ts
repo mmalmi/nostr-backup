@@ -118,17 +118,17 @@ export function xTemplate(post: Capture, handle: string) {
   )
     throw Error('Invalid X post.');
   const url = 'https://x.com/' + handle + '/status/' + post.id;
-  const tags = [
-    ['r', url],
-    ['i', url],
-    ['k', 'web'],
-    ['client', 'Social Backup'],
-  ];
+  const parent = post.replyTo;
+  if (parent && (!handlePattern.test(parent.author) || !/^\d{1,20}$/.test(parent.id) || parent.id === post.id))
+    throw Error('Invalid X reply parent.');
+  const scope = parent ? 'https://x.com/' + parent.author + '/status/' + parent.id : url;
+  const tags = [['r', url], ...(parent ? [['I', scope], ['K', 'web']] : []),
+    ['i', scope], ['k', 'web'], ['client', 'Social Backup']];
   // Modern X IDs encode milliseconds above their low 22 worker/sequence bits.
   // Cross-check with the independent DOM date before using that precision.
   const idMillis = Number((BigInt(post.id) >> 22n) + 1288834974657n);
   const ms = post.timeMs ?? idMillis;
   if (Number.isSafeInteger(ms) && Math.floor(ms / 1000) === post.time)
     tags.push(['ms', String(ms)]);
-  return { kind: 1, created_at: post.time, content: post.text, tags };
+  return { kind: parent ? 1111 : 1, created_at: post.time, content: post.text, tags };
 }

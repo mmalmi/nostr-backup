@@ -34,16 +34,21 @@
     }
   }
   const short = (key: string) => key.slice(0, 8) + '…';
+  const followingURL = $derived('https://x.com/' + handle + '/following');
 </script>
 
-<p class="hint">
-  {#if read}Found {read} {read === 1 ? 'account' : 'accounts'} you follow on X.{/if}
-  Open <a href={'https://x.com/' + handle + '/following'} target="_blank" rel="noopener noreferrer">@{handle}’s following list</a>
-  and scroll to {read ? 'find more' : 'load the accounts you follow'}.
-</p>
-<button class="secondary" id="findXFollows" disabled={finding || !read} onclick={find}
-  >{finding ? 'Checking…' : 'Find matching Nostr profiles'}</button
->
+{#if read}
+  <p class="hint">
+    {read.toLocaleString()} {read === 1 ? 'account' : 'accounts'} from your X following list ready to search.
+    Scroll further in <a href={followingURL} target="_blank" rel="noopener noreferrer">your following list</a> to include more.
+  </p>
+  <button class="secondary" id="findXFollows" disabled={finding} onclick={find}
+    >{finding ? 'Checking…' : 'Find my X follows on Nostr'}</button>
+{:else}
+  <p class="hint">Open @{handle}’s following list on X, then come back here to find those people on Nostr.
+    You can start with the first people shown or scroll on X to include more.</p>
+  <a class="button secondary" href={followingURL} target="_blank" rel="noopener noreferrer">Open my X following list</a>
+{/if}
 {#if found}
   {#if found.matches.length}
     <ul class="xMatches">

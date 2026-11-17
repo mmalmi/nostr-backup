@@ -36,6 +36,7 @@ function startCapture() {
   // problem when saving keeps failing, or when nothing is left to do and the backup still lacks posts on the page.
   const GRACE = 15000;
   let failingSince: number | undefined, quietSince: number | undefined;
+  let failureReason: string | undefined;
   let lookedAt = 0;
   let report: PageReport = {};
   let healthTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +54,7 @@ function startCapture() {
       quietSince = sending || pending.size || collector?.busy() ? undefined : quietSince ?? now;
       const missing = marks.unsaved();
       if (failingSince !== undefined) {
-        if (now - failingSince >= GRACE) next = { failed: true };
+        if (now - failingSince >= GRACE) next = { failed: true, reason: failureReason };
         else again = failingSince + GRACE - now;
       } else if (!missing.length) next = {};
       else if (quietSince !== undefined) {
@@ -156,6 +157,7 @@ function startCapture() {
           posts,
         });
         if (!reply?.ok) {
+          failureReason = reply?.error;
           failingSince ??= Date.now();
           retryLater();
           break;
@@ -172,6 +174,7 @@ function startCapture() {
         while (seen.size > 2000) seen.delete(seen.keys().next().value!);
       }
     } catch {
+      failureReason = 'Reload this page to reconnect to Social Backup.';
       failingSince ??= Date.now();
       retryLater();
     } finally {
@@ -228,6 +231,7 @@ function startCapture() {
         seen.clear();
         collector?.stop();
         collector = undefined;
+        failingSince = failureReason = undefined;
         config = next;
         if (next.capture && network !== 'x') {
           const accept = (posts: SocialCapture[]) => { if (config === next) enqueue(posts); };

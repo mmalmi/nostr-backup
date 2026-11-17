@@ -29,9 +29,8 @@ export async function readQuoteOriginal(
   // memory using the same owner-checked readers as the timeline collectors.
   if (target.network === 'facebook')
     return publicFacebookPost(html => parseHTML(html).document, target.url, target.handle, fetch, signal);
-  const { document } = parseHTML('<html></html>');
   return readInstagramQuote(
-    document,
+    html => parseHTML(html).document,
     { id: target.id, url: target.url },
     target.handle,
     signal,

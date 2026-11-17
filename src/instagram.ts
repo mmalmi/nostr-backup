@@ -34,6 +34,7 @@ export function instagramPermalink(value: string, handle: string) {
 }
 
 type Item = { id: string; url: string };
+type ParsePage = (html: string) => ParentNode;
 type Timestamp = Pick<SocialCapture, 'time' | 'timePrecision'>;
 type ObjectRecord = Record<string, unknown>;
 function record(value: unknown): ObjectRecord | undefined {
@@ -189,15 +190,15 @@ function richEmbed(doc: ParentNode, item: Item, handle: string) {
   }
 }
 
-export async function readInstagramQuote(doc: Document, item: Item, handle: string, signal: AbortSignal, request: typeof fetch) {
-  const embed = await anonymousPage(doc, item.url + 'embed/captioned/', signal, request);
+export async function readInstagramQuote(parse: ParsePage, item: Item, handle: string, signal: AbortSignal, request: typeof fetch) {
+  const embed = await anonymousPage(parse, item.url + 'embed/captioned/', signal, request);
   if (!embed) return;
   const card = embed.querySelector('.Embed[data-permalink][data-media-type]');
   const byline = card?.querySelector('.Header a.Username[href]')?.getAttribute('href');
   const owner = byline && instagramProfile(byline);
   if (!owner || !card || detail(card.getAttribute('data-permalink') ?? '', owner)?.id !== item.id) return;
   if (owner !== handle) return 'other-author' as const;
-  return readInstagramPost(doc,item,handle,signal,request,embed);
+  return readInstagramPost(parse, item, handle, signal, request, embed);
 }
 
 function publicMedia(doc: ParentNode, item: Item, handle: string) {
@@ -257,7 +258,7 @@ function publicTimestamp(doc: ParentNode, item: Item, handle: string): Timestamp
 
 // Limit reads as well as concurrency. Parse fetched pages in an inert template:
 // an ordinary parsed HTML document can load images/frames carrying user cookies.
-async function anonymousPage(doc: Document, url: string, signal: AbortSignal, request: typeof fetch) {
+async function anonymousPage(parse: ParsePage, url: string, signal: AbortSignal, request: typeof fetch) {
   const response = await request(url, { credentials: 'omit', referrerPolicy: 'no-referrer',
     redirect: 'error', cache: 'no-store', signal });
   if (response.status === 429 || response.status >= 500) throw Error('Instagram temporarily unavailable');
@@ -274,16 +275,14 @@ async function anonymousPage(doc: Document, url: string, signal: AbortSignal, re
     if (bytes > 3_000_000) { await reader.cancel(); return; }
     html += decoder.decode(chunk.value, { stream: true });
   }
-  const template = doc.createElement('template');
-  template.innerHTML = html + decoder.decode();
-  return template.content;
+  return parse(html + decoder.decode());
 }
 
-export async function readInstagramPost(doc: Document, item: Item, handle: string, signal: AbortSignal, request: typeof fetch, fetchedEmbed?: ParentNode) {
-  const embed = fetchedEmbed ?? await anonymousPage(doc, item.url + 'embed/captioned/', signal, request);
+async function readInstagramPost(parse: ParsePage, item: Item, handle: string, signal: AbortSignal, request: typeof fetch, fetchedEmbed?: ParentNode) {
+  const embed = fetchedEmbed ?? await anonymousPage(parse, item.url + 'embed/captioned/', signal, request);
   const post = embed && publicMedia(embed, item, handle);
   if (!post) return;
-  const page = await anonymousPage(doc, item.url, signal, request);
+  const page = await anonymousPage(parse, item.url, signal, request);
   const timestamp = page && publicTimestamp(page, item, handle);
   if (timestamp) return capture(item, handle, timestamp, post.caption, post.media, 'public', post.posters);
 }
@@ -300,7 +299,11 @@ export function createInstagramCollector(onPosts: (posts: SocialCapture[]) => vo
       active.add(key);
       try {
         const signal = AbortSignal.any([session.signal, AbortSignal.timeout(15000)]);
-        const post = await readInstagramPost(doc, item, handle, signal, request);
+        const post = await readInstagramPost(html => {
+          const template = doc.createElement('template');
+          template.innerHTML = html;
+          return template.content;
+        }, item, handle, signal, request);
         if (session.signal.aborted) return;
         if (post) onPosts([post]);
         retryAt.set(key, post ? Infinity : Date.now() + 10 * 60_000);
