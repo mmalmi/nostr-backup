@@ -46,13 +46,20 @@
       .catch((e) => notice(e.message));
   });
 
-  const origins = $derived([...new Set(rules.map((rule) => rule.origin))]);
-  // "Allowed: posts, reactions · Declined: app data"
-  const kinds = (origin: string) => {
-    const of = (allow: boolean) =>
-      rules.filter((rule) => rule.origin === origin && rule.allow === allow).map((rule) => rule.label).join(', ');
-    return [of(true) && 'Allowed: ' + of(true), of(false) && 'Declined: ' + of(false)].filter(Boolean).join(' · ');
-  };
+  const sites = $derived.by(() => {
+    const grouped = new Map<string, { allowed: string[]; declined: string[] }>();
+    for (const rule of rules) {
+      const site = grouped.get(rule.origin) ?? { allowed: [], declined: [] };
+      (rule.allow ? site.allowed : site.declined).push(rule.label);
+      grouped.set(rule.origin, site);
+    }
+    return grouped;
+  });
+
+  async function copy(text: string, message: string) {
+    await navigator.clipboard.writeText(text);
+    notice(message);
+  }
 
   async function run(action: () => Promise<unknown>) {
     try {
@@ -88,25 +95,41 @@
 
 <h2>Account</h2>
 <section>
-  <h3>Profile</h3>
-  <p><a href="#profile">Edit public profile and view history</a></p>
-  <p id="lockState" hidden={unlocked}>
-    You can view this backup. Enter your secret key to back up new posts or approve website requests.
-  </p>
-  <label id="currentIdentity" hidden={!pubkey}
-    >User ID<input id="accountNpub" readonly spellcheck="false" value={pubkey ? npubEncode(pubkey) : ''} /></label
-  >
-  <p class="hint">
-    Your user ID is safe to share. Keep a copy of your secret key somewhere private. Anyone with it can use your account.
-  </p>
+  <div class="accountRow">
+    <div>
+      <h3>Profile</h3>
+      <a href="#profile">Edit profile and view history</a>
+    </div>
+    <button id="copyProfileId" class="secondary" hidden={!pubkey}
+      onclick={() => run(() => copy(npubEncode(pubkey), 'Profile ID copied.'))}>Copy profile ID</button>
+  </div>
   {#if pubkey && unlocked}
-    {#if status?.profile?.lightning === receivingAddress(pubkey)}
-      <p class="hint">Your public receiving address is {status.profile.lightning}.</p>
-      <button class="secondary" disabled={updatingAddress} onclick={() => run(() => changeAddress(false))}>Remove npub.cash from profile</button>
+    {@const address = receivingAddress(pubkey)}
+    {#if status?.profile?.lightning === address}
+      <div class="accountRow accountDivider">
+        <div>
+          <h4>Receiving address</h4>
+          <p>Published on your profile via npub.cash.</p>
+        </div>
+        <div class="actions">
+          <button class="secondary" onclick={() => run(() => copy(address, 'Receiving address copied.'))}>Copy address</button>
+          <button class="secondary" aria-label="Remove npub.cash address from profile" disabled={updatingAddress}
+            onclick={() => run(() => changeAddress(false))}>Remove</button>
+        </div>
+      </div>
     {:else if !status?.profile?.lightning && !status?.profile?.hasLightning}
-      <button class="secondary" disabled={updatingAddress} onclick={() => run(() => changeAddress(true))}>Add npub.cash address to public profile</button>
+      <div class="accountRow accountDivider">
+        <div>
+          <h4>Receiving address</h4>
+          <p>Publish an npub.cash address to receive tips.</p>
+        </div>
+        <button class="secondary" disabled={updatingAddress} onclick={() => run(() => changeAddress(true))}>Add address</button>
+      </div>
     {/if}
   {/if}
+  <p id="lockState" class="accountDivider" hidden={unlocked}>
+    You can view this backup. Enter your secret key to back up new posts or approve website requests.
+  </p>
   <form id="unlock" hidden={unlocked} onsubmit={(e) => (e.preventDefault(), run(unlock))}>
     <label
       >Secret key<input
@@ -122,17 +145,7 @@
       /></label
     >
   </form>
-  <div class="actions">
-    <button
-      id="copyPrivateKey"
-      class="secondary"
-      hidden={!unlocked}
-      onclick={() =>
-        run(async () => {
-          await navigator.clipboard.writeText(await send('exportPrivateKey', { account: pubkey }));
-          notice('Secret key copied.');
-        })}>Copy secret key</button
-    >
+  <div class="actions accountDivider">
     <button
       id="lock"
       class="secondary"
@@ -172,14 +185,30 @@
   {/if}
 </section>
 
-<section id="sitePermissions" hidden={!rules.length}>
+{#if unlocked}
+  <section class="accountRow secretKeyPanel" aria-labelledby="secretKeyHeading">
+    <div>
+      <h3 id="secretKeyHeading"><span aria-hidden="true">⚠︎</span> Secret key</h3>
+      <p id="secretKeyWarning">Anyone with this key can use your account. Save it in a password manager.</p>
+    </div>
+    <button id="copyPrivateKey" class="secondary" aria-describedby="secretKeyWarning"
+      onclick={() => run(async () => copy(await send('exportPrivateKey', { account: pubkey }), 'Secret key copied.'))}>Copy secret key</button>
+  </section>
+{/if}
+
+<section id="sitePermissions" hidden={!sites.size}>
   <h3>Website permissions</h3>
-  <ul id="permissionList">
-    {#each origins as origin (origin)}
+  <ul id="permissionList" role="list">
+    {#each sites as [origin, site] (origin)}
       <li>
-        {origin} · {kinds(origin)}
+        <div class="permissionSite">{origin}</div>
+        <div class="permissionDetails">
+          {#if site.allowed.length}<p><strong>Allowed</strong> {site.allowed.join(', ')}</p>{/if}
+          {#if site.declined.length}<p><strong>Declined</strong> {site.declined.join(', ')}</p>{/if}
+        </div>
         <button
           class="secondary"
+          aria-label={'Revoke permissions for ' + origin}
           onclick={() =>
             run(async () => {
               await send('forgetPermissions', { account: pubkey, origin });

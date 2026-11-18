@@ -6,7 +6,6 @@ export function el(id: 'kindMode'): HTMLSelectElement;
 export function el(
   id:
     | 'indexAddress'
-    | 'accountNpub'
     | 'secret'
     | 'profileName'
     | 'loginKey'
@@ -37,6 +36,7 @@ export function el(
     | 'refreshStats'
     | 'lock'
     | 'logout'
+    | 'copyProfileId'
     | 'copyPrivateKey'
     | 'deleteStart'
     | 'deleteAccount'
