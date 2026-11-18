@@ -73,6 +73,9 @@ importers:
         specifier: 5.57.3
         version: 5.57.3
     devDependencies:
+      '@iris/release-tools':
+        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz
+        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz
       '@types/node':
         specifier: 26.6.5
         version: 26.6.5
@@ -99,6 +102,10 @@ importers:
         version: 8.21.1
 
 packages:
+
+  '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz':
+    resolution: {integrity: sha512-ZytyQLbDUYz/IcQ2rvUZZeFvT7FqwhRB3brZtuMwH7ILP/Jvui+ldDnKR8dNxxmIr02+PPyuv+VWKlRyaXCMbg==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz}
+    version: 0.1.2
 
   '@cashu/cashu-ts@5.0.0-rc.4':
     resolution: {integrity: sha512-6ck7cHdGnvg+ZNGQduaJ5YyNMrLh9Qf1534GR6IxEXX1OuF0SS7I2qXo8p6zD3kRaemynnjJPqjaHgs1EJhAWg==}
@@ -638,6 +645,8 @@ packages:
     resolution: {integrity: sha512-msJxIvYDYcoNL+PJsu+7qmpDWsYmAxTY+2TNYXXF0hzBzBk0BMecOqDOG/EckUoKCuKwObfbugIl8QpqHDXeFA==}
 
 snapshots:
+
+  '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz': {}
 
   '@cashu/cashu-ts@5.0.0-rc.4':
     dependencies:

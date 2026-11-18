@@ -13,8 +13,9 @@
     "build": "pnpm typecheck && node --experimental-strip-types scripts/build.ts",
     "package:stores": "pnpm test:release && python3 scripts/store-package.py",
     "build:site": "pnpm build && node --experimental-strip-types scripts/build-site.ts",
-    "deploy:site": "pnpm test:release && pnpm run build:site && wrangler deploy --config website/wrangler.jsonc",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "deploy:site": "node website/release-site.mjs --deploy",
+    "publish:site:hashtree": "node website/release-site.mjs",
+    "test": "node --experimental-strip-types --test test/*.test.ts test/*.test.mjs",
     "test:release": "node --experimental-strip-types scripts/test-release.ts",
     "test:browser": "node --experimental-strip-types scripts/browser-smoke.ts",
     "test:page": "node --experimental-strip-types scripts/browser-check.ts",
@@ -42,6 +43,7 @@
     "svelte": "5.57.3"
   },
   "devDependencies": {
+    "@iris/release-tools": "https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz",
     "@types/node": "26.6.5",
     "@types/ws": "8.18.2",
     "esbuild": "0.28.1",
