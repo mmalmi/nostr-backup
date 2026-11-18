@@ -28,7 +28,7 @@ To switch keys, post and back up a newer X proof for the new key. Delete the old
 
 ## Signing in to Nostr websites
 
-The extension provides `window.nostr` to websites. Each request opens an approval window. You can remember allowing or declining a kind of request per site, except for changes that replace or delete data, such as your profile or follow list, which always ask. Review and revoke site permissions in **Account**.
+The extension provides `window.nostr` to websites. When a site asks for a signature, you can allow or decline once, remember your choice for that event kind (such as reactions), or apply it to all signing requests from that site, including profile changes and deletions. Login has its own permission. Review and revoke a site's choices in **Account → Website permissions**.
 
 ## Development
 

@@ -10,7 +10,6 @@ export function el(
     | 'secret'
     | 'profileName'
     | 'loginKey'
-    | 'remember'
     | 'customRelay'
     | 'downloadKinds'
     | 'relaySync'

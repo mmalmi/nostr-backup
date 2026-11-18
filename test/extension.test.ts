@@ -19,6 +19,7 @@ import {
 import { nsecEncode, npubEncode, noteEncode, decode } from 'nostr-tools/nip19';
 import { NostrEventStore } from '@hashtree/nostr';
 import { hex } from '../src/model.ts';
+import { permissionDecision } from '../src/signer-storage.ts';
 import { readOnlyStore } from '../src/blocks.ts';
 import { append, openArchive, readRoot, stagePosts } from '../src/archive.ts';
 import { Reconciliation } from 'nostr-pubsub-reconcile';
@@ -682,6 +683,7 @@ test('signer binds public-key access and approvals to the authorized website', a
   const loginRequest = req('getPublicKey');
   await until(() => !!winURL);
   const loginScreen = approvalScreen();
+  assert.equal((await call('approval', { id: loginScreen.url.split('#')[1], decision: true, scope: 'signing' }, loginScreen)).ok, false);
   await success('approval', { id: loginScreen.url.split('#')[1], decision: true }, loginScreen);
   assert.deepEqual(await loginRequest, { ok: true, value: pubkey });
   assert.equal((await req('signEvent', {}, { token: 'forged' })).ok, false);
@@ -729,7 +731,7 @@ test('signer binds public-key access and approvals to the authorized website', a
   const first = req('signEvent', post);
   await until(() => !!winURL);
   const screen = approvalScreen();
-  await success('approval', { id: screen.url.split('#')[1], decision: true, remember: true }, screen);
+  await success('approval', { id: screen.url.split('#')[1], decision: true, scope: 'kind' }, screen);
   assert.equal((await first).ok, true);
   await api.storage.session.clear();
   assert.equal((await success('status')).unlocked, true);
@@ -753,21 +755,54 @@ test('signer binds public-key access and approvals to the authorized website', a
   const declined = req('signEvent', relayAuth);
   await until(() => !!winURL);
   const declineScreen = approvalScreen();
-  await success('approval', { id: declineScreen.url.split('#')[1], decision: false, remember: true }, declineScreen);
+  await success('approval', { id: declineScreen.url.split('#')[1], decision: false, scope: 'kind' }, declineScreen);
   assert.equal((await declined).ok, false);
   winURL = undefined;
   assert.equal((await req('signEvent', { ...relayAuth, created_at: 12346 })).ok, false);
   assert.equal(winURL, undefined);
   assert.deepEqual((await success('listPermissions', { account: pubkey })).map((rule) => [rule.kind, rule.allow, rule.label]),
     [[1, true, 'posts'], [22242, false, 'relay sign-ins']]);
-  // Profile changes always ask.
+  // Remembering posts has not granted profile changes.
   winURL = undefined;
   const profileChange = req('signEvent', { ...event, kind: 0, tags: [] });
   await until(() => !!winURL);
   const profileScreen = approvalScreen();
-  assert.equal((await call('approval', { id: profileScreen.url.split('#')[1], decision: true, remember: true }, profileScreen)).ok, false);
-  await success('approval', { id: profileScreen.url.split('#')[1], decision: false }, profileScreen);
+  await success('approval', { id: profileScreen.url.split('#')[1], decision: false, scope: 'kind' }, profileScreen);
   assert.equal((await profileChange).ok, false);
+  winURL = undefined;
+  assert.equal((await req('signEvent', { ...event, kind: 0 })).ok, false);
+  assert.equal(winURL, undefined);
+
+  // A whole-site signing decision replaces signing rules only. Test both choices.
+  for (const allow of [true, false]) {
+    winURL = undefined;
+    const login = req('getPublicKey');
+    await until(() => !!winURL);
+    const loginPrompt = approvalScreen();
+    await success('approval', { id: loginPrompt.url.split('#')[1], decision: false, scope: 'kind' }, loginPrompt);
+    assert.equal((await login).ok, false);
+
+    winURL = undefined;
+    const sign = req('signEvent', event);
+    await until(() => !!winURL);
+    const signPrompt = approvalScreen();
+    await success('approval', { id: signPrompt.url.split('#')[1], decision: allow, scope: 'signing' }, signPrompt);
+    assert.equal((await sign).ok, allow);
+    winURL = undefined;
+    for (const kind of [0, 1, 3, 5, 7, 10002, 65535]) {
+      const result = await req('signEvent', { ...event, kind });
+      assert.equal(result.ok, allow);
+      if (allow) assert.ok(result.ok && typeof result.value === 'object' && verifyEvent(result.value));
+    }
+    assert.equal((await req('getPublicKey')).ok, false);
+    assert.equal(winURL, undefined);
+    assert.deepEqual((await success('listPermissions', { account: pubkey })).map(r => [r.label, r.allow]),
+      [['all signing requests', allow], ['login', false]]);
+    assert.equal(await permissionDecision(pubkey, 'https://other.example', 7), undefined);
+    assert.equal(await permissionDecision('other-account', origin, 7), undefined);
+    await success('forgetPermissions', { account: pubkey, origin });
+    assert.equal(await permissionDecision(pubkey, origin, 7), undefined);
+  }
   winURL = undefined;
   const cancelled = req('signEvent', event);
   await until(() => !!winURL);
@@ -813,6 +848,8 @@ test('the extension injects window.nostr and the page signs a login event throug
   const loginReview = await extensionPage(t, 'approve', undefined, approvalScreen().url);
   await until(() => !pageElements(loginReview)('allow').disabled);
   assert.equal(pageElements(loginReview)('allow').textContent, 'Share user ID');
+  const loginScope = loginReview.document.querySelector('select')!;
+  assert.deepEqual(Array.from(loginScope.options, option => option.value), ['once', 'kind']);
   pageElements(loginReview)('allow').click();
   assert.equal(await loginRequest, pubkey);
   const login = {
@@ -833,6 +870,13 @@ test('the extension injects window.nostr and the page signs a login event throug
   await until(() => !pageElements(review)('allow').disabled);
   assert.ok(pageElements(review)('origin').textContent.includes(origin));
   assert.deepEqual(JSON.parse(pageElements(review)('event').textContent), login);
+  const signingScope = review.document.querySelector('select')!;
+  assert.equal(signingScope.value, 'once');
+  assert.deepEqual(Array.from(signingScope.options, option => option.value), ['once', 'kind', 'signing']);
+  signingScope.value = 'signing';
+  signingScope.dispatchEvent(new review.Event('change', { bubbles: true }));
+  await until(() => pageElements(review)('allow').textContent === 'Always allow');
+  assert.match(pageElements(review)('scopeHint').textContent, /deletions/);
   pageElements(review)('allow').click();
   const signed = await pending;
   assert.equal(signed.pubkey, pubkey);
@@ -841,6 +885,8 @@ test('the extension injects window.nostr and the page signs a login event throug
     JSON.parse(JSON.stringify(signed)),
   );
   assert.ok(verifyEvent(structuredClone(signed)));
+  assert.equal(await permissionDecision(pubkey, origin, 5), true);
+  await success('forgetPermissions', { account: pubkey, origin });
   await success('lock');
   await assert.rejects(site.eval('window.nostr.getPublicKey()'), /locked/);
 });

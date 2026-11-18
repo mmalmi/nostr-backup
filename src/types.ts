@@ -240,6 +240,7 @@ export interface TipTarget {
   proof: string;
 }
 export type Sign = (template: EventTemplate) => Promise<Event> | Event;
+export type ApprovalScope = 'once' | 'kind' | 'signing';
 export interface Approval {
   origin: string;
   event?: EventTemplate;
@@ -286,7 +287,7 @@ export interface Payloads extends WalletRPC {
   registerBridge: { token: string };
   authorizeMediaUpload: { hash: string; server: string };
   nip07: { token: string; method: string; event?: unknown };
-  approval: { id: string; decision?: boolean; remember?: boolean };
+  approval: { id: string; decision?: boolean; scope?: ApprovalScope };
   xFollows: { handles: string[]; total?: number };
   tipTargets: { handles: string[] };
   unlinkX: {};

@@ -1131,7 +1131,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
   if (msg.type === 'approval') {
     if (sender.url !== api.runtime.getURL('approve.html') + '#' + msg.id)
       throw Error('Untrusted approval.');
-    return msg.decision === true ? write(() => approval(msg, sessionKey)) : approval(msg, sessionKey);
+    return msg.decision === undefined ? approval(msg, sessionKey) : write(() => approval(msg, sessionKey));
   }
   if (!trustedPage && !['captureConfig', 'pageStatus', 'capture', 'savedPosts', 'openSaved', 'xFollows', 'xProof', 'tipProfile', 'tipTargets', 'tipInvoice', 'tipRate', 'tipPost', 'tipMarks', 'openTipWallet', 'nostrLink'].includes(msg.type))
     throw Error('Extension page required.');

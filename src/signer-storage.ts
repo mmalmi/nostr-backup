@@ -25,32 +25,38 @@ export async function saveKey(key?: string) {
   } finally { db.close(); }
 }
 
+// Negative keys are outside the event kind range. Keep -1 for existing login rules.
+export const LOGIN = -1;
+export const ALL_SIGNING = -2;
 const names: Record<number, string> = {
-  [-1]: 'login', 1: 'posts', 6: 'reposts', 7: 'reactions', 16: 'reposts', 1111: 'comments', 9734: 'zap requests',
+  [LOGIN]: 'login', [ALL_SIGNING]: 'all signing requests', 0: 'profile changes', 1: 'posts', 3: 'follow list changes',
+  5: 'event deletions', 6: 'reposts', 7: 'reactions', 16: 'reposts', 1111: 'comments', 9734: 'zap requests',
   22242: 'relay sign-ins', 24242: 'media uploads', 27235: 'website sign-ins', 30023: 'articles', 30078: 'app data',
 };
-/**
- * The name of a kind a website may be always allowed or declined. Kinds that replace or delete what
- * you have, such as your profile, follow list, deletions and replaceable lists, always ask.
- */
-export const permissionLabel = (kind: number) =>
-  kind < -1 || kind === 0 || kind === 3 || kind === 5 || (kind >= 10000 && kind < 20000)
-    ? undefined
-    : names[kind] ?? 'kind ' + kind + ' events';
+export const permissionLabel = (kind: number) => names[kind] ?? 'kind ' + kind + ' events';
 
 /** A remembered choice for this website and kind: true allows, false declines, undefined asks. */
 export async function permissionDecision(owner: string, origin: string, kind: number) {
-  if (!permissionLabel(kind)) return;
   const db = await open();
-  try { return await db.get('permissions', [owner, origin, kind]); } finally { db.close(); }
+  try {
+    const store = db.transaction('permissions').store;
+    const specific = await store.get([owner, origin, kind]);
+    if (specific !== undefined || kind === LOGIN) return specific;
+    return await store.get([owner, origin, ALL_SIGNING]);
+  } finally { db.close(); }
 }
-export const hasPermission = async (owner: string, origin: string, kind: number) =>
-  (await permissionDecision(owner, origin, kind)) === true;
 
 export async function savePermission(owner: string, origin: string, kind: number, allow = true) {
-  if (!permissionLabel(kind)) throw Error('This request needs individual approval.');
   const db = await open();
-  try { await db.put('permissions', allow, [owner, origin, kind]); } finally { db.close(); }
+  try {
+    const tx = db.transaction('permissions', 'readwrite');
+    if (kind === ALL_SIGNING) {
+      const signingKinds = IDBKeyRange.bound([owner, origin, 0], [owner, origin, 65535]);
+      await tx.store.delete(signingKinds);
+    }
+    await tx.store.put(allow, [owner, origin, kind]);
+    await tx.done;
+  } finally { db.close(); }
 }
 
 export async function permissions(owner: string) {
@@ -58,7 +64,7 @@ export async function permissions(owner: string) {
   try {
     const range = IDBKeyRange.bound([owner], [owner, []]);
     const [keys, values] = await Promise.all([db.getAllKeys('permissions', range), db.getAll('permissions', range)]);
-    return keys.map(([, origin, kind], i) => ({ origin, kind, allow: values[i] !== false, label: permissionLabel(kind) ?? 'kind ' + kind }));
+    return keys.map(([, origin, kind], i) => ({ origin, kind, allow: values[i] !== false, label: permissionLabel(kind) }));
   } finally { db.close(); }
 }
 

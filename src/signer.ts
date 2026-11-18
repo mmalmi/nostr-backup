@@ -4,7 +4,7 @@ import type { Sender } from './platform.d.ts';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { unhex } from './model.ts';
 
-import { forgetPermissions, permissionDecision, permissionLabel, savePermission } from './signer-storage.ts';
+import { ALL_SIGNING, LOGIN, forgetPermissions, permissionDecision, savePermission } from './signer-storage.ts';
 
 type SessionKey = () => Promise<string | undefined>;
 interface PendingSignature extends Approval {
@@ -85,7 +85,7 @@ export async function handleSignerRequest(
   if (!(await sessionKey())) throw Error('Your account is locked.');
   if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('This type of request is not supported.');
   const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
-  const remembered = await permissionDecision(pubkey, grant.origin, event?.kind ?? -1);
+  const remembered = await permissionDecision(pubkey, grant.origin, event?.kind ?? LOGIN);
   if (remembered === false) throw Error('Request declined.');
   if ((!event && grant.loginPubkey === pubkey) || remembered === true) {
     const tab = await api.tabs.get(tabId);
@@ -128,12 +128,12 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
   if (!request) throw Error('Request expired. Ask the site to try again.');
   if (msg.decision === undefined)
     return { origin: request.origin, event: request.event, pubkey: request.pubkey };
-  if (msg.decision !== true) {
-    // A remembered decline stops this website asking for this kind again.
-    const declined = request.event?.kind ?? -1;
-    requests.delete(msg.id);
+  if (typeof msg.decision !== 'boolean') throw Error('Invalid approval decision.');
+  const scope = msg.scope ?? 'once';
+  if (scope !== 'once' && scope !== 'kind' && !(scope === 'signing' && request.event))
+    throw Error('Invalid permission scope for this request.');
+  if (!msg.decision && scope === 'once') {
     request.finish(Error('Request declined.'));
-    if (msg.remember && permissionLabel(declined)) await savePermission(request.pubkey, request.origin, declined, false);
     return;
   }
   const key = await sessionKey();
@@ -144,20 +144,31 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
     requests.get(msg.id) !== request ||
     !key ||
     getPublicKey(unhex(key)) !== request.pubkey ||
-    grant?.token !== request.token ||
+    grant?.token !== request.token || grant.origin !== request.origin ||
     !tab.url ||
     new URL(tab.url).origin !== request.origin
   )
     throw Error('The account or website changed.');
-  const kind = request.event?.kind ?? -1;
-  if (msg.remember && !permissionLabel(kind)) throw Error('This request needs individual approval.');
   // Consume the decision before any asynchronous writes. A closed prompt or
   // duplicate click cannot change a decision while its permission is saving.
-  const result = request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey;
   requests.delete(msg.id);
   try {
-    if (msg.remember) await savePermission(request.pubkey, request.origin, kind);
+    if (scope !== 'once') {
+      const kind = scope === 'signing' ? ALL_SIGNING : request.event?.kind ?? LOGIN;
+      await savePermission(request.pubkey, request.origin, kind, msg.decision);
+      revision++;
+      for (const other of requests.values()) {
+        if (other.origin !== request.origin || other.pubkey !== request.pubkey) continue;
+        if (kind === ALL_SIGNING ? !!other.event : (other.event?.kind ?? LOGIN) === kind)
+          other.finish(Error('Website permission changed. Ask the site to try again.'));
+      }
+    }
+    if (!msg.decision) {
+      request.finish(Error('Request declined.'));
+      return;
+    }
     if (!request.event) await api.storage.session.set({ [name]: { ...grant, loginPubkey: request.pubkey } });
+    const result = request.event ? finalizeEvent(request.event, unhex(key)) : request.pubkey;
     request.finish(null, result);
   } catch (error) {
     request.finish(Error('Could not save website permission.'));

@@ -474,6 +474,9 @@ ul:empty {
 .approve details {
   margin: 12px 0;
 }
+.approve #event {
+  max-height: 24vh;
+}
 .approve summary {
   cursor: pointer;
   font-weight: 600;
