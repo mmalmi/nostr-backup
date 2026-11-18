@@ -214,7 +214,7 @@
   <h2>Back up your posts</h2>
   <p class="hint">Keep a copy of your X, Facebook and Instagram posts, and share the public ones on Nostr.</p>
   <button id="startSignUp" class="setupNext" bind:this={startButton} onclick={run(() => ((page.flow = 'signup'), show('accounts')))}
-    >Sign up</button
+    >Create profile</button
   >
   <!-- Signing in keeps your Nostr profile; setup then links your accounts the same way. -->
   <div class="existingProfile">
@@ -240,7 +240,7 @@
 
 <form id="nameForm" class="onboardingStep" hidden={step !== 'profile'} onsubmit={run(createProfile)}>
   <WizardSteps flow="signup" current="profile" {chosen} />
-  <h2>Sign up</h2>
+  <h2>Create profile</h2>
   <div class="profilePreview" class:withBanner={!!profile.banner}>
     {#if profile.banner}
       <div class="previewBanner">
@@ -284,10 +284,10 @@
       </p>
     {/if}
   </div>
-  <p class="hint">Signing up publishes this profile to Nostr. {#if publishAddress}It includes your npub.cash receiving address, which you can remove in Account.{:else}You can add a receiving address later in Account.{/if} Your secret key is stored on this device.</p>
+  <p class="hint">Creating this profile publishes it to Nostr. {#if publishAddress}It includes your npub.cash receiving address, which you can remove in Profile.{:else}You can add a receiving address later in Profile.{/if} Your secret key is stored on this device.</p>
   <div class="setupActions">
     <button type="button" class="quiet" id="backToAccounts" onclick={run(() => show('accounts'))}>Back</button>
-    <button type="submit" id="signUp">Sign up</button>
+    <button type="submit" id="signUp">Create profile</button>
   </div>
 </form>
 
@@ -328,9 +328,9 @@
     />
   </form>
   <div class="existingProfile">
-    <a href="#signup" id="signupLink" onclick={run(() => ((page.flow = 'signup'), show('accounts')))}>Don't have an account?</a>
+    <a href="#signup" id="signupLink" onclick={run(() => ((page.flow = 'signup'), show('accounts')))}>Don't have a Nostr profile?</a>
     <button type="button" class="secondary" id="cancelLogin" onclick={run(() => ((page.flow = 'signup'), show('accounts')))}
-      >Sign up</button
+      >Create profile</button
     >
   </div>
 </div>

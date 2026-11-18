@@ -93,7 +93,7 @@
   }
 </script>
 
-<h2>Account</h2>
+<h2>Profile</h2>
 <section>
   <div class="accountRow">
     <div>

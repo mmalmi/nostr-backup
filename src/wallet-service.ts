@@ -48,7 +48,7 @@ async function walletAccess(owner: string, automatic = false) {
     !current.walletEnabled ||
     (automatic && !current.walletAutoReceive)
   )
-    throw Error('The wallet is off or the active account changed.');
+    throw Error('The wallet is off or the active profile changed.');
   const key = await savedKey();
   if (!key || getPublicKey(unhex(key)) !== owner) throw Error('Unlock this profile to use its wallet.');
   if (!(await paymentConsent())) throw Error('Enable payment data in the extension settings.');
