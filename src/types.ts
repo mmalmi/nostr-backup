@@ -252,7 +252,7 @@ export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' 
 };
 export interface Payloads extends WalletRPC {
   receivingAddress: { enabled: boolean };
-  openTipWallet: { invoice?: string };
+  openTipWallet: { invoice?: string; setDefault?: boolean };
   tipBalance: {};
   quickTip: {account: string; handle: string; pubkey: string; post: string; sats: number};
   tipMarks: { targets: {pubkey: string; post?: string}[] };

@@ -303,6 +303,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
         text-align:center;text-decoration:none;border:1px solid #2a4fbd;background:#2a4fbd;color:#fff}
       .custom{display:flex;gap:6px;margin:8px 0 0}.custom input{box-sizing:border-box;min-width:0;flex:1;padding:7px 8px;
         border-radius:8px;border:1px solid #8993a2;background:transparent;color:inherit;font:13px system-ui}
+      .defaultTip{font-size:13px;cursor:pointer}.defaultTip:not([hidden]){display:flex;align-items:center;gap:5px;margin-top:8px}.defaultTip input{margin:0}
       .custom button{flex:0 0 auto;padding:7px 10px}
       .method{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-size:13px}
       .method select{flex:1;min-width:0;background:transparent;color:inherit;border:1px solid #8993a2;border-radius:6px;padding:4px}
@@ -389,6 +390,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
     const row = box.querySelector('.row')!;
     let balanceSats: number | undefined;
     let method: HTMLSelectElement | undefined;
+    let defaultAmount: HTMLInputElement | undefined;
     if (recipient.walletEnabled) {
       void send({type: 'tipBalance'}).then(result => {
         const sats = result?.value;
@@ -400,6 +402,15 @@ export function createTipButtons(send: Send, doc: Document = document) {
           label.innerHTML = 'Pay with <select><option value="cashu">Cashu wallet</option><option value="external">External wallet</option></select>';
           method = label.querySelector('select')!;
           row.before(label);
+          const preference = doc.createElement('label');
+          preference.className = 'defaultTip';
+          preference.innerHTML = '<input type="checkbox"> Set as default for one-click post tips';
+          defaultAmount = preference.querySelector('input')!;
+          box.querySelector('.custom')!.after(preference);
+          const paymentMethod = method;
+          paymentMethod.addEventListener('change', () => {
+            preference.hidden = paymentMethod.value !== 'cashu';
+          });
         }
         const balance = doc.createElement('button');
         balance.type = 'button';
@@ -446,6 +457,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       if (choosing || dialog !== popover) return;
       choosing = true;
       const selected = method?.value;
+      const setDefault = selected === 'cashu' && defaultAmount?.checked === true;
       const review = selected === 'cashu' && balanceSats !== undefined && sats <= balanceSats;
       show('<p>Getting an invoice…</p>');
       const reply = await send({ type: 'tipInvoice', handle, pubkey: recipient.pubkey, lightning: recipient.lightning, sats, ...(post ? { post: post.id } : {}) }).catch(() => undefined);
@@ -463,7 +475,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       // The ordinary menu always opens a review before a Cashu payment can proceed.
       let reviewStatus = '';
       if (review) {
-        const opened = await send({ type: 'openTipWallet', invoice }).catch(() => undefined);
+        const opened = await send({ type: 'openTipWallet', invoice, ...(setDefault && {setDefault: true}) }).catch(() => undefined);
         if (dialog !== popover) return;
         reviewStatus = opened?.ok ? 'Review this payment in Social Backup.' : opened?.error ?? 'Could not open the wallet. You can use the invoice below.';
       }
@@ -486,7 +498,7 @@ export function createTipButtons(send: Send, doc: Document = document) {
       const cashu = box.querySelector<HTMLButtonElement>('.cashu');
       cashu?.addEventListener('click', async () => {
         cashu.disabled = true;
-        const opened = await send({ type: 'openTipWallet', invoice }).catch(() => undefined);
+        const opened = await send({ type: 'openTipWallet', invoice, ...(setDefault && {setDefault: true}) }).catch(() => undefined);
         cashu.disabled = false;
         const status = box.querySelector('[role=status]');
         if (status) status.textContent = opened?.ok ? 'Review this payment in Social Backup.' : opened?.error ?? 'Could not open the wallet.';

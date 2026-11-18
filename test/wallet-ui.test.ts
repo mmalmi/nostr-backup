@@ -21,8 +21,8 @@ test('the wallet quotes on open, confirms the displayed fee only on click and re
   let state: 'ready' | 'pending' | 'paid' | undefined;
   let active = owner;
   const requests: Message[] = [];
-  function mount() {
-    const page = new Window({ url: 'https://extension.test/wallet.html#' + id });
+  function mount(query = '') {
+    const page = new Window({ url: 'https://extension.test/wallet.html#' + id + query });
     t.after(() => page.happyDOM.abort());
     page.document.body.innerHTML = '<main><div id="app"></div></main>';
     const payment = () => ({ id, invoice: 'test-invoice', sats: 21, fee: 2, state });
@@ -39,6 +39,7 @@ test('the wallet quotes on open, confirms the displayed fee only on click and re
             case 'walletReview':
               return { ok: true, value: { account: owner, id, handle: 'alice', lightning: 'alice@example.com', sats: 21 } };
             case 'walletPrepare': state = 'ready'; break;
+            case 'walletSetQuickTip': break;
             case 'walletConfirm': state = 'pending'; break;
             case 'walletRefresh': state = 'paid'; break;
             default: throw Error('Unexpected wallet action ' + msg.type);
@@ -50,16 +51,25 @@ test('the wallet quotes on open, confirms the displayed fee only on click and re
     page.eval(bundle.outputFiles[0].text);
     return page;
   }
-  const page = mount();
+  const page = mount('?setDefault');
   const button = (win: Window, name: string) => [...win.document.querySelectorAll('button')].find(b => b.textContent.trim() === name);
-  await until(() => !!button(page, 'Confirm tip') && !button(page, 'Confirm tip')!.disabled);
+  const saveAndConfirm = () => button(page, 'Confirm tip and save default');
+  await until(() => !!saveAndConfirm() && !saveAndConfirm()!.disabled);
+  const check = page.document.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+  assert.equal(check.checked, true);
+  check.click();
+  await until(() => !!button(page, 'Confirm tip'));
+  assert.equal(requests.filter(m => m.type === 'walletSetQuickTip').length, 0);
+  check.click();
+  await until(() => !!saveAndConfirm());
   assert.match(page.document.body.textContent, /Maximum fee2 sats/);
   assert.match(page.document.body.textContent, /Maximum total23 sats/);
   assert.match(page.document.body.textContent, /alice@example.com/);
   assert.equal(requests.filter(r => r.type === 'walletConfirm').length, 0);
-  button(page, 'Confirm tip')!.click();
+  saveAndConfirm()!.click();
   await until(() => !!button(page, 'Check payment'));
   assert.deepEqual(requests.filter(r => r.type === 'walletConfirm'), [{ type: 'walletConfirm', account: owner, id, maxFee: 2 }]);
+  assert.deepEqual(requests.filter(r => r.type === 'walletSetQuickTip'), [{type:'walletSetQuickTip', account:owner, sats:21}]);
   const reopened = mount();
   await until(() => !!button(reopened, 'Check payment'));
   assert.equal(requests.filter(r => r.type === 'walletPrepare').length, 1);

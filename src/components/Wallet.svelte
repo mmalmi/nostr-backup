@@ -11,6 +11,7 @@
   let quickToken = quickParts.length === 1 && /^[0-9a-f-]{36}$/.test(tipId)
     ? /^quick=([0-9a-f]{32})$/.exec(quickParts[0])?.[1] : undefined;
   const quickPopup = !!quickToken;
+  let saveTipDefault = $state(quickParts.length === 1 && quickParts[0] === 'setDefault');
   // The grant belongs to this opening only. Reloads and history entries get ordinary review.
   if (quickToken) {
     try { history.replaceState(history.state, '', '#' + tipId); }
@@ -305,7 +306,11 @@
     stopQuick();
     if (!payment || payment.state !== 'ready') return;
     const { id, fee } = payment;
-    void act(async () => { await send('walletConfirm', { account, id, maxFee: fee }); });
+    const defaultSats = saveTipDefault && tip?.id === id && tip.sats !== identity?.quickTipSats ? tip.sats : undefined;
+    void act(async () => {
+      if (defaultSats) await send('walletSetQuickTip', { account, sats: defaultSats });
+      await send('walletConfirm', { account, id, maxFee: fee });
+    });
   }
 
   function recoverPayment() {
@@ -580,10 +585,15 @@
       <div><dt>Maximum fee</dt><dd>{amount(payment.fee)}</dd></div>
       <div><dt>Maximum total</dt><dd><strong>{amount(payment.sats + payment.fee)}</strong></dd></div>
     </dl>
+    {#if tip?.id === payment.id && !quickPopup && identity?.quickTipSats !== payment.sats}
+      <label class="check"><input type="checkbox" bind:checked={saveTipDefault} disabled={busy} />
+        Use {amount(payment.sats)} for one-click post tips</label>
+      {#if saveTipDefault}<p>Maximum fee on future one-click tips: {amount(quickTipFeeLimit(payment.sats))}.</p>{/if}
+    {/if}
     {#if feeNotice}<p>{feeNotice}</p>{/if}
     {#if secondsLeft}<p class="quickCountdown" role="status">Sending in {secondsLeft} {secondsLeft === 1 ? 'second' : 'seconds'}…</p>{/if}
     <div class="actions">
-      {#if !secondsLeft}<button disabled={busy} onclick={confirm}>{tip ? 'Confirm tip' : 'Confirm payment'}</button>{/if}
+      {#if !secondsLeft}<button disabled={busy} onclick={confirm}>{tip ? saveTipDefault && identity?.quickTipSats !== payment.sats ? 'Confirm tip and save default' : 'Confirm tip' : 'Confirm payment'}</button>{/if}
       <button class:secondary={!secondsLeft} disabled={busy} onclick={cancel}>Cancel</button>
     </div>
   {:else if payment?.state === 'pending'}

@@ -1244,7 +1244,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const tip = details && await issuedTip(db, details.paymentHash);
         if (!tip || tip.account !== conf.pubkey || tip.tab !== sender.tab.id || tip.invoice !== msg.invoice)
           throw Error('Choose a tip in this tab first.');
-        await api.tabs.create({url: api.runtime.getURL('wallet.html') + '#' + tip.id});
+        await api.tabs.create({url: api.runtime.getURL('wallet.html') + '#' + tip.id + (msg.setDefault === true ? '?setDefault' : '')});
         return;
       }
       if (msg.type === 'tipRate') {

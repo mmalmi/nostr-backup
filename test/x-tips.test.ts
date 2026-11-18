@@ -178,7 +178,7 @@ test('custom amounts use whole sats and the ordinary menu respects the chosen pa
   const window = new Window({ url: 'https://x.com/home' }), doc = window.document as unknown as Document;
   doc.body.innerHTML = article('alice', '9');
   const pubkey = getPublicKey(secret), invoice = 'lnbc210n1pinvoice';
-  const invoices: number[] = [], opened: string[] = [];
+  const invoices: number[] = [], opened: {invoice?: string; setDefault?: boolean}[] = [];
   let balance: number | Promise<number> = 200;
   const tips = createTipButtons(async msg => {
     switch (msg.type) {
@@ -189,7 +189,7 @@ test('custom amounts use whole sats and the ordinary menu respects the chosen pa
       case 'tipRate': return {ok:true,value:100000};
       case 'tipPost': return {ok:true,value:{sats:0,tips:0,ownSats:0,ownTips:0}};
       case 'tipInvoice': invoices.push(msg.sats); return {ok:true,value:{invoice,kind:'lightning'}};
-      case 'openTipWallet': if (msg.invoice) opened.push(msg.invoice); return {ok:true};
+      case 'openTipWallet': if (msg.invoice) opened.push(msg); return {ok:true};
       default: return {ok:false};
     }
   }, doc);
@@ -213,12 +213,18 @@ test('custom amounts use whole sats and the ordinary menu respects the chosen pa
       assert.equal(box.querySelector('input')!.getAttribute('aria-invalid'), 'true');
     }
     assert.equal(invoices.length, 0);
+    const saveDefault = box.querySelector<HTMLInputElement>('.defaultTip input')!;
+    assert.equal(saveDefault.checked, false);
+    saveDefault.click();
     await submit(box, '137');
     assert.deepEqual(invoices, [137]);
-    assert.deepEqual(opened, [invoice]);
+    assert.deepEqual(opened, [{type:'openTipWallet', invoice, setDefault:true}]);
     assert.equal(box.querySelector('p b')?.textContent, '137 sats');
     box = await open();
+    box.querySelector<HTMLInputElement>('.defaultTip input')!.click();
     box.querySelector('select')!.value = 'external';
+    box.querySelector('select')!.dispatchEvent(new doc.defaultView!.Event('change'));
+    assert.equal(box.querySelector<HTMLElement>('.defaultTip')!.hidden, true);
     (box.querySelector('.row button') as HTMLElement).click();
     await tick();
     assert.equal(opened.length, 1);
@@ -242,7 +248,13 @@ test('custom amounts use whole sats and the ordinary menu respects the chosen pa
     release(500);
     await tick();
     assert.equal(opened.length, 1); // Late balance cannot change the selected method.
-    assert.deepEqual(invoices, [137,100,201,200,21]);
+    balance = 500;
+    box = await open();
+    box.querySelector<HTMLInputElement>('.defaultTip input')!.click();
+    (box.querySelector('.row button') as HTMLElement).click();
+    await tick();
+    assert.deepEqual(opened[1], {type:'openTipWallet', invoice, setDefault:true});
+    assert.deepEqual(invoices, [137,100,201,200,21,100]);
   } finally { tips.reset(); await window.happyDOM.abort(); }
 });
 
