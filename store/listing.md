@@ -6,7 +6,7 @@ Save your posts from X, Facebook, Instagram and Nostr. Download a copy with phot
 
 ## Store description
 
-Keep a copy of your social posts that you can take with you. Choose your accounts, visit your profiles and scroll to save the posts you want to keep. Connect your Nostr public key to import signed events from the relays you choose. Download your archive and saved media as a ZIP.
+Choose which of your X, Facebook and Instagram accounts to back up. Social Backup automatically saves your posts as you scroll your profile. Connect your Nostr public key to import signed events from the relays you choose. Download your archive and saved media as a ZIP.
 
 When you turn on backup for a social profile, Social Backup can automatically sign and publish confirmed public posts to your Nostr relays and upload public media to your chosen servers. Private or unverified captures stay in your browser and can be exported. Creating a new Nostr profile publishes your chosen name and public key. A public key alone gives you read-only access.
 
