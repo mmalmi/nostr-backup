@@ -1,10 +1,12 @@
 import type { Archive, ArchiveSchema, Settings, Entry, Capture, SocialCapture, IndexPointer } from './types.ts';
+import { currentHistoryIds, historyRow, isHistoryKind, pruneEventHistory, queueHistoryDelivery } from './event-history.ts';
 import { markLegacyX } from './legacy-x.ts';
 import type { Event } from 'nostr-tools/pure';
 import type { CID } from '@hashtree/core';
 import type { Zippable } from 'fflate';
 import { enqueueRelayPublication } from 'nostr-pubsub';
 import { openDB, type IDBPTransaction, type StoreNames } from 'idb';
+import { compactHistoryIndex } from './blocks.ts';
 import { ArchiveEventBus } from './archive-event-bus.ts';
 import { zipSync, strToU8 } from 'fflate';
 import { mediaReferences } from './media-refs.ts';
@@ -19,7 +21,8 @@ export const readCooldown = (db: Archive, url: string) =>
   db.get('meta', ['retryAfter', url]) as Promise<number | undefined>;
 
 export function openArchive(name = 'nostr-backup-v1') {
-  const opened = openDB<ArchiveSchema>(name, 10, {
+  let compactAfterUpgrade = false;
+  const opened = openDB<ArchiveSchema>(name, 11, {
     blocking() {
       void opened.then((db) => db.close());
     },
@@ -37,6 +40,33 @@ export function openArchive(name = 'nostr-backup-v1') {
           'cursors',
         ] as const)
           db.createObjectStore(store);
+      }
+      if (oldVersion < 11) {
+        const history = db.createObjectStore('eventHistory', { keyPath: 'id' });
+        history.createIndex('pubkey', 'pubkey');
+        const outbox = tx.objectStore('outbox');
+        outbox.createIndex('historySlot', 'historySlot', {unique: true});
+        if (oldVersion > 0) {
+          (async () => {
+            const owners = new Set<string>();
+            for (let c = await tx.objectStore('events').openCursor(); c; c = await c.continue()) {
+              const row = historyRow(c.value);
+              if (row) {
+                await history.put(row);
+                owners.add(row.pubkey);
+                const queued = await outbox.getAll(IDBKeyRange.bound([row.id], [row.id, []]));
+                for (const pending of queued) {
+                  if (!await queueHistoryDelivery(tx, c.value, pending)) await outbox.delete([row.id, pending.relay]);
+                }
+              }
+            }
+            for (const owner of owners) await pruneEventHistory(tx, owner);
+            if (owners.size) {
+              await tx.objectStore('meta').put(true, 'compactHistoryIndex');
+              compactAfterUpgrade = true;
+            }
+          })().catch(() => tx.abort());
+        }
       }
       if (oldVersion < 2) tx.objectStore('events').createIndex('created_at', 'created_at');
       if (oldVersion < 7) {
@@ -86,7 +116,10 @@ export function openArchive(name = 'nostr-backup-v1') {
       }
     },
   });
-  return opened;
+  return opened.then(async db => {
+    if (compactAfterUpgrade) await compactHistoryIndex(db);
+    return db;
+  });
 }
 
 // Compatibility entry point for existing archive callers with explicit delivery metadata.
@@ -188,7 +221,8 @@ export async function queueBroadcast(
   { relays, relaySync, pubkey }: Pick<Settings, 'relays' | 'relaySync' | 'pubkey'>,
 ) {
   if (!relays.length) throw Error('Save at least one relay before broadcasting.');
-  const tx = db.transaction(['events', 'outbox', 'cursors', 'heldEvents'], 'readwrite');
+  const tx = db.transaction(['events', 'eventHistory', 'outbox', 'meta', 'mediaRefs', 'cursors', 'heldEvents'], 'readwrite');
+  const current = currentHistoryIds(await tx.objectStore('eventHistory').index('pubkey').getAll(pubkey));
   // A manual two-way sync covers all history, including a relay with no local matches.
   if (relaySync) {
     for (const url of relays) tx.objectStore('cursors').delete([pubkey, url]);
@@ -200,11 +234,13 @@ export async function queueBroadcast(
     cursor;
     cursor = await cursor.continue()
   ) {
-    if (await tx.objectStore('heldEvents').getKey(cursor.value.id)) continue;
+    const event = cursor.value;
+    if (isHistoryKind(event.kind) && !current.has(event.id)) continue;
+    if (await tx.objectStore('heldEvents').getKey(event.id)) continue;
     await enqueueRelayPublication(
-      cursor.value,
+      event,
       relays,
-      (row) => outbox.put(row, [row.id, row.relay]),
+      (row) => isHistoryKind(event.kind) ? queueHistoryDelivery(tx, event, row) : outbox.put(row, [row.id, row.relay]),
       { broadcast: true },
     );
     count++;

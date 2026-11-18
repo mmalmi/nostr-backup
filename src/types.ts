@@ -72,7 +72,7 @@ export interface Entry {
   /** Send this own event to relays even when its kind is not a post, such as a follow list. */
   announce?: boolean;
 }
-export type CaptureDelivery = Delivery & { network?: SocialNetwork };
+export type CaptureDelivery = Delivery & { network?: SocialNetwork; historySlot?: [string, number, string] };
 export type { CaptureDelivery as Delivery };
 export interface MediaReference {
   eventId: string;
@@ -113,6 +113,7 @@ export interface BlossomDelivery {
   error?: string;
 }
 export interface ArchiveSchema extends DBSchema {
+  eventHistory: { key: string; value: import('./event-history.ts').HistoryRow; indexes: { pubkey: string } };
   blossomOutbox: { key: [string, string]; value: BlossomDelivery; indexes: { server: string } };
   xDirectory: { key: [string, number]; value: import('./x-directory.ts').DirectoryRow; indexes: { handles: string } };
   blocks: { key: string; value: Uint8Array };
@@ -130,7 +131,7 @@ export interface ArchiveSchema extends DBSchema {
   } };
   xMatches: { key: string; value: Capture };
   sources: { key: string; value: string };
-  outbox: { key: [string, string]; value: CaptureDelivery };
+  outbox: { key: [string, string]; value: CaptureDelivery; indexes: { historySlot: [string, number, string] } };
   cursors: {
     key: string[];
     value: { scope?: string; through?: number; started?: number; next?: { until?: number; limit?: number } };
@@ -253,6 +254,9 @@ export type SettingsForm = Omit<Settings, 'relays' | 'archiveName' | 'mediaMiB' 
 };
 export interface Payloads extends WalletRPC {
   receivingAddress: { enabled: boolean };
+  eventVersions: { kind: 0 | 3; refresh?: boolean };
+  editProfile: { baseId: string | null; content: string; tagsFrom?: string; repairFrom?: string; confirmedRemoval?: boolean };
+  recoverFollows: { baseId: string; fromId: string; pubkeys: string[] };
   openTipWallet: { invoice?: string; setDefault?: boolean };
   tipBalance: {};
   quickTip: {account: string; handle: string; pubkey: string; post: string; sats: number};
@@ -306,6 +310,9 @@ export type Message<K extends Action = Action> = {
   [T in K]: { type: T; account?: string } & Payloads[T];
 }[K];
 interface ActionResults extends WalletResults {
+  eventVersions: Event[];
+  editProfile: Event;
+  recoverFollows: Event;
   tipBalance: number;
   quickTip: {state: 'opened' | 'already'};
   tipMarks: number[];

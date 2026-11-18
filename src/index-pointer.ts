@@ -2,8 +2,9 @@ import type { Archive, Settings, IndexPointer, Sign } from './types.ts';
 import type { CID } from '@hashtree/core';
 import type { Event } from 'nostr-tools/pure';
 import { publicMediaURL } from './media-refs.ts';
+import { currentHistoryIds, isHistoryKind } from './event-history.ts';
 import { readPointer } from './archive.ts';
-import { readOnlyStore } from './blocks.ts';
+import { compactHistoryIndex, readOnlyStore, withIndexSnapshot } from './blocks.ts';
 import { BlossomStore, HashTree, MemoryStore, toHex } from '@hashtree/core';
 import { createNostrRefResolver, NostrEventStore } from '@hashtree/nostr';
 import * as nip19 from 'nostr-tools/nip19';
@@ -55,10 +56,20 @@ export async function queueIndexPointer(
   checkActive: () => Promise<unknown>,
   signal?: AbortSignal,
 ) {
+  try {
+    return await withIndexSnapshot(db, () => prepareIndexPointer(db, conf, sign, checkActive, signal));
+  } finally {
+    await compactHistoryIndex(db);
+  }
+}
+
+async function prepareIndexPointer(
+  db: Archive, conf: IndexSettings, sign: Sign, checkActive: () => Promise<unknown>, signal?: AbortSignal,
+) {
   const server = conf.blossomServer;
   if (!server || !publicMediaURL(server) || !conf.relays.length)
     throw Error('Save a public media backup server and at least one relay first.');
-  const snapshot = db.transaction(['meta', 'heldEvents', 'events']);
+  const snapshot = db.transaction(['meta', 'heldEvents', 'events', 'eventHistory']);
   const localRoot = await snapshot.objectStore('meta').get('root') as CID | undefined;
   if (!localRoot) throw Error('The event index is empty.');
   let root: CID = localRoot;
@@ -72,7 +83,9 @@ export async function queueIndexPointer(
   if (held.size) {
     // The previous root and its index blocks can contain restricted posts. Build
     // an independent snapshot from the eligible events before uploading any bytes.
-    const events = (await snapshot.objectStore('events').getAll()).filter(event => !held.has(event.id));
+    const current = currentHistoryIds(await snapshot.objectStore('eventHistory').index('pubkey').getAll(conf.pubkey));
+    const events = (await snapshot.objectStore('events').getAll()).filter(event =>
+      !held.has(event.id) && (!isHistoryKind(event.kind) || current.has(event.id)));
     if (!events.length) throw Error('No public events are available for the index.');
     store = new MemoryStore();
     root = (await new NostrEventStore(store).build(null, events))!;

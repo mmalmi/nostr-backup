@@ -39,7 +39,7 @@ import { paymentConsent } from './tip-consent.ts';
 import { coinbaseRate, FRESH_SECONDS, snortRate, SNORT_RATES, TIP_CURRENCIES } from './rates.ts';
 import { openArchive, queueBroadcast, stagePosts, saveSocialCaptures, savedPosts } from './archive.ts';
 import { deliverPending } from './broadcast.ts';
-import { relaySource, RelayRateLimitError, retryRelayOutbox } from 'nostr-pubsub';
+import { relaySource, RateLimitAwarePool, RelayRateLimitError, retryRelayOutbox } from 'nostr-pubsub';
 import { createUploadAuth } from 'nostr-tools/nipb7';
 import { DEFAULT_BLOSSOM_SERVER, blossomOrigin, mediaServers, publicMediaURL } from './media-refs.ts';
 import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
@@ -56,6 +56,10 @@ import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
 import { followingHandle, profileHandle, xPermalink } from './x.ts';
 import { readProfile } from './profile.ts';
+import { readEventHistory } from './event-history.ts';
+import { editProfileDraft, recoverFollowDraft, validatePublicProfile, readableFields } from './profile-edit.ts';
+import { compareProfileEvents } from '@iris/profile-events';
+import { readPage } from './relays.ts';
 import { knownFollowers } from './graph-followers.ts';
 import { importWithNegentropy, pool, publish, syncHistory } from './relays.ts';
 import {
@@ -369,13 +373,40 @@ async function latestOwn(db: Archive, conf: Settings, kind: number) {
     relays.destroy();
   }
 }
-// Signs an own non-post event, such as a follow list, archives it and queues it for the relays.
-async function publishOwn(db: Archive, conf: Settings, template: EventTemplate) {
+// A completed subscription distinguishes a new account from a relay timeout.
+async function checkOwnVersions(conf: Settings, kind: 0 | 3) {
+  if (!conf.relays.length) throw Error('Select a relay in Backup first.');
+  // Background sync owns and closes its own pool after each run.
+  const connections = new RateLimitAwarePool();
+  const replies = await Promise.allSettled(conf.relays.map(relay =>
+    readPage(relay, { authors: [conf.pubkey], kinds: [kind], limit: 1 }, connections))).finally(() => connections.destroy());
+  const completed = replies.filter(reply => reply.status === 'fulfilled' && reply.value.complete);
+  if (!completed.length) throw Error('Could not check your current version on a relay. Your changes are still here. Try again.');
+  return {
+    events: replies.flatMap(reply => reply.status === 'fulfilled' ? reply.value.events : []),
+    allComplete: completed.length === replies.length,
+  };
+}
+
+async function recordVersions(db: Archive, conf: Settings, events: NostrEvent[]) {
+  if ((await settings()).pubkey !== conf.pubkey) throw Error('The active profile changed.');
+  if (events.length) await new ArchiveEventBus(db, conf.pubkey, []).publishBatch(events.map(event => ({ event })));
+}
+
+async function savedVersion(db: Archive, owner: string, kind: 0 | 3, id: string) {
+  const event = await db.get('events', id);
+  if (!event || event.kind !== kind || !isOwnEvent(event, owner))
+    throw Error('This version is no longer available. Reload the history.');
+  return event;
+}
+
+async function signOwnVersion(db: Archive, conf: Settings, template: EventTemplate) {
   const key = await sessionKey();
   if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+  if (template.kind === 0) validatePublicProfile(template, key);
   const event = finalizeEvent(template, unhex(key));
-  await write(() => new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]));
-  void kick();
+  await new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]);
+  return event;
 }
 
 // Serialize intentional unlink and proof recapture. A withdrawn or older proof stays withdrawn.
@@ -1318,6 +1349,45 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const {invoice, kind} = await issueTip(db, conf, sender.tab.id, handle, profile, msg.sats, msg.post, note);
       return {invoice,kind};
     }
+    if (msg.type === 'eventVersions' || msg.type === 'editProfile' || msg.type === 'recoverFollows') {
+      if (!accountPage || msg.account !== conf.pubkey) throw Error('Open Profile for the active account.');
+      const kind = msg.type === 'eventVersions' ? msg.kind : msg.type === 'editProfile' ? 0 : 3;
+      if (kind !== 0 && kind !== 3) throw Error('Choose profile or follow history.');
+      if (msg.type === 'eventVersions' && !msg.refresh) return readEventHistory(db, conf.pubkey, kind);
+      const remote = await checkOwnVersions(conf, kind);
+      const result = await write(async () => {
+        // Keep the requested base for the merge even when a remote update displaces it from history.
+        const base = msg.type !== 'eventVersions' && msg.baseId !== null
+          ? await savedVersion(db, conf.pubkey, kind, msg.baseId) : undefined;
+        const tagSource = msg.type === 'editProfile' && msg.tagsFrom ? await savedVersion(db, conf.pubkey, 0, msg.tagsFrom) : undefined;
+        const repairSource = msg.type === 'editProfile' && msg.repairFrom ? await savedVersion(db, conf.pubkey, 0, msg.repairFrom) : undefined;
+        const followSource = msg.type === 'recoverFollows' ? await savedVersion(db, conf.pubkey, 3, msg.fromId) : undefined;
+        await recordVersions(db, conf, remote.events);
+        const history = await readEventHistory(db, conf.pubkey, kind);
+        if (msg.type === 'eventVersions') return history;
+        const current = history[0];
+        if (msg.type === 'recoverFollows') {
+          if (!current || !followSource || !base) throw Error('Reload the follow history.');
+          // A follow removed since the preview needs a fresh decision.
+          if (current.id !== base.id) throw Error('Your follow list changed. Reload history to review which follows to add back.');
+          return signOwnVersion(db, conf, recoverFollowDraft(current, followSource, msg.pubkeys));
+        }
+        if (!base && (current || !remote.allComplete)) throw Error('Reload the latest profile before creating one.');
+        const draft = editProfileDraft(base, current, msg.content, tagSource, repairSource);
+        const fields = readableFields(draft.content)!;
+        const previous = current && readableFields(current.content);
+        if (['lud16','lud06'].some(key => fields[key] && fields[key] !== previous?.[key]) && !await paymentConsent())
+          throw Error('Allow payment data before adding a Lightning address.');
+        if (current && previous) {
+          const diff = compareProfileEvents(current, draft);
+          if (diff.massRemoval && !msg.confirmedRemoval) throw Error('Review the large removal before publishing.');
+          if (!diff.fields.length && JSON.stringify(current.tags) === JSON.stringify(draft.tags)) return current;
+        }
+        return signOwnVersion(db, conf, draft);
+      });
+      if (msg.type !== 'eventVersions') void kick();
+      return result;
+    }
     if (msg.type === 'receivingAddress') {
       if (!accountPage || msg.account !== conf.pubkey || typeof msg.enabled !== 'boolean') throw Error('Open Account to edit your profile.');
       if (msg.enabled && !await paymentConsent()) throw Error('Allow payment data before adding a receiving address.');
@@ -1330,6 +1400,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         const local = await archiveRouter(db, conf.pubkey).query([{authors: [conf.pubkey], kinds: [0], limit: 1}]);
         if (!local.complete) throw Error('Could not read your current profile.');
         const latest = newestProfile([candidate, ...local.events.map(r => r.event)], conf.pubkey)!;
+        await recordVersions(db, conf, [latest]);
         const event = finalizeEvent(updateReceivingAddress(latest, msg.enabled), unhex(key));
         await new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{event, announce: true}]);
         void kick();
@@ -1601,7 +1672,14 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         if (!Array.isArray(msg.pubkeys) || !msg.pubkeys.length || !msg.pubkeys.every((key) => /^[0-9a-f]{64}$/.test(key)))
           throw Error('Choose people to follow.');
         // Start from the newest follow list so existing follows are kept.
-        await publishOwn(db, conf, contactsTemplate(await latestOwn(db, conf, 3), msg.pubkeys));
+        const remote = await checkOwnVersions(conf, 3);
+        await write(async () => {
+          await recordVersions(db, conf, remote.events);
+          const [current] = await readEventHistory(db, conf.pubkey, 3);
+          if (!current && !remote.allComplete) throw Error('Could not check your existing follow list. Try again.');
+          await signOwnVersion(db, conf, contactsTemplate(current, msg.pubkeys));
+        });
+        void kick();
         return msg.pubkeys.length;
       }
       case 'syncBlossom': {

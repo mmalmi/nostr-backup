@@ -47,11 +47,11 @@ export function publish(relay: string, event: Event) {
 
 // Use the concrete subscription for history. A pool can synthesize aggregate
 // EOSE on disconnect. Only wire EOSE may advance a durable archive cursor.
-export async function readPage(url: string, filter: Filter) {
-  const relay = await pool.ensureRelay(url, { connectionTimeout: 7000 });
+export async function readPage(url: string, filter: Filter, connection = pool) {
+  const relay = await connection.ensureRelay(url, { connectionTimeout: 7000 });
   return new Promise<RelayPage>((resolve, reject) => {
     const id = crypto.randomUUID();
-    const limit = pool.watchRateLimit(url, 'CLOSED', id);
+    const limit = connection.watchRateLimit(url, 'CLOSED', id);
     let subscription: ReturnType<typeof relay.subscribe> | undefined,
       finished = false;
     const events = new Map<string, Event>();

@@ -3038,3 +3038,41 @@ test('unavailable own quote stays a local draft, and resolves when the original 
     await success('logout', { pubkey: owner });
   }
 });
+
+test('profile edits merge concurrent fields, retain signed versions and recover only selected follows', async () => {
+  const secret = generateSecretKey(), account = getPublicKey(secret);
+  const url = 'wss://profile-editor.example/', relay = fixtureRelay(url);
+  const tags = [['custom', 'opaque', 'preserved']];
+  const profile = (created_at: number, fields: object) => finalizeEvent({kind: 0, created_at, content: JSON.stringify(fields), tags}, secret);
+  const old = profile(10, {name: 'Alice', about: 'Original', custom: [false, 42]});
+  const concurrent = profile(11, {name: 'Alice', about: 'Original', custom: [false, 42], website: 'https://example.com'});
+  relay.stored.set(old.id, old);
+  await success('login', {key: nsecEncode(secret)});
+  try {
+    await success('settings', { pubkey: account, handle: '', capture: false, relaySync: false, relays: url });
+    assert.equal((await success('eventVersions', {account, kind: 0, refresh: true}))[0].id, old.id);
+    relay.stored.set(concurrent.id, concurrent);
+    const content = JSON.stringify({name: 'Alice', about: 'Edited', custom: [false, 42], milestone: {year: 2026}});
+    const edited = await success('editProfile', {account, baseId: old.id, content});
+    assert.equal(verifyEvent(edited), true);
+    assert.deepEqual(edited.tags, tags);
+    assert.deepEqual(JSON.parse(edited.content), {...JSON.parse(content), website: 'https://example.com'});
+    assert.deepEqual((await success('eventVersions', {account, kind: 0})).map(e => e.id), [edited.id, concurrent.id, old.id]);
+    assert.equal((await call('editProfile', {account, baseId: old.id, content: '{"about":"Another edit"}'})).ok, false);
+    for (const body of [{content: '{}'}, {content: JSON.stringify({...JSON.parse(edited.content), test: {private: nsecEncode(secret)}})}])
+      assert.equal((await call('editProfile', {account, baseId: edited.id, ...body})).ok, false);
+    assert.equal((await call('eventVersions', {account, kind: 0}, x)).ok, false);
+
+    const alex = getPublicKey(generateSecretKey()), sam = getPublicKey(generateSecretKey()), later = getPublicKey(generateSecretKey());
+    const original = finalizeEvent({kind: 3, created_at: 10, tags: [['p', alex, '', 'Alex'], ['p', sam]], content: 'old'}, secret);
+    relay.stored.set(original.id, original);
+    await success('eventVersions', {account, kind: 3, refresh: true});
+    const partial = finalizeEvent({kind: 3, created_at: 11, tags: [['p', later], ['custom', 'keep']], content: 'current'}, secret);
+    relay.stored.set(partial.id, partial);
+    await success('eventVersions', {account, kind: 3, refresh: true});
+    const restored = await success('recoverFollows', {account, baseId: partial.id, fromId: original.id, pubkeys: [alex]});
+    assert.deepEqual(restored.tags, [...partial.tags, ['p', alex, '', 'Alex']]);
+    assert.equal(restored.content, partial.content);
+    assert.equal(verifyEvent(restored), true);
+  } finally { await idle(); await success('logout', {pubkey: account}); }
+});

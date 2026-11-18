@@ -1,6 +1,6 @@
 import type { Archive } from './types.ts';
 import type { CID } from '@hashtree/core';
-import { readOnlyStore } from './blocks.ts';
+import { readOnlyStore, withIndexSnapshot } from './blocks.ts';
 import { NostrEventStore } from '@hashtree/nostr';
 import { openMediaBlocks } from './media-files.ts';
 import { hex } from './model.ts';
@@ -11,7 +11,11 @@ export interface KindStats {
   events: { id: string; createdAt: number; bytes: number }[];
 }
 
-export async function storageStats(db: Archive) {
+export function storageStats(db: Archive) {
+  return withIndexSnapshot(db, () => readStorageStats(db));
+}
+
+async function readStorageStats(db: Archive) {
   const tx = db.transaction(['events', 'blocks', 'meta', 'mediaFiles', 'drafts', 'outbox']);
   const [root, retained, files, drafts, pending] = await Promise.all([
     tx.objectStore('meta').get('root') as Promise<CID | undefined>,

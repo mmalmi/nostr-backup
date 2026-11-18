@@ -89,6 +89,7 @@
 <h2>Account</h2>
 <section>
   <h3>Profile</h3>
+  <p><a href="#profile">Edit public profile and view history</a></p>
   <p id="lockState" hidden={unlocked}>
     You can view this backup. Enter your secret key to back up new posts or approve website requests.
   </p>

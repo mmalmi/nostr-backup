@@ -1161,3 +1161,24 @@ ul:empty {
   width: auto;
   margin: 0;
 }
+
+.profileModes { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.profileModes button[aria-pressed='true'] { background: var(--soft); color: var(--brand); border-color: var(--brand); }
+.profileFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.profileFields .wide { grid-column: 1 / -1; }
+[data-panel='profile'] fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.fieldDetails, .customField, .contactRow { padding: 8px 0; }
+.fieldDetails { border-block: 1px solid var(--line); margin: 10px 0 18px; }
+.fieldDetails[open] > button { margin: 10px 0 0; }
+[data-panel='profile'] summary { cursor: pointer; font-weight: 600; }
+.changeList > div, .customField + .customField { border-top: 1px solid var(--line); padding: 8px 0; }
+.changeList dt { font-weight: 650; }
+.changeList dd { margin: .25em 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.oldValue, .newValue { color: var(--muted); display: inline-block; min-width: 3.7em; font-size: .85rem; }
+.tagValue, [data-panel='profile'] pre { overflow-wrap: anywhere; white-space: pre-wrap; font-size: .86rem; }
+.wipeWarning { border-inline-start: 3px solid var(--wait); background: var(--card); padding: 10px 14px; color: var(--warn-text); }
+.wipeWarning p { margin: 0; }
+.contactRow label { margin: 0; }
+@media (max-width: 580px) { .profileFields { grid-template-columns: minmax(0, 1fr); } }
+.wipeWarning .textButton { background: transparent; color: var(--brand); border: 0; padding: .15em .3em; text-decoration: underline; font: inherit; }
+.wipeWarning p + p { margin-top: 6px; }

@@ -1,6 +1,7 @@
 import type { Archive, Delivery, Settings } from './types.ts';
 import type { ImportResult } from './relays.ts';
 import { normalizeURL } from 'nostr-tools/utils';
+import { discardHistoryBody } from './event-history.ts';
 import { PUBLIC_POST_KINDS } from './model.ts';
 import { pool, publish } from './relays.ts';
 import { compareEvents } from './reconcile.ts';
@@ -24,17 +25,25 @@ export async function deliverPending(
       const conf = await settings();
       return (
         conf.pubkey === pubkey && conf.relays.includes(url) && canDeliverCapture(row, conf) &&
+        (!('historySlot' in row) || !!await db.getKey('outbox', [row.id, url])) &&
         !(await db.getKey('heldEvents', row.id))
       );
     },
     async send(row) {
       const event = await db.get('events', row.id);
-      if (!event) throw Error('Queued event is missing from the archive.');
+      if (!event) {
+        if ('historySlot' in row && !await db.getKey('outbox', [row.id, url])) return;
+        throw Error('Queued event is missing from the archive.');
+      }
       await publish(url, event);
     },
     async acknowledge(ids) {
-      const tx = db.transaction('outbox', 'readwrite');
-      for (const id of ids) tx.store.delete([id, url]);
+      const tx = db.transaction(['outbox', 'events', 'meta', 'mediaRefs', 'heldEvents'], 'readwrite');
+      const expired = await tx.objectStore('meta').count(IDBKeyRange.bound(['expiredHistory'], ['expiredHistory', []]));
+      for (const id of ids) {
+        tx.objectStore('outbox').delete([id, url]);
+        if (expired && await tx.objectStore('meta').get(['expiredHistory', id])) await discardHistoryBody(tx, id);
+      }
       await tx.done;
     },
     connected: () => !!pool.listConnectionStatus().get(normalizeURL(url)),

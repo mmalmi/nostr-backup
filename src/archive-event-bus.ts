@@ -16,7 +16,8 @@ import {
   type QueryOptions,
 } from 'nostr-pubsub';
 import type { Archive, Entry } from './types.ts';
-import { readOnlyStore, readRoot } from './blocks.ts';
+import { compactHistoryIndex, INDEX_SWEEP_BYTES, reachableNewBlocks, readOnlyStore, readRoot, withIndexSnapshot } from './blocks.ts';
+import { historyRow, isHistoryKind, pruneEventHistory, queueHistoryDelivery } from './event-history.ts';
 import { mediaReferences } from './media-refs.ts';
 import { hex, isOwnEvent, PUBLIC_POST_KINDS } from './model.ts';
 
@@ -58,7 +59,7 @@ export class ArchiveEventBus implements EventBus {
   }
 
   query(filters: NostrFilter[], options?: QueryOptions) {
-    return this.reader.query(filters, options);
+    return withIndexSnapshot(this.db, () => this.reader.query(filters, options));
   }
 
   async publish(event: Event, source: EventSource) {
@@ -81,11 +82,15 @@ export class ArchiveEventBus implements EventBus {
         announce: entry.announce,
       };
     });
-    for (;;) {
-      const count = await commit(this.db, batch);
-      if (count !== undefined) return count;
-      // A concurrent publisher advanced the root. Rebuild against its committed snapshot.
-    }
+    const count = await withIndexSnapshot(this.db, async () => {
+      for (;;) {
+        const count = await commit(this.db, batch);
+        if (count !== undefined) return count;
+        // A concurrent publisher advanced the root. Rebuild against its committed snapshot.
+      }
+    });
+    if (batch.some(({ event }) => isHistoryKind(event.kind))) await compactHistoryIndex(this.db);
+    return count;
   }
 }
 
@@ -117,8 +122,10 @@ async function commit(
   const root = fresh.size
     ? await new NostrEventStore(store).build(oldRoot ?? null, [...fresh.values()])
     : oldRoot;
+  const history = [...fresh.values()].find(event => isHistoryKind(event.kind));
+  const committedBlocks = history && root ? await reachableNewBlocks(root, blocks) : blocks;
   const tx = db.transaction(
-    ['blocks', 'meta', 'events', 'sources', 'drafts', 'outbox', 'mediaRefs', 'mediaFiles', 'heldEvents'],
+    ['blocks', 'meta', 'events', 'eventHistory', 'sources', 'drafts', 'outbox', 'mediaRefs', 'mediaFiles', 'heldEvents'],
     'readwrite',
   );
 
@@ -127,11 +134,13 @@ async function commit(
     await tx.done;
     return;
   }
-  for (const [key, bytes] of blocks) tx.objectStore('blocks').put(bytes, key);
+  for (const [key, bytes] of committedBlocks) tx.objectStore('blocks').put(bytes, key);
   if (root) tx.objectStore('meta').put(root, 'root');
   const announced = new Set(entries.filter((entry) => entry.announce).map((entry) => entry.event.id));
   for (const [id, event] of fresh) {
     tx.objectStore('events').put(JSON.parse(JSON.stringify(event)), id);
+    const row = historyRow(event);
+    if (row) tx.objectStore('eventHistory').put(row);
     if (!PUBLIC_POST_KINDS.includes(event.kind) && !announced.has(id))
       tx.objectStore('heldEvents').put('local-only kind', id);
   }
@@ -162,11 +171,22 @@ async function commit(
         if (!(await outbox.getKey(key))) {
           const network = source?.startsWith('instagram:') ? 'instagram' :
             source?.startsWith('facebook:') ? 'facebook' : undefined;
-          await outbox.put(network ? { ...row, network } : row, key);
+          if (isHistoryKind(event.kind)) await queueHistoryDelivery(tx, event, row);
+          else await outbox.put(network ? { ...row, network } : row, key);
         }
       },
       { broadcast: !source },
     );
+  }
+  if (history) {
+    const dropped = await pruneEventHistory(tx, history.pubkey);
+    if ((blocks.size && oldRoot) || dropped) {
+      const meta = tx.objectStore('meta');
+      const allocated = [...committedBlocks.values()].reduce((n, block) => n + block.byteLength, 0);
+      const growth = Number(await meta.get('historyIndexGrowth') ?? 0) + allocated + dropped;
+      await meta.put(growth, 'historyIndexGrowth');
+      if (growth >= INDEX_SWEEP_BYTES) await meta.put(true, 'compactHistoryIndex');
+    }
   }
   await tx.done;
   return fresh.size;

@@ -11,6 +11,7 @@
   import Media from './Media.svelte';
   import Storage from './Storage.svelte';
   import Account from './Account.svelte';
+  import ProfileWorkspace from './ProfileWorkspace.svelte';
   import SourceSetup from './SourceSetup.svelte';
 
   const sections = [
@@ -18,6 +19,7 @@
     ['sources', 'Sources'],
     ['media', 'Media'],
     ['storage', 'Storage'],
+    ['profile', 'Profile'],
     ['account', 'Account'],
   ] as const;
 
@@ -138,6 +140,9 @@
     </div>
     <div data-panel="media" hidden={page.section !== 'media'}><Media {save} /></div>
     <div data-panel="storage" hidden={page.section !== 'storage'}><Storage /></div>
+    {#if page.section === 'profile' && status?.conf.pubkey}
+      <div data-panel="profile">{#key status.conf.pubkey}<ProfileWorkspace account={status.conf.pubkey} unlocked={status.unlocked} />{/key}</div>
+    {/if}
     <div data-panel="account" hidden={page.section !== 'account'}><Account /></div>
   </div>
 </div>
