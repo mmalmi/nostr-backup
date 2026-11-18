@@ -845,7 +845,92 @@ ul:empty {
 #kindList td:first-child {
   overflow-wrap: anywhere;
 }
-#accountNpub,
+/* Account */
+.accountRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.accountRow > div:first-child {
+  flex: 1 1 210px;
+}
+.archive .accountRow h3,
+.accountRow h4 {
+  margin: 0 0 3px;
+}
+.accountRow h4 {
+  font-size: 0.94rem;
+}
+.accountRow p {
+  margin: 0;
+}
+.accountRow a {
+  font-size: 0.92rem;
+}
+.accountDivider {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.secretKeyPanel {
+  border-color: color-mix(in srgb, var(--warn-text) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn-text) 5%, var(--card));
+}
+.secretKeyPanel h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--warn-text);
+}
+#permissionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#permissionList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 16px;
+  padding: 14px 0;
+}
+#permissionList li:first-child {
+  padding-top: 4px;
+}
+#permissionList li + li {
+  border-top: 1px solid var(--line);
+}
+#permissionList li:last-child {
+  padding-bottom: 0;
+}
+.permissionSite {
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+.permissionDetails p {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.permissionDetails strong {
+  margin-right: 4px;
+}
+#permissionList button {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+}
+@media (max-width: 480px) {
+  .permissionDetails {
+    grid-column: 1 / -1;
+  }
+  #permissionList button {
+    grid-row: 1;
+  }
+  .permissionSite {
+    align-self: center;
+  }
+}
 #indexAddress,
 #recoveryKey {
   font-family: ui-monospace, monospace;
