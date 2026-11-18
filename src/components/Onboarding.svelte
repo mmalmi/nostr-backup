@@ -284,7 +284,7 @@
       </p>
     {/if}
   </div>
-  <p class="hint">Creating this profile publishes it to Nostr. {#if publishAddress}It includes your npub.cash receiving address, which you can remove in Profile.{:else}You can add a receiving address later in Profile.{/if} Your secret key is stored on this device.</p>
+  <p class="hint">Creating this profile publishes it to Nostr. {#if publishAddress}It includes your npub.cash receiving address, which you can remove in Keys &amp; access.{:else}You can add a receiving address later in Keys &amp; access.{/if} Your secret key is stored on this device.</p>
   <div class="setupActions">
     <button type="button" class="quiet" id="backToAccounts" onclick={run(() => show('accounts'))}>Back</button>
     <button type="submit" id="signUp">Create profile</button>

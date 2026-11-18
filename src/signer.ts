@@ -82,7 +82,7 @@ export async function handleSignerRequest(
     sender.frameId !== 0
   )
     throw Error('Allow the extension to work on this tab first.');
-  if (!(await sessionKey())) throw Error('Your account is locked.');
+  if (!(await sessionKey())) throw Error('Your profile is locked.');
   if (msg.method !== 'getPublicKey' && msg.method !== 'signEvent') throw Error('This type of request is not supported.');
   const event = msg.method === 'signEvent' ? template(msg.event) : undefined;
   const remembered = await permissionDecision(pubkey, grant.origin, event?.kind ?? LOGIN);
@@ -92,7 +92,7 @@ export async function handleSignerRequest(
     const current = (await api.storage.session.get(key))[key];
     const secret = await sessionKey();
     if (started !== revision || !secret || getPublicKey(unhex(secret)) !== pubkey || current?.token !== msg.token ||
-        !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('The account or website changed.');
+        !tab.url || new URL(tab.url).origin !== grant.origin) throw Error('The profile or website changed.');
     return event ? finalizeEvent(event, unhex(secret)) : pubkey;
   }
   if (started !== revision) throw Error('Website permission changed.');
@@ -148,7 +148,7 @@ export async function approval(msg: Message<'approval'>, sessionKey: SessionKey)
     !tab.url ||
     new URL(tab.url).origin !== request.origin
   )
-    throw Error('The account or website changed.');
+    throw Error('The profile or website changed.');
   // Consume the decision before any asynchronous writes. A closed prompt or
   // duplicate click cannot change a decision while its permission is saving.
   requests.delete(msg.id);

@@ -381,8 +381,8 @@
 {:else if switched}
   <section><p>The active profile changed.</p><button onclick={() => location.reload()}>Reload wallet</button></section>
 {:else if !identity?.pubkey || !identity.unlocked}
-  <section><h2>{identity?.pubkey ? 'Unlock your account' : 'Sign in to Social Backup'}</h2>
-    <a class="button secondary" href="archive.html#account">Open account</a>
+  <section><h2>{identity?.pubkey ? 'Unlock your profile' : 'Sign in to Social Backup'}</h2>
+    <a class="button secondary" href="archive.html#account">Open Keys &amp; access</a>
   </section>
 {:else if !identity.enabled}
   <section><h2>Pay tips with Cashu</h2>
@@ -495,7 +495,7 @@
         </div>
       </form>
       <h3>Incoming tips</h3>
-      <p>Your npub.cash inbox can receive Lightning payments for this Nostr account. Checking it signs a request to npub.cash.</p>
+      <p>Your npub.cash inbox can receive Lightning payments for this Nostr profile. Checking it signs a request to npub.cash.</p>
       <label class="check"><input type="checkbox" checked={identity.autoReceive} disabled={busy}
         onchange={(e) => preferences(true, e.currentTarget.checked)} />Check every 15 minutes while unlocked</label>
       <button class="secondary" disabled={busy} onclick={checkIncoming}>Check inbox now</button>
@@ -551,7 +551,7 @@
         <button disabled={busy || backupPass.length < 12 || !confirmPass}>Download encrypted backup</button>
       </form>{/if}
       {#if !wallet.mint}<details open><summary>Restore a wallet file</summary>
-        <p>Use your most recent backup on a single device. Open the same Nostr account on the new device and restore before choosing a mint.</p>
+        <p>Use your most recent backup on a single device. Open the same Nostr profile on the new device and restore before choosing a mint.</p>
         <form onsubmit={(e) => { e.preventDefault(); restoreBackup(); }}>
           <label>Backup file <input type="file" accept=".json,application/json" required onchange={(e) => restoreFile = e.currentTarget.files?.[0]} /></label>
           <label>Backup passphrase <input type="password" autocomplete="off" required bind:value={restorePass} /></label>

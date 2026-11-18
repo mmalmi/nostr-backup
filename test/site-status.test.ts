@@ -23,7 +23,7 @@ test('the dot is green while a site is backed up, and missing where the site is 
 test('the dot is yellow when the backup needs the user, and red when posts are not saved', () => {
   assert.deepEqual(siteState('x', undefined, false), { level: 'attention', text: 'Sign in to back up your posts' });
   assert.deepEqual(siteState('x', { ...conf, pubkey: '' }, true).level, 'attention');
-  assert.deepEqual(siteState('x', conf, false), { level: 'attention', text: 'X backup is paused. Enter your secret key in Profile' });
+  assert.deepEqual(siteState('x', conf, false), { level: 'attention', text: 'X backup is paused. Enter your secret key in Keys & access' });
   assert.deepEqual(siteState('x', conf, true, { relaysDown: true }),
     { level: 'attention', text: 'Relays are not reachable. New posts stay on this device for now' });
   assert.deepEqual(siteState('x', conf, true, { unsaved: 1 }), { level: 'problem', text: '1 post on this page could not be backed up' });

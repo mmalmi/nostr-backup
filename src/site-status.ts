@@ -41,7 +41,7 @@ export function siteState(
   const selected = site === 'x' ? conf : conf.social?.[site];
   if (!selected?.capture) return { text: name + ' backup is off' };
   if (!selected.handle) return { text: 'Add your ' + name + ' username in Sources' };
-  if (!unlocked) return { level: 'attention', text: name + ' backup is paused. Enter your secret key in Profile' };
+  if (!unlocked) return { level: 'attention', text: name + ' backup is paused. Enter your secret key in Keys & access' };
   if (stale) return { level: 'attention', text: 'Reload this page to start the backup' };
   if (failed) return { level: 'problem', text: reason ? 'Retrying backup. ' + reason : 'Your posts on this page could not be saved' };
   if (unsaved > 0)

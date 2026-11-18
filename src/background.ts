@@ -408,7 +408,7 @@ async function savedVersion(db: Archive, owner: string, kind: 0 | 3, id: string)
 
 async function signOwnVersion(db: Archive, conf: Settings, template: EventTemplate) {
   const key = await sessionKey();
-  if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+  if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your profile first.');
   if (template.kind === 0) validatePublicProfile(template, key);
   const event = finalizeEvent(template, unhex(key));
   await new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]);
@@ -429,9 +429,9 @@ function updateXLink(db: Archive, conf: Settings, next?: XLink) {
     if (next && previousProofs.some(proof => BigInt(proof) > BigInt(next.proof))) return;
     const template = identityTemplate(previous, next?.handle, next?.proof);
     const current = await settings();
-    if (current.pubkey !== conf.pubkey || current.handle !== handle) throw Error('Account settings changed.');
+    if (current.pubkey !== conf.pubkey || current.handle !== handle) throw Error('Profile settings changed.');
     const key = await sessionKey();
-    if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+    if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your profile first.');
     const event = finalizeEvent(template, unhex(key));
     await write(async () => {
       await new ArchiveEventBus(db, conf.pubkey, conf.relays).publishBatch([{ event, announce: true }]);
@@ -895,7 +895,7 @@ async function configure(msg: Message<'settings'>) {
   const activeSocial = Object.values(social).some(active);
   if (Object.entries(social).some(([site, value]) =>
     active(value) && !active(prev.social?.[site as keyof typeof social])) && !(await sessionKey()))
-    throw Error('Unlock your account to enable profile backup.');
+    throw Error('Unlock your profile to enable profile backup.');
   if (capturing && !active(prev) && !(await sessionKey()))
     throw Error('Sign in with your secret key to enable X capture.');
   if ((capturing || activeSocial || msg.relaySync) && !relays.length) throw Error('Choose a relay first.');
@@ -939,7 +939,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
     await writer;
     const conf = await settings();
     if (!conf.pubkey || msg.pubkey !== conf.pubkey)
-      throw Error('The active profile changed. Reopen Account.');
+      throw Error('The active profile changed. Reopen Keys & access.');
     const deleting = msg.type === 'deleteAccount';
     if (deleting && msg.confirmed !== true) throw Error('Confirm deletion in Settings.');
     await Promise.allSettled([...walletJobs]);
@@ -1018,7 +1018,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     if (page !== api.runtime.getURL('wallet.html')) throw Error('Open the extension wallet.');
     if ((msg.type === 'walletSetQuickTip' || msg.type === 'walletQuickConfirm') && sender.frameId !== 0) throw Error('Open the extension wallet.');
     if (msg.type === 'walletIdentity') return walletIdentity(conf);
-    if (!conf.pubkey || msg.account !== conf.pubkey) throw Error('Reopen the wallet for the active account.');
+    if (!conf.pubkey || msg.account !== conf.pubkey) throw Error('Reopen the wallet for the active profile.');
     return walletJob(conf.pubkey, async () => {
       const current = await settings();
       if (msg.type === 'walletSetQuickTip') {
@@ -1037,7 +1037,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       if (msg.type === 'walletPreferences') {
         if (typeof msg.enabled !== 'boolean' || typeof msg.autoReceive !== 'boolean') throw Error('Invalid wallet settings.');
         if (msg.enabled && (!(await walletIdentity(current)).unlocked || !await paymentConsent()))
-          throw Error('Unlock your account and allow payment data to enable the wallet.');
+          throw Error('Unlock your profile and allow payment data to enable the wallet.');
         await write(async () => {
           const latest = await settings();
           if (latest.pubkey !== conf.pubkey) throw Error('The active profile changed.');
@@ -1356,7 +1356,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       return {invoice,kind};
     }
     if (msg.type === 'eventVersions' || msg.type === 'editProfile' || msg.type === 'recoverFollows') {
-      if (!accountPage || msg.account !== conf.pubkey) throw Error('Open Profile for the active account.');
+      if (!accountPage || msg.account !== conf.pubkey) throw Error('Open Keys & access for the active profile.');
       const kind = msg.type === 'eventVersions' ? msg.kind : msg.type === 'editProfile' ? 0 : 3;
       if (kind !== 0 && kind !== 3) throw Error('Choose profile or follow history.');
       if (msg.type === 'eventVersions' && !msg.refresh) return readEventHistory(db, conf.pubkey, kind);
@@ -1401,7 +1401,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       return result;
     }
     if (msg.type === 'receivingAddress') {
-      if (!accountPage || msg.account !== conf.pubkey || typeof msg.enabled !== 'boolean') throw Error('Open Account to edit your profile.');
+      if (!accountPage || msg.account !== conf.pubkey || typeof msg.enabled !== 'boolean') throw Error('Open Keys & access to edit your receiving address.');
       if (msg.enabled && !await paymentConsent()) throw Error('Allow payment data before adding a receiving address.');
       const candidate = await latestOwn(db, conf, 0);
       if (!candidate) throw Error('Your current public profile could not be read. Sync your profile and try again.');
@@ -1427,7 +1427,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       if (pasted && pasted.author !== handle) throw Error('That post is from @' + pasted.author + ', not @' + handle + '.');
       const id = pasted?.id ?? msg.id;
       if (typeof id !== 'string' || !/^\d{1,20}$/.test(id)) throw Error('Paste the link to your verification post.');
-      if (!(await sessionKey())) throw Error('Unlock your account first.');
+      if (!(await sessionKey())) throw Error('Unlock your profile first.');
       const post = await readPublicXOriginal(handle, id).catch(() => undefined);
       if (post?.visibility !== 'public' || !isProofPost(post.text, conf.pubkey)) throw Error('X doesn’t show that as a public verification post yet.');
       await updateXLink(db, conf, { handle, proof: id });
@@ -1586,14 +1586,14 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       case 'listPermissions':
       case 'forgetPermissions':
         if (page !== api.runtime.getURL('archive.html') || msg.account !== conf.pubkey)
-          throw Error('Open Account to manage website permissions.');
+          throw Error('Open Keys & access to manage website permissions.');
         if (msg.type === 'listPermissions') return permissions(conf.pubkey);
         return write(() => revokeWebsite(conf.pubkey, msg.origin));
       case 'exportPrivateKey': {
         if (page !== api.runtime.getURL('archive.html') || msg.account !== conf.pubkey)
-          throw Error('Open Account to copy your secret key.');
+          throw Error('Open Keys & access to copy your secret key.');
         const key = await sessionKey();
-        if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your account first.');
+        if (!key || getPublicKey(unhex(key)) !== conf.pubkey) throw Error('Unlock your profile first.');
         return nsecEncode(unhex(key));
       }
       case 'lock':
@@ -1710,7 +1710,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
           throw Error('Choose a saved file and the configured media backup server.');
         const key = await sessionKey();
         if (!key || getPublicKey(unhex(key)) !== conf.pubkey)
-          throw Error('Unlock your account first.');
+          throw Error('Unlock your profile first.');
         return createUploadAuth(async (event) => finalizeEvent(event, unhex(key)), msg.hash, {
           servers: msg.server,
           expiration: Math.floor(Date.now() / 1000) + 300,

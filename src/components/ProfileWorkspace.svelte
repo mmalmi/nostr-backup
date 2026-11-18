@@ -88,7 +88,7 @@
     <button class="secondary" aria-pressed={section === id} disabled={busy || !!review} onclick={() => { section = id as typeof section; message = ''; error = ''; }}>{label}</button>
   {/each}
 </div>
-{#if !unlocked}<p class="hint">Read-only. <a href="#account">Unlock your account</a> to publish changes.</p>{/if}
+{#if !unlocked}<p class="hint">Read-only. <a href="#account">Unlock your profile</a> to publish changes.</p>{/if}
 {#if busy}<p role="status">{review ? 'Checking the latest version…' : 'Loading versions…'}</p>{/if}
 {#if review}
   <section aria-label="Review before publishing">

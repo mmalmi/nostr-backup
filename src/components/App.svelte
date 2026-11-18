@@ -20,7 +20,7 @@
     ['media', 'Media'],
     ['storage', 'Storage'],
     ['profile', 'Profile'],
-    ['account', 'Profile'],
+    ['account', 'Keys & access'],
   ] as const;
 
   let sources: ReturnType<typeof Sources>;

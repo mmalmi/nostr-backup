@@ -93,7 +93,7 @@
   }
 </script>
 
-<h2>Profile</h2>
+<h2>Keys &amp; access</h2>
 <section>
   <div class="accountRow">
     <div>
@@ -154,8 +154,8 @@
         run(async () => {
           await send('lock', { account: pubkey });
           await app.refresh();
-          notice('Account locked.');
-        })}>Lock account</button
+          notice('Signing locked.');
+        })}>Lock signing</button
     >
     <button
       id="logout"
@@ -189,7 +189,7 @@
   <section class="accountRow secretKeyPanel" aria-labelledby="secretKeyHeading">
     <div>
       <h3 id="secretKeyHeading"><span aria-hidden="true">⚠︎</span> Secret key</h3>
-      <p id="secretKeyWarning">Anyone with this key can use your account. Save it in a password manager.</p>
+      <p id="secretKeyWarning">Anyone with this key can sign as you on Nostr. Save it in a password manager.</p>
     </div>
     <button id="copyPrivateKey" class="secondary" aria-describedby="secretKeyWarning"
       onclick={() => run(async () => copy(await send('exportPrivateKey', { account: pubkey }), 'Secret key copied.'))}>Copy secret key</button>

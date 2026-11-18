@@ -670,7 +670,7 @@ test('read-only mode pauses capture and preserves existing drafts until the sign
   const locked = pageElements(lockedPopup);
   await until(() => !locked('backupActions').hidden);
   assert.equal(locked('profileMode').hidden, false);
-  assert.equal(locked('siteState').textContent, 'X backup is paused. Enter your secret key in Profile');
+  assert.equal(locked('siteState').textContent, 'X backup is paused. Enter your secret key in Keys & access');
   assert.equal(locked('siteState').getAttribute('data-level'), 'attention');
 });
 test('signer binds public-key access and approvals to the authorized website', async () => {
@@ -1273,6 +1273,9 @@ test('tabbed archive backs up a media attachment and scopes uploads to its saved
     page.document.querySelector('a[aria-current="page"]')?.getAttribute('href'),
     '#account',
   );
+  assert.equal(page.document.querySelector('nav a[href="#profile"]')?.textContent, 'Profile');
+  assert.equal(page.document.querySelector('nav a[href="#account"]')?.textContent, 'Keys & access');
+  assert.equal(page.document.querySelector('[data-panel="account"] h2')?.textContent, 'Keys & access');
   // Old X and Instagram & Facebook links land on the merged Sources page.
   for (const old of ['#x', '#profiles']) {
     tab(old);
@@ -1667,7 +1670,7 @@ test('X captures sign locally even while the previous delivery has no reply', as
     // In read-only mode the backup is paused: a yellow mark.
     await success('lock');
     assert.equal((await success('captureConfig', {}, home)).capture, false);
-    await until(() => badges.get(1)?.title === 'Social Backup: X backup is paused. Enter your secret key in Profile');
+    await until(() => badges.get(1)?.title === 'Social Backup: X backup is paused. Enter your secret key in Keys & access');
     assert.equal(badges.get(1)?.path?.[16], 'icon-attention-16.png');
     // A closed tab's state is forgotten.
     for (const closed of api.tabs.onRemoved.list) closed(1);

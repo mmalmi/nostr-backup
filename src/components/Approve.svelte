@@ -74,7 +74,7 @@
     </select>
   </label>
   {#if scope === 'signing'}
-    <p class="hint" id="scopeHint">This replaces your signing choices for this site, including posts, profile changes and deletions. You can revoke it in Profile.</p>
+    <p class="hint" id="scopeHint">This replaces your signing choices for this site, including posts, profile changes and deletions. You can revoke it in Keys &amp; access.</p>
   {/if}
 {/if}
 <div class="actions">
