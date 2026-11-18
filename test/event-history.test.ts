@@ -2,8 +2,8 @@ import 'fake-indexeddb/auto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDB } from 'idb';
-import { HASHTREE_ROOT_KIND } from '@hashtree/nostr';
-import { HashTree, toHex } from '@hashtree/core';
+import { HASHTREE_ROOT_KIND, NostrEventStore } from '@hashtree/nostr';
+import { HashTree, MemoryStore, toHex, fromHex } from '@hashtree/core';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { append, inventory, openArchive, queueBroadcast } from '../src/archive.ts';
 import { compactHistoryIndex, readOnlyStore, readRoot, withIndexSnapshot } from '../src/blocks.ts';
@@ -164,5 +164,42 @@ test('offline relay queues keep one explicitly addressed edition of each kind an
     assert.equal(await db.count('outbox'), 6);
     assert.ok(await db.getKey('outbox', [elected.id, second]));
     assert.ok(await db.getKey('outbox', [winner.id, first]));
+  } finally { db.close(); }
+});
+
+
+test('signed public index recovers older own versions without queueing them or replacing the current events', async () => {
+  const {readHistoryIndexes} = await import('../src/history-index.ts');
+  const db = await openArchive(crypto.randomUUID());
+  const store = new MemoryStore();
+  const oldProfile = sign(0, 2, '{"badge":true}', [['t','artist']]);
+  const oldFollows = sign(3, 3, '', [['p','ab'.repeat(32),'wss://relay.example']]);
+  const other = finalizeEvent({kind:0, created_at:9, content:'{}', tags:[]}, generateSecretKey());
+  const root = await new NostrEventStore(store).build(null, [oldProfile, oldFollows, other]);
+  assert.ok(root?.key);
+  const tags = [['d','my-events'],['hash',toHex(root.hash)],['key',toHex(root.key)]];
+  const pointer = sign(HASHTREE_ROOT_KIND, 5, '', tags);
+  const current = [sign(0, 6), sign(3, 7)];
+  let reads = 0;
+  const fetcher:typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://backup.example');
+    assert.equal(init?.credentials, 'omit');
+    reads++;
+    const bytes = await store.get(fromHex(url.pathname.slice(1)));
+    return new Response(bytes ? new Uint8Array(bytes) : null, {status: bytes ? 200 : 404});
+  };
+  try {
+    await append(db, current.map(event => ({event})), pubkey);
+    for (const candidate of [other, sign(HASHTREE_ROOT_KIND, 8, '', [['d','other'],...tags.slice(1)])]) {
+      await readHistoryIndexes(db, pubkey, [candidate], 'https://backup.example', fetcher);
+      assert.equal(reads, 0);
+    }
+    const rows = await readHistoryIndexes(db, pubkey, [pointer], 'https://backup.example', fetcher);
+    await append(db, rows.map(event => ({event})), pubkey);
+    assert.ok(reads > 0 && reads <= 64);
+    assert.deepEqual((await readEventHistory(db, pubkey, 0)).map(e => e.id), [current[0].id, oldProfile.id]);
+    assert.deepEqual((await readEventHistory(db, pubkey, 3)).map(e => e.id), [current[1].id, oldFollows.id]);
+    assert.equal(await db.count('outbox'), 0);
   } finally { db.close(); }
 });

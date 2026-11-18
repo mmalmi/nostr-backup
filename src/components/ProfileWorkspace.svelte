@@ -32,7 +32,7 @@
       const unsaved = remote && old && (review?.kind === 0 ? review.content : fieldsForm?.draftContent());
       const [a,b] = await Promise.all(([0,3] as const).map(kind => send('eventVersions', { account, kind, refresh: remote })));
       editorSeed = undefined;
-      if (remote) message = 'History refreshed from your relays.';
+      if (remote) message = 'History refreshed.';
       const nextFields = readableFields(a[0]?.content ?? '{}');
       if (unsaved && old && nextFields) {
         const edits = diffProfileFields(old, JSON.parse(unsaved));
@@ -107,7 +107,7 @@
       {#if followLoss?.massRemoval}<p><strong>Your latest follow list removed {followLoss.removed.length} people.</strong> <button class="textButton" onclick={() => section = 'follows'}>Review follow history</button></p>{/if}
     </div>{/if}
     <section><h3>Public profile</h3>
-      {#if !profile}<p class="hint">No profile is saved here yet. Refresh from your relays to load an existing profile.</p>{/if}
+      {#if !profile}<p class="hint">No profile is saved here yet. Refresh history to look for an existing profile.</p>{/if}
       {#if before}{#key generation}<ProfileFields bind:this={fieldsForm} content={editorSeed ?? base.content} review={preview} disabled={!unlocked || busy} />{/key}
       {:else}<p>This profile contains unreadable JSON. Open Profile history to recover a saved version.</p>{/if}
     </section>
@@ -125,4 +125,4 @@
 {/if}
 {#if error}<p role="alert" class="wipeWarning">{error}</p>{/if}
 {#if message}<p role="status">{message}</p>{/if}
-{#if !review || error}<button class="secondary" disabled={busy} onclick={() => load(true)}>Refresh from relays</button>{/if}
+{#if !review || error}<button class="secondary" disabled={busy} onclick={() => load(true)}>Refresh history</button>{/if}

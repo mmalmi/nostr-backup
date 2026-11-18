@@ -56,7 +56,8 @@ import { xImageURLs, readyXEntry, cacheXImage } from './x-media.ts';
 import { findCrossposts } from './x-matches.ts';
 import { followingHandle, profileHandle, xPermalink } from './x.ts';
 import { readProfile } from './profile.ts';
-import { readEventHistory } from './event-history.ts';
+import { isHistoryKind, readEventHistory } from './event-history.ts';
+import { observedIndexVersions, ownHistoryEvents } from './history-index.ts';
 import { editProfileDraft, recoverFollowDraft, validatePublicProfile, readableFields } from './profile-edit.ts';
 import { compareProfileEvents } from '@iris/profile-events';
 import { readPage } from './relays.ts';
@@ -366,7 +367,9 @@ async function latestOwn(db: Archive, conf: Settings, kind: number) {
     const remote = conf.relays.length
       ? await relays.querySync(conf.relays, { authors: [conf.pubkey], kinds: [kind] }, { maxWait: 5000 })
       : [];
-    return [...local.events.map((row) => row.event), ...remote]
+    const observed = [...local.events.map((row) => row.event), ...remote];
+    if (isHistoryKind(kind)) await recordVersions(db, conf, observed.filter(event => event.kind === kind));
+    return observed
       .filter((event) => event.kind === kind && isOwnEvent(event, conf.pubkey))
       .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
   } finally {
@@ -374,14 +377,14 @@ async function latestOwn(db: Archive, conf: Settings, kind: number) {
   }
 }
 // A completed subscription distinguishes a new account from a relay timeout.
-async function checkOwnVersions(conf: Settings, kind: 0 | 3) {
+async function checkOwnVersions(conf: Settings, kind: 0 | 3, limit = 1) {
   if (!conf.relays.length) throw Error('Select a relay in Backup first.');
   // Background sync owns and closes its own pool after each run.
   const connections = new RateLimitAwarePool();
   const replies = await Promise.allSettled(conf.relays.map(relay =>
-    readPage(relay, { authors: [conf.pubkey], kinds: [kind], limit: 1 }, connections))).finally(() => connections.destroy());
+    readPage(relay, { authors: [conf.pubkey], kinds: [kind], limit }, connections))).finally(() => connections.destroy());
   const completed = replies.filter(reply => reply.status === 'fulfilled' && reply.value.complete);
-  if (!completed.length) throw Error('Could not check your current version on a relay. Your changes are still here. Try again.');
+  if (!completed.length && !(limit > 1 && replies.some(reply => reply.status === 'fulfilled' && reply.value.events.length))) throw Error('Could not check your current version on a relay. Your changes are still here. Try again.');
   return {
     events: replies.flatMap(reply => reply.status === 'fulfilled' ? reply.value.events : []),
     allComplete: completed.length === replies.length,
@@ -390,7 +393,10 @@ async function checkOwnVersions(conf: Settings, kind: 0 | 3) {
 
 async function recordVersions(db: Archive, conf: Settings, events: NostrEvent[]) {
   if ((await settings()).pubkey !== conf.pubkey) throw Error('The active profile changed.');
-  if (events.length) await new ArchiveEventBus(db, conf.pubkey, []).publishBatch(events.map(event => ({ event })));
+  const seen = ownHistoryEvents(events, conf.pubkey);
+  const missing = await Promise.all(seen.map(async event => await db.getKey('eventHistory', event.id) ? undefined : {event}));
+  const entries = missing.filter(entry => entry !== undefined);
+  if (entries.length) await new ArchiveEventBus(db, conf.pubkey, []).publishBatch(entries);
 }
 
 async function savedVersion(db: Archive, owner: string, kind: 0 | 3, id: string) {
@@ -1354,17 +1360,23 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
       const kind = msg.type === 'eventVersions' ? msg.kind : msg.type === 'editProfile' ? 0 : 3;
       if (kind !== 0 && kind !== 3) throw Error('Choose profile or follow history.');
       if (msg.type === 'eventVersions' && !msg.refresh) return readEventHistory(db, conf.pubkey, kind);
+      if (msg.type === 'eventVersions') {
+        const [relay, index] = await Promise.allSettled([checkOwnVersions(conf, kind, kind === 0 ? 11 : 4), observedIndexVersions(db, conf)]);
+        const indexed = index.status === 'fulfilled' ? index.value.filter(event => event.kind === kind) : [];
+        if (relay.status === 'rejected' && !indexed.length) throw relay.reason;
+        await write(() => recordVersions(db, conf, [...indexed, ...(relay.status === 'fulfilled' ? relay.value.events : [])]));
+        return readEventHistory(db, conf.pubkey, kind);
+      }
       const remote = await checkOwnVersions(conf, kind);
       const result = await write(async () => {
         // Keep the requested base for the merge even when a remote update displaces it from history.
-        const base = msg.type !== 'eventVersions' && msg.baseId !== null
+        const base = msg.baseId !== null
           ? await savedVersion(db, conf.pubkey, kind, msg.baseId) : undefined;
         const tagSource = msg.type === 'editProfile' && msg.tagsFrom ? await savedVersion(db, conf.pubkey, 0, msg.tagsFrom) : undefined;
         const repairSource = msg.type === 'editProfile' && msg.repairFrom ? await savedVersion(db, conf.pubkey, 0, msg.repairFrom) : undefined;
         const followSource = msg.type === 'recoverFollows' ? await savedVersion(db, conf.pubkey, 3, msg.fromId) : undefined;
         await recordVersions(db, conf, remote.events);
         const history = await readEventHistory(db, conf.pubkey, kind);
-        if (msg.type === 'eventVersions') return history;
         const current = history[0];
         if (msg.type === 'recoverFollows') {
           if (!current || !followSource || !base) throw Error('Reload the follow history.');
@@ -1385,7 +1397,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         }
         return signOwnVersion(db, conf, draft);
       });
-      if (msg.type !== 'eventVersions') void kick();
+      void kick();
       return result;
     }
     if (msg.type === 'receivingAddress') {

@@ -1322,7 +1322,9 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   destinations[0].holdPublish = receipt.promise;
   t.after(() => receipt.resolve());
   // Only the signed-in accounts on already-open tabs fill the first screen.
+  let socialTabsOpen = false;
   t.mock.method(api.tabs, 'query', async (query?: { url?: string[] }) => {
+    if (!socialTabsOpen) return [];
     const url = query?.url?.[0] ?? '';
     if (url.includes('instagram')) return [{ id: 8, url: 'https://www.instagram.com/' }];
     if (url.includes('facebook')) return [{ id: 9, url: 'https://www.facebook.com/' }];
@@ -1351,6 +1353,7 @@ test('Welcome creates a recoverable profile, logs out, isolates accounts and del
   await until(() => !id('accountsForm').hidden);
   assert.equal(setupX().value, '');
   // Coming back to the page after opening X looks again.
+  socialTabsOpen = true;
   page.dispatchEvent(new page.Event('focus'));
   await until(() => setupX().value === 'example');
   assert.match(page.document.querySelector('#accountsForm .detected')?.textContent ?? '', /Signed in on X/);
@@ -2312,7 +2315,7 @@ test('the popup card shows a verified X account on Nostr with known followers, w
       pubkey: carolKey,
       profile: { name: 'carol', displayName: 'Carol', picture: undefined, about: 'Gardener.\nWrites about bees.' },
       followers: 7,
-      following: false,
+      following: true, // The independent directory refresh observed our signed follow list.
     });
     assert.equal(relay.reads.length, before);
     // Following is an intentional public action, so it reads your follow list from relays first.
