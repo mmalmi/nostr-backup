@@ -54,7 +54,9 @@ Use [CDK mintd 0.18.3](https://github.com/cashubtc/cdk/releases/tag/v0.18.3) wit
 ```sh
 mint_test_dir=$(mktemp -d)
 cp test/fake-mint.toml "$mint_test_dir/config.toml"
-CDK_MINTD_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' cdk-mintd -w "$mint_test_dir"
+export CDK_MINTD_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+cdk-mintd -w "$mint_test_dir" config init --new-mint --file "$mint_test_dir/config.toml"
+cdk-mintd -w "$mint_test_dir"
 ```
 
 In another terminal, run `SOCIAL_BACKUP_FAKE_MINT=http://127.0.0.1:48163 pnpm test:release`. Keep this disposable fixture running for deployment or packaging. Browser smoke tests and visible UI checks remain required for affected flows. For a release, install with `pnpm install --frozen-lockfile` and verify that two `pnpm build:site` runs produce identical ZIPs.

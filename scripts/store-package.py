@@ -12,7 +12,8 @@ output = root / 'build' / f'store-{version}'
 output.parent.mkdir(exist_ok=True)
 
 inputs = ['package.json', 'pnpm-lock.yaml', 'tsconfig.json', 'LICENSE', 'src', 'test',
-          'ui', 'scripts/build.ts', 'scripts/svelte.ts', 'scripts/test-release.ts', 'scripts/legacy-x-proofs.ts']
+          'ui', 'scripts/build.ts', 'scripts/svelte.ts', 'scripts/test-release.ts', 'scripts/legacy-x-proofs.ts',
+          'website/release-site.mjs']
 paths = run(['git', 'ls-files', '-z', '--', *inputs], cwd=root, check=True,
             capture_output=True).stdout.decode().split('\0')
 sources = {name: root / name for name in paths if name}
@@ -36,6 +37,10 @@ with TemporaryDirectory(dir=output.parent, prefix='store-build-') as temp:
     for browser in ['chrome', 'firefox']:
         name = f'social-backup-{browser}.zip'
         (source / 'dist' / name).replace(files / name)
+    with ZipFile(files / 'social-backup-firefox.zip') as archive:
+        settings = json.loads(archive.read('manifest.json'))['browser_specific_settings']
+        if 'gecko_android' in settings:
+            raise ValueError('Firefox store submissions are desktop only. Remove the Android compatibility declaration.')
 
     for name in ['store/listing.md', 'store/reviewer.md', 'store/archive.png', 'store/promo.png',
                  'ui/icon-128.png', 'website/public/privacy.html']:

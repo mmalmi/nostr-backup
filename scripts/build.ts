@@ -68,7 +68,7 @@ for (const target of ['chrome', 'firefox', 'safari']) {
           "; connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
       },
       browser_specific_settings: {
-        gecko_android: { strict_min_version: '142.0' },
+        // AMO treats even an empty gecko_android entry as a mandatory Android listing.
         gecko: {
           id: 'nostr-backup@extensions.local',
           strict_min_version: '140.0',
