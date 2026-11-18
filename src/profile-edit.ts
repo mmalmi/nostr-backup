@@ -1,10 +1,10 @@
-import { buildProfileDraft, conflictingProfileFields, diffProfileFields, readProfileFields } from '@iris/profile-events';
+import { buildRawProfileDraft, conflictingRawProfileFields, diffRawProfileFields, readProfileFields, readRawProfileFields } from '@iris/profile-events';
 import type { Event, EventTemplate } from 'nostr-tools/pure';
 
 export const emptyProfile = { content: '{}', tags: [] as string[][], created_at: 0 };
 
-export function readableFields(content: string): Record<string, unknown> | undefined {
-  try { return readProfileFields(content); } catch { return undefined; }
+export function readableFields(content: string): Record<string, string> | undefined {
+  try { return readRawProfileFields(content); } catch { return undefined; }
 }
 
 /** Apply only fields the person reviewed, to the newest signed event for this account. */
@@ -18,13 +18,13 @@ export function editProfileDraft(base: Event | undefined, latest: Event | undefi
     original = { ...base, content: '{}' };
     current = original;
   }
-  const originalFields = readProfileFields(original.content);
-  const edits = diffProfileFields(originalFields, readProfileFields(content));
-  const conflicts = conflictingProfileFields(originalFields, readProfileFields(current.content), edits);
+  const originalFields = readRawProfileFields(original.content);
+  const edits = diffRawProfileFields(originalFields, readRawProfileFields(content));
+  const conflicts = conflictingRawProfileFields(originalFields, readRawProfileFields(current.content), edits);
   if (conflicts.length) throw Error('Changed in another client: ' + conflicts.join(', ') + '. Reload the latest version and review these fields.');
   if (tagSource && JSON.stringify(current.tags) !== JSON.stringify(original.tags) && JSON.stringify(current.tags) !== JSON.stringify(tagSource.tags))
     throw Error('Profile tags changed in another client. Reload before restoring tags.');
-  return buildProfileDraft({ ...current, tags: tagSource?.tags ?? current.tags }, edits);
+  return buildRawProfileDraft({ ...current, tags: tagSource?.tags ?? current.tags }, edits);
 }
 
 export function validatePublicProfile(draft: EventTemplate, activeSecret: string) {

@@ -59,7 +59,7 @@ import { readProfile } from './profile.ts';
 import { isHistoryKind, readEventHistory } from './event-history.ts';
 import { observedIndexVersions, ownHistoryEvents } from './history-index.ts';
 import { editProfileDraft, recoverFollowDraft, validatePublicProfile, readableFields } from './profile-edit.ts';
-import { compareProfileEvents } from '@iris/profile-events';
+import { compareRawProfileEvents, readProfileFields } from '@iris/profile-events';
 import { readPage } from './relays.ts';
 import { knownFollowers } from './graph-followers.ts';
 import { importWithNegentropy, pool, publish, syncHistory } from './relays.ts';
@@ -1386,12 +1386,12 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
         }
         if (!base && (current || !remote.allComplete)) throw Error('Reload the latest profile before creating one.');
         const draft = editProfileDraft(base, current, msg.content, tagSource, repairSource);
-        const fields = readableFields(draft.content)!;
-        const previous = current && readableFields(current.content);
+        const fields = readProfileFields(draft.content);
+        const previous = current && readableFields(current.content) && readProfileFields(current.content);
         if (['lud16','lud06'].some(key => fields[key] && fields[key] !== previous?.[key]) && !await paymentConsent())
           throw Error('Allow payment data before adding a Lightning address.');
         if (current && previous) {
-          const diff = compareProfileEvents(current, draft);
+          const diff = compareRawProfileEvents(current, draft);
           if (diff.massRemoval && !msg.confirmedRemoval) throw Error('Review the large removal before publishing.');
           if (!diff.fields.length && JSON.stringify(current.tags) === JSON.stringify(draft.tags)) return current;
         }

@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { compareProfileEvents } from '@iris/profile-events';
+  import { compareRawProfileEvents } from '@iris/profile-events';
   import { readableFields } from '../profile-edit.ts';
   type Data = {content: string; tags: string[][]};
   let { before, after, selectable = false, selected = $bindable<string[]>([]), useTags = $bindable(false) }:
     { before: Data; after: Data; selectable?: boolean; selected?: string[]; useTags?: boolean } = $props();
   const valid = $derived(!!readableFields(before.content) && !!readableFields(after.content));
-  const diff = $derived(valid ? compareProfileEvents(before, after) : undefined);
-  function show(value: unknown) { return value === undefined ? 'Absent' : value === '' ? 'Empty text' : typeof value === 'string' ? value : JSON.stringify(value); }
+  const diff = $derived(valid ? compareRawProfileEvents(before, after) : undefined);
+  function show(raw: string | undefined) {
+    if (raw === undefined) return 'Absent';
+    return raw.startsWith('"') ? JSON.parse(raw) || 'Empty text' : raw;
+  }
   const labels = new Map(Object.entries({name:'Username', display_name:'Display name', about:'Bio', nip05:'Nostr address', lud16:'Lightning address',
     picture:'Picture', banner:'Banner', website:'Website'}));
   let limit = $state(30);

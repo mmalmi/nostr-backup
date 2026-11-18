@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools/pure';
   import { npubEncode } from 'nostr-tools/nip19';
-  import { compareFollowEvents, diffProfileFields, buildProfileDraft } from '@iris/profile-events';
+  import { compareFollowEvents, diffRawProfileFields, buildRawProfileDraft } from '@iris/profile-events';
   import { readableFields } from '../profile-edit.ts';
   import ProfileChanges from './ProfileChanges.svelte';
 
@@ -32,9 +32,9 @@
     const current = readableFields(later.content);
     if (!old) return;
     if (!current) return recoverProfile(earlier.content, earlier, earlier);
-    const delta = diffProfileFields(current, old);
+    const delta = diffRawProfileFields(current, old);
     const edits = Object.fromEntries(keys.map(key => [key, delta[key]]));
-    recoverProfile(buildProfileDraft(later, edits).content, tags ? earlier : undefined);
+    recoverProfile(buildRawProfileDraft(later, edits).content, tags ? earlier : undefined);
   }
 </script>
 {#if versions.length < 2}

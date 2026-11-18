@@ -37,8 +37,8 @@ importers:
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz(nostr-tools@2.25.2(typescript@5.9.3))(typescript@5.9.3)
       '@iris/profile-events':
-        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz
-        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz
+        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.15/iris-profile-events-0.2.0.tgz
+        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.15/iris-profile-events-0.2.0.tgz
       '@iris/svelte-ui':
         specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz
         version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-svelte-ui-0.1.2.tgz(svelte@5.57.3)
@@ -309,9 +309,9 @@ packages:
     resolution: {integrity: sha512-ah0pS1PDckTkz/QntsNn9D9aFPcJWb7BDjBvaVtY9gaWryiWMvXv0QaGbTU5aGIqRd32BLmnojNDXHPJ/IkIhQ==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz}
     version: 0.2.7
 
-  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz':
-    resolution: {tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz}
-    version: 0.1.0
+  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.15/iris-profile-events-0.2.0.tgz':
+    resolution: {integrity: sha512-B6groCtJFzoSCQ66ovQhDkAHcSWtN/JBNyojYmxUOGm6wgi3p1oLZ5btbGby/qzMsBFLOh9uIJ4kJBVVuxHKeQ==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.15/iris-profile-events-0.2.0.tgz}
+    version: 0.2.0
 
   '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz':
     resolution: {integrity: sha512-ZytyQLbDUYz/IcQ2rvUZZeFvT7FqwhRB3brZtuMwH7ILP/Jvui+ldDnKR8dNxxmIr02+PPyuv+VWKlRyaXCMbg==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz}
@@ -794,7 +794,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz': {}
+  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.15/iris-profile-events-0.2.0.tgz': {}
 
   '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz': {}
 

@@ -3061,9 +3061,11 @@ test('profile edits merge concurrent fields, retain signed versions and recover 
     await success('settings', { pubkey: account, handle: '', capture: false, relaySync: false, relays: url });
     assert.equal((await success('eventVersions', {account, kind: 0, refresh: true}))[0].id, old.id);
     relay.stored.set(concurrent.id, concurrent);
-    const content = JSON.stringify({name: 'Alice', about: 'Edited', custom: [false, 42], milestone: {year: 2026}});
+    const exact = '{"id":9007199254740995,"samples":[1.000000000000000000009,1e-900]}';
+    const content = '{"name":"Alice","about":"Edited","custom":[false,42],"milestone":'+exact+'}';
     const edited = await success('editProfile', {account, baseId: old.id, content});
     assert.equal(verifyEvent(edited), true);
+    assert.ok(edited.content.includes(exact));
     assert.deepEqual(edited.tags, tags);
     assert.deepEqual(JSON.parse(edited.content), {...JSON.parse(content), website: 'https://example.com'});
     assert.deepEqual((await success('eventVersions', {account, kind: 0})).map(e => e.id), [edited.id, concurrent.id, old.id]);

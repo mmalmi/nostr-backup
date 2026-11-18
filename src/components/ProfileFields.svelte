@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { readProfileFields } from '@iris/profile-events';
+  import { buildRawProfileDraft, readRawProfileFields } from '@iris/profile-events';
 
   let { content, review, disabled }: { content: string; review: (content: string) => void; disabled: boolean } = $props();
   const standard = [
     ['name', 'Username'], ['display_name', 'Display name'], ['about', 'Bio'], ['website', 'Website'],
     ['picture', 'Picture URL'], ['banner', 'Banner URL'], ['nip05', 'Nostr address (NIP-05)'], ['lud16', 'Lightning address'],
   ];
-  const base = $derived(readProfileFields(content));
+  const base = $derived(readRawProfileFields(content));
   function common(key: string) {
-    return standard.some(([field]) => field === key) && (!Object.hasOwn(base, key) || typeof base[key] === 'string');
+    return standard.some(([field]) => field === key) && (!Object.hasOwn(base, key) || base[key]?.startsWith('"'));
   }
   type Row = { id: number; name: string; type: 'Text' | 'JSON'; value: string };
   let values = $state<Record<string, string>>({});
@@ -17,31 +17,31 @@
   let error = $state('');
   let nextId = 0;
   $effect(() => {
-    values = Object.fromEntries(standard.filter(([key]) => common(key)).map(([key]) => [key, String(base[key] ?? '')]));
+    values = Object.fromEntries(standard.filter(([key]) => common(key)).map(([key]) => [key, base[key] === undefined ? '' : JSON.parse(base[key])]));
     const extras = Object.entries(base).filter(([key]) => !common(key));
     originalKeys = extras.map(([key]) => key);
-    rows = extras.map(([name, value]) => ({ id: nextId++, name, type: typeof value === 'string' ? 'Text' : 'JSON',
-      value: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }));
+    rows = extras.map(([name, value]) => ({ id: nextId++, name, type: value.startsWith('"') ? 'Text' : 'JSON',
+      value: value.startsWith('"') ? JSON.parse(value) : value }));
     error = '';
   });
   export function draftContent(): string {
       const result = new Map(Object.entries(base));
       for (const [key] of standard) {
-        if (!common(key) || values[key] === (base[key] ?? '')) continue;
+        if (!common(key) || values[key] === (base[key] === undefined ? '' : JSON.parse(base[key]))) continue;
         if (!values[key]) result.delete(key);
-        else result.set(key, values[key]);
+        else result.set(key, JSON.stringify(values[key]));
       }
       for (const key of originalKeys) result.delete(key);
       for (const row of rows) {
         if (!row.name.trim()) throw Error('Give each custom field a name.');
         if (common(row.name) || result.has(row.name)) throw Error('The field “' + row.name + '” already exists.');
-        let value: unknown = row.value;
+        let value = JSON.stringify(row.value);
         if (row.type === 'JSON') {
-          try { value = JSON.parse(row.value); } catch { throw Error('Enter valid JSON for “' + row.name + '”.'); }
+          try { JSON.parse(row.value); value = row.value.trim(); } catch { throw Error('Enter valid JSON for “' + row.name + '”.'); }
         }
         result.set(row.name, value);
       }
-      return JSON.stringify(Object.fromEntries(result));
+      return buildRawProfileDraft(null, Object.fromEntries(result)).content;
   }
   function submit() {
     try {

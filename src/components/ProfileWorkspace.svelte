@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { Event } from 'nostr-tools/pure';
-  import { compareProfileEvents, compareFollowEvents, diffProfileFields, conflictingProfileFields, buildProfileDraft } from '@iris/profile-events';
+  import { compareRawProfileEvents, compareFollowEvents, diffRawProfileFields, conflictingRawProfileFields, buildRawProfileDraft, readRawProfileFields, readProfileFields } from '@iris/profile-events';
   import { editProfileDraft, emptyProfile, readableFields } from '../profile-edit.ts';
   import { paymentConsent } from '../tip-consent.ts';
   import { send } from '../ui.ts';
@@ -23,7 +23,7 @@
   const base = $derived(profile ?? emptyProfile);
   const before = $derived(readableFields(base.content));
   const draft = $derived(review?.kind === 0 ? editProfileDraft(profile, profile, review.content, review.tagsFrom, review.repairFrom) : undefined);
-  const profileWipe = $derived(profiles[1] && before && readableFields(profiles[1].content) && compareProfileEvents(profiles[1], profile).massRemoval);
+  const profileWipe = $derived(profiles[1] && before && readableFields(profiles[1].content) && compareRawProfileEvents(profiles[1], profile).massRemoval);
   const followLoss = $derived(follows[1] && compareFollowEvents(follows[1], follows[0]));
   async function load(remote = false) {
     busy = true; error = '';
@@ -35,10 +35,10 @@
       if (remote) message = 'History refreshed.';
       const nextFields = readableFields(a[0]?.content ?? '{}');
       if (unsaved && old && nextFields) {
-        const edits = diffProfileFields(old, JSON.parse(unsaved));
+        const edits = diffRawProfileFields(old, readRawProfileFields(unsaved));
         if (Object.keys(edits).length) {
-          const conflicts = conflictingProfileFields(old, nextFields, edits);
-          editorSeed = buildProfileDraft(a[0] ?? null, edits).content;
+          const conflicts = conflictingRawProfileFields(old, nextFields, edits);
+          editorSeed = buildRawProfileDraft(a[0] ?? null, edits).content;
           section = 'edit';
           message = conflicts.length ? 'Also changed in another client: ' + conflicts.join(', ') + '. Review your draft against the latest values before publishing.' : 'History refreshed. Your draft edits are kept.';
         }
@@ -52,7 +52,7 @@
     try {
       const candidate = editProfileDraft(profile, profile, content, tagsFrom, repairFrom);
       if (before) {
-        const diff = compareProfileEvents(base, candidate);
+        const diff = compareRawProfileEvents(base, candidate);
         if (!diff.fields.length && JSON.stringify(base.tags) === JSON.stringify(candidate.tags)) {
           message = 'No changes to publish.'; return;
         }
@@ -66,11 +66,12 @@
     busy = true; error = '';
     try {
       if (request.kind === 0 && draft) {
-        const fields = readableFields(draft.content)!;
-        if (['lud16','lud06'].some(key => fields[key] && fields[key] !== before?.[key]) && !await paymentConsent(true))
+        const fields = readProfileFields(draft.content);
+        const previous = readProfileFields((request.repairFrom ? emptyProfile : base).content);
+        if (['lud16','lud06'].some(key => fields[key] && fields[key] !== previous[key]) && !await paymentConsent(true))
           throw Error('Allow payment data to publish a Lightning address.');
         await send('editProfile', { account, baseId: profile?.id ?? null, content: request.content,
-          tagsFrom: request.tagsFrom?.id, repairFrom: request.repairFrom?.id, confirmedRemoval: !!before && compareProfileEvents(base, draft).massRemoval });
+          tagsFrom: request.tagsFrom?.id, repairFrom: request.repairFrom?.id, confirmedRemoval: !!before && compareRawProfileEvents(base, draft).massRemoval });
       } else if (request.kind === 3) {
         await send('recoverFollows', { account, baseId: follows[0].id, fromId: request.saved.id, pubkeys: request.keys });
       }
