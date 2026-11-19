@@ -87,8 +87,8 @@
     for (const source of sources) {
       const value = next[source];
       if (value === undefined) continue;
-      saved[source] = normal(value);
-      typed[source] = value.trim();
+      // Show the username as it is stored, without waiting for the next status refresh.
+      saved[source] = typed[source] = normal(value);
     }
   }
 

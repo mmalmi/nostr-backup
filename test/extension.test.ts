@@ -55,6 +55,8 @@ interface FixtureRelay {
   publishLimit?: string[];
   holdPublish?: Promise<void>;
   holdRead?: Promise<void>;
+  /** A relay that never answers the connection, or refuses it. */
+  connect?: 'hang' | 'refuse';
 }
 const broadcastRelays = new Map<string, FixtureRelay>();
 const wireOpens: string[] = [];
@@ -64,13 +66,18 @@ class Wire extends EventTarget {
   readyState = 1;
   neg?: Reconciliation;
   onopen?: () => void;
+  onerror?: () => void;
   onmessage?: (message: MessageEvent<string>) => void;
   onclose?: (event: { code: number; reason: string }) => void;
   constructor(url: string) {
     super();
     wireOpens.push(new URL(url).href);
     this.destination = broadcastRelays.get(new URL(url).href);
-    queueMicrotask(() => this.onopen?.());
+    if (this.destination?.connect === 'hang') this.readyState = 0;
+    else if (this.destination?.connect === 'refuse') {
+      this.readyState = 3;
+      queueMicrotask(() => this.onerror?.());
+    } else queueMicrotask(() => this.onopen?.());
   }
   async send(frame: string) {
     const [type, id, filter, opening] = JSON.parse(frame);
@@ -1687,6 +1694,37 @@ test('X captures sign locally even while the previous delivery has no reply', as
   assert.equal(badges.get(1)?.path?.[16], 'icon-attention-16.png');
 });
 
+test('a relay that never answers or refuses the connection fails alone', async () => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const [hanging, refused, working] = ['wss://hanging.example/', 'wss://refused.example/', 'wss://working.example/'];
+  fixtureRelay(hanging).connect = 'hang';
+  fixtureRelay(refused).connect = 'refuse';
+  const healthy = fixtureRelay(working);
+  await success('login', { key: nsecEncode(secret) });
+  try {
+    await success('settings', { pubkey: owner, handle: '', capture: false, relaySync: false, relays: [hanging, refused, working].join(' ') });
+    await idle().catch(() => {});
+    const db = await openArchive('nostr-backup-' + owner);
+    const event = finalizeEvent({ kind: 1, created_at: 30, tags: [], content: 'Reaches the working relay' }, secret);
+    await append(db, [{ event }], owner);
+    db.close();
+    await success('broadcast');
+    const relay = async (url: string) => (await success('status')).relays.find((r) => r.url === url)!;
+    // The working relay is not held up by the one still connecting.
+    await until(async () => (await relay(working)).phase === 'finished');
+    assert.deepEqual(healthy.sent.map((e) => e.id), [event.id]);
+    assert.equal((await relay(hanging)).phase, 'connecting');
+    // Each failure stays with its own relay once the connection limit passes.
+    for (let i = 0; i < 100 && (await success('status')).running; i++) await delay(100);
+    const [late, refusing, done] = await Promise.all([hanging, refused, working].map(relay));
+    assert.deepEqual([late.phase, late.detail, late.pending], ['error', 'connection timed out', 1]);
+    assert.deepEqual([refusing.phase, refusing.detail, refusing.pending], ['error', 'connection failed', 1]);
+    assert.deepEqual([done.phase, done.sent, done.pending], ['finished', 1, 0]);
+  } finally {
+    await success('logout', { pubkey: owner });
+  }
+});
+
 test('new X captures reach a relay before its history import finishes', async (t) => {
   t.mock.method(globalThis, 'fetch', (url: URL) =>
     publicTweet(url, 'Post ' + String(url).split('/').pop()));
@@ -3046,6 +3084,74 @@ test('unavailable own quote stays a local draft, and resolves when the original 
       ['q', id, '', owner],
     );
     assert.equal(await db.count('drafts'), 0);
+  } finally {
+    db.close();
+    await success('logout', { pubkey: owner });
+  }
+});
+
+test('X self-replies become Nostr replies to their parents, fetching missing earlier posts of the thread first', async (t) => {
+  const secret = generateSecretKey(),
+    owner = getPublicKey(secret),
+    relayURL = 'wss://self-replies.example/';
+  fixtureRelay(relayURL);
+  const time = 1700000000;
+  const crossposted = 'We moved the whole archive to a new server today, and every old link still works as before.';
+  const posts: Record<string, [text: string, parent?: string]> = {
+    100: ['Thread start'], 101: ['Second', 'alice/100'], 102: ['Third', 'alice/101'],
+    200: ['For Bob', 'bob/50'], 201: ['More for Bob', 'alice/200'],
+    300: ['Parent gone', 'alice/299'], 400: [crossposted, 'alice/100'],
+    500: ['What I told Bob: https://x.com/alice/status/200'],
+  };
+  const reads: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    const url = String(input), [, author, , id] = new URL(url).pathname.split('/');
+    reads.push(id);
+    const [text, parent] = posts[id] ?? [];
+    if (author !== 'alice' || !text) return new Response('', { status: 503 });
+    const [parentAuthor, parentId] = parent?.split('/') ?? [];
+    const response = new Response(publicTweetHTML('alice', id, text, time, [], parent ? {
+      reply_to_results: { rest_id: parentId },
+      reply_to_user_results: { result: { core: { screen_name: parentAuthor } } },
+    } : {}), { headers: { 'content-type': 'text/html' } });
+    Object.defineProperty(response, 'url', { value: url });
+    return response;
+  });
+  await success('login', { key: nsecEncode(secret) });
+  await success('settings', { pubkey: owner, handle: 'alice', capture: true, relaySync: false, relays: relayURL });
+  const db = await openArchive('nostr-backup-' + owner);
+  // The same text was already posted on Nostr, so that X reply is a crosspost, not a new note.
+  const note = finalizeEvent({ kind: 1, created_at: time, tags: [], content: crossposted }, secret);
+  await append(db, [{ event: note }], owner);
+  const event = async (id: string) => (await db.get('events', (await db.get('sources', 'x:' + id))!))!;
+  const named = (e: NostrEvent, ...names: string[]) => e.tags.filter(([name]) => names.includes(name));
+  try {
+    // Only the newest posts of each thread are on screen.
+    const shown = ['102', '201', '300', '400', '500'].map((id) => ({ id, author: 'alice', time, text: posts[id][0] }));
+    await success('capture', { posts: shown }, x);
+    await until(async () => (await db.getKey('sources', 'x:102')) && (await db.getKey('sources', 'x:201')) &&
+      (await db.getKey('sources', 'x:500')));
+    const [head, second, third, comment, followUp] = await Promise.all(['100', '101', '102', '200', '201'].map(event));
+    assert.deepEqual([head, second, third, comment, followUp].map((e) => e.kind), [1, 1, 1, 1111, 1111]);
+    assert.deepEqual(named(head, 'e', 'p'), []);
+    assert.deepEqual(named(second, 'e', 'p'), [['e', head.id, '', 'root', owner], ['p', owner]]);
+    assert.deepEqual(named(third, 'e', 'p'),
+      [['e', head.id, '', 'root', owner], ['e', second.id, '', 'reply', owner], ['p', owner]]);
+    assert.deepEqual(named(followUp, 'I', 'e', 'k'),
+      [['I', 'https://x.com/bob/status/50'], ['e', comment.id, '', owner], ['k', '1111']]);
+    // No reply to your own post points at that post's X address.
+    for (const [reply, parent] of [[second, '100'], [third, '101'], [followUp, '200']] as const)
+      assert.ok(!reply.tags.some(([, value]) => value.endsWith('/status/' + parent)));
+    assert.equal(await db.get('sources', 'x:400'), note.id);
+    // Quoting your own comment on someone else's post links its signed copy.
+    const quote = await event('500');
+    assert.deepEqual(named(quote, 'q'), [['q', comment.id, '', owner]]);
+    const [, quoted] = /nostr:(nevent1\w+)/.exec(quote.content)!;
+    assert.deepEqual(decode(quoted).data, { id: comment.id, author: owner, kind: 1111, relays: [] });
+    // Without its earlier post, a reply waits on this device instead of losing its thread.
+    assert.ok(await db.getKey('drafts', 'x:300'));
+    assert.ok(!(await db.getKey('sources', 'x:300')));
+    assert.equal(reads.filter((id) => id === '100').length, 1);
   } finally {
     db.close();
     await success('logout', { pubkey: owner });

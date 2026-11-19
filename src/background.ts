@@ -46,7 +46,7 @@ import { DEFAULT_MEDIA_MIB, accountFetch, backupMedia } from './media-files.ts';
 import { captureNetwork, captureSites, socialProfile, socialSettings, socialTemplate, canDeliverCapture, validateSocialPost } from './social.ts';
 import { siteIcon, siteState, type PageReport, type TabReport } from './site-status.ts';
 import { instagramPermalink } from './instagram.ts';
-import { applyQuotes, quoteTargets, resolveQuotes, targetKey } from './quotes.ts';
+import { applyQuotes, ownOriginal, quoteTargets, replyTarget, resolveQuotes, targetKey } from './quotes.ts';
 import { readQuoteOriginal, verifySocialCapture } from './quote-originals.ts';
 import { readPublicXOriginal, readPublicXProfile } from './x-audience.ts';
 import { shareableMediaHashes } from './legacy-x.ts';
@@ -142,8 +142,9 @@ async function signDrafts(db: Archive) {
     let committed = 0;
     for (let i = 0; i < pending.length; i += 50) {
       const batch = pending.slice(i, i + 50);
+      // Replies to your own posts can be crossposts too, such as a thread also posted on Nostr.
       const plainX = batch.filter(
-        (post) => !('source' in post) && !post.replyTo && !quoteTargets(post, conf).length,
+        (post) => !('source' in post) && (!post.replyTo || replyTarget(post, conf)) && !quoteTargets(post, conf).length,
       );
       const matches =
         conf.skipCrossposts === false || !plainX.length
@@ -175,7 +176,14 @@ async function signDrafts(db: Archive) {
             committed++;
             continue;
           }
-          const entry = await readyXEntry(db, post, mediaServers(conf), secret, links, conf.pubkey);
+          // A reply to your own post waits for that post's signed copy and then replies to it on Nostr.
+          const reply = replyTarget(post, conf);
+          const parent = reply && (await ownOriginal(db, reply, conf.pubkey));
+          if (reply && !(parent?.kind === 1 || parent?.kind === 1111)) {
+            waiting.push(post);
+            continue;
+          }
+          const entry = await readyXEntry(db, post, mediaServers(conf), secret, links, conf.pubkey, parent);
           if (entry) entries.push(entry);
         }
       }
@@ -215,12 +223,17 @@ async function fetchMissingOriginals(signal: AbortSignal) {
   if (!conf.pubkey || !(await sessionKey())) return;
   const db = await openArchive(conf.archiveName);
   try {
+    // Own posts that drafts quote or reply to. Originals fetched below add theirs, and the loop
+    // visits them too, so a whole thread before the posts on screen arrives in one pass.
     const targets = new Map<string, ReturnType<typeof quoteTargets>[number]>();
+    const add = (post: Capture | SocialCapture) => {
+      for (const q of [...quoteTargets(post, conf), replyTarget(post, conf)]) if (q) targets.set(targetKey(q), q);
+    };
     for (const draft of await db.getAll('drafts')) {
       const account = 'source' in draft ? conf.social?.[draft.source] : conf;
       if (draft.visibility !== 'public' || !account?.capture || account.handle !== draft.author)
         continue;
-      for (const q of quoteTargets(draft, conf)) targets.set(targetKey(q), q);
+      add(draft);
     }
     for (const [key, q] of targets) {
       if (signal.aborted) return;
@@ -270,6 +283,7 @@ async function fetchMissingOriginals(signal: AbortSignal) {
             xTemplate(post, q.handle);
             await stagePosts(db, [post]);
           }
+          add(post);
         }
         await signDrafts(db);
         void kick();

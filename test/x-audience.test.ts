@@ -47,6 +47,35 @@ test('X signing fields come from the anonymous permalink and its author-scoped r
   } finally { await window.happyDOM.abort(); }
 });
 
+test('X replies to your own posts reply to their Nostr copies instead of their X URLs', () => {
+  const secret = generateSecretKey(), owner = getPublicKey(secret);
+  const link = (id: string) => 'https://x.com/alice/status/' + id;
+  const sign = (id: string, replyTo?: { author: string; id: string }, parent?: Parameters<typeof xTemplate>[2]) =>
+    finalizeEvent(xTemplate({ id, author: 'alice', time: 1234, text: 'Post ' + id, ...(replyTo && { replyTo }) }, 'alice', parent), secret);
+  const linkTags = (event: { tags: string[][] }) => event.tags.filter(([name]) => 'eEpPiIkKr'.includes(name));
+  const head = sign('100');
+  const second = sign('101', { author: 'alice', id: '100' }, head);
+  const third = sign('102', { author: 'alice', id: '101' }, second);
+  assert.equal(second.kind, 1);
+  assert.deepEqual(linkTags(second), [['r', link('101')], ['i', link('101')], ['k', 'web'],
+    ['e', head.id, '', 'root', owner], ['p', owner]]);
+  assert.equal(third.kind, 1);
+  assert.deepEqual(linkTags(third), [['r', link('102')], ['i', link('102')], ['k', 'web'],
+    ['e', head.id, '', 'root', owner], ['e', second.id, '', 'reply', owner], ['p', owner]]);
+
+  // A follow-up to your own comment on someone else's post stays in that post's comment thread.
+  const comment = sign('200', { author: 'bob', id: '50' });
+  const followUp = sign('201', { author: 'alice', id: '200' }, comment);
+  assert.equal(followUp.kind, 1111);
+  assert.deepEqual(linkTags(followUp), [['r', link('201')], ['I', 'https://x.com/bob/status/50'], ['K', 'web'],
+    ['e', comment.id, '', owner], ['k', '1111'], ['p', owner]]);
+
+  const reaction = finalizeEvent({ kind: 7, created_at: 1, tags: [], content: '+' }, secret);
+  const reply = { id: '300', author: 'alice', time: 1234, text: 'Reply', replyTo: { author: 'alice', id: '100' } };
+  assert.throws(() => xTemplate(reply, 'alice', reaction), /reply parent/);
+  assert.throws(() => xTemplate({ ...reply, replyTo: { author: 'bob', id: '100' } }, 'alice', head), /reply parent/);
+});
+
 test('X media and photo-only posts use only the attachments belonging to the public original', async () => {
   const photo = 'https://pbs.twimg.com/media/photo.jpg';
   for (const caption of ['', 'Caption']) {

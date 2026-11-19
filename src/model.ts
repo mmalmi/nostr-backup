@@ -99,7 +99,11 @@ export function isOwnEvent(event: Event, pubkey: string): event is VerifiedEvent
   }
 }
 
-export function xTemplate(post: Capture, handle: string) {
+/**
+ * The Nostr event for an X post. A reply to the account's own post passes that post's signed copy as `parent`,
+ * so it replies to the Nostr copy instead of commenting on an X address.
+ */
+export function xTemplate(post: Capture, handle: string, parent?: Event) {
   if (
     !handlePattern.test(handle) ||
     post.author !== handle ||
@@ -118,17 +122,33 @@ export function xTemplate(post: Capture, handle: string) {
   )
     throw Error('Invalid X post.');
   const url = 'https://x.com/' + handle + '/status/' + post.id;
-  const parent = post.replyTo;
-  if (parent && (!handlePattern.test(parent.author) || !/^\d{1,20}$/.test(parent.id) || parent.id === post.id))
+  const reply = post.replyTo;
+  if (reply && (!handlePattern.test(reply.author) || !/^\d{1,20}$/.test(reply.id) || reply.id === post.id))
     throw Error('Invalid X reply parent.');
-  const scope = parent ? 'https://x.com/' + parent.author + '/status/' + parent.id : url;
-  const tags = [['r', url], ...(parent ? [['I', scope], ['K', 'web']] : []),
-    ['i', scope], ['k', 'web'], ['client', 'Social Backup']];
+  if (parent && (reply?.author !== handle || ![1, 1111].includes(parent.kind)))
+    throw Error('Invalid X reply parent.');
+  let kind = 1, tags: string[][];
+  if (parent?.kind === 1) {
+    // NIP-10: the thread's root, and the post replied to when that is not the root.
+    const root = parent.tags.find(([name, , , marker]) => name === 'e' && marker === 'root');
+    tags = [['r', url], ['i', url], ['k', 'web'], root ? [...root] : ['e', parent.id, '', 'root', parent.pubkey],
+      ...(root ? [['e', parent.id, '', 'reply', parent.pubkey]] : []), ['p', parent.pubkey]];
+  } else if (parent) {
+    // NIP-22: a comment on a comment keeps the root scope and names the comment as its parent.
+    kind = 1111;
+    tags = [['r', url], ...parent.tags.filter(([name]) => /^[A-Z]$/.test(name)),
+      ['e', parent.id, '', parent.pubkey], ['k', '1111'], ['p', parent.pubkey]];
+  } else if (reply) {
+    kind = 1111;
+    const scope = 'https://x.com/' + reply.author + '/status/' + reply.id;
+    tags = [['r', url], ['I', scope], ['K', 'web'], ['i', scope], ['k', 'web']];
+  } else tags = [['r', url], ['i', url], ['k', 'web']];
+  tags.push(['client', 'Social Backup']);
   // Modern X IDs encode milliseconds above their low 22 worker/sequence bits.
   // Cross-check with the independent DOM date before using that precision.
   const idMillis = Number((BigInt(post.id) >> 22n) + 1288834974657n);
   const ms = post.timeMs ?? idMillis;
   if (Number.isSafeInteger(ms) && Math.floor(ms / 1000) === post.time)
     tags.push(['ms', String(ms)]);
-  return { kind: parent ? 1111 : 1, created_at: post.time, content: post.text, tags };
+  return { kind, created_at: post.time, content: post.text, tags };
 }

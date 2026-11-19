@@ -1,6 +1,6 @@
 import { publicMediaURL } from './media-refs.ts';
-import { applyQuotes } from './quotes.ts';
-import { finalizeEvent } from 'nostr-tools/pure';
+import { applyQuotes, type QuoteLink } from './quotes.ts';
+import { finalizeEvent, type Event } from 'nostr-tools/pure';
 import type { Archive, Capture, Entry } from './types.ts';
 import { errorMessage } from './types.ts';
 import { xTemplate } from './model.ts';
@@ -34,10 +34,11 @@ export async function readyXEntry(
   post: Capture,
   servers: string[],
   secret: Uint8Array,
-  links: Map<string,string>,
+  links: Map<string, QuoteLink>,
   owner: string,
+  parent?: Event,
 ): Promise<Entry | undefined> {
-  const event = xTemplate(post, post.author);
+  const event = xTemplate(post, post.author, parent);
   const urls = new Map<string, string>();
   for (const source of xImageURLs(post.text)) {
     const saved = await db.get('xMedia', source);

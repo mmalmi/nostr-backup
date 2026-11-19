@@ -60,19 +60,35 @@ export function quoteTargets(post: Capture | SocialCapture, conf: Settings): Quo
 
 export const targetKey = (target: QuoteTarget) => target.network + ':' + target.id;
 
+/** The account's own X post that this X post replies to. */
+export function replyTarget(post: Capture | SocialCapture, conf: Settings): QuoteTarget | undefined {
+  const parent = 'source' in post ? undefined : post.replyTo;
+  if (!parent || !conf.handle || parent.author !== conf.handle) return;
+  const url = 'https://x.com/' + parent.author + '/status/' + parent.id;
+  return { network: 'x', handle: parent.author, id: parent.id, url, link: url, attributed: true };
+}
+
+/** The signed copy of one of the account's own posts, unless it is held back from relays. */
+export async function ownOriginal(db: Archive, target: QuoteTarget, owner: string) {
+  const id = await db.get('sources', targetKey(target));
+  if (!id || (await db.getKey('heldEvents', id))) return;
+  const original = await db.get('events', id);
+  return original?.pubkey === owner ? original : undefined;
+}
+
+/** A quoted post's signed copy: a note, or a comment such as your reply to another account. */
+export type QuoteLink = { id: string; kind: number };
+
 // A missing author-qualified original keeps its quoting draft in the archive.
 // For unscoped Instagram links, wait for an independent byline check.
 export async function resolveQuotes(db: Archive, targets: QuoteTarget[], conf: Settings) {
-  const links = new Map<string, string>();
+  const links = new Map<string, QuoteLink>();
   for (const target of targets) {
     const key = targetKey(target);
-    const id = await db.get('sources', key);
-    if (id && !(await db.getKey('heldEvents', id))) {
-      const original = await db.get('events', id);
-      if (original?.pubkey === conf.pubkey && original.kind === 1) {
-        links.set(target.link, id);
-        continue;
-      }
+    const original = await ownOriginal(db, target, conf.pubkey);
+    if (original?.kind === 1 || original?.kind === 1111) {
+      links.set(target.link, { id: original.id, kind: original.kind });
+      continue;
     }
     if (!(target.network === 'x' ? conf.capture : conf.social?.[target.network]?.capture)) {
       // Keep a known self-quote pending until its source account can be captured.
@@ -91,18 +107,15 @@ export async function resolveQuotes(db: Archive, targets: QuoteTarget[], conf: S
   return links;
 }
 
-export function applyQuotes(template: EventTemplate, links: Map<string, string>, owner: string) {
+export function applyQuotes(template: EventTemplate, links: Map<string, QuoteLink>, owner: string) {
   if (!links.size) return template;
   const content = template.content.replace(postLinks, (token) => {
     const link = trimLink(token);
-    const id = links.get(link);
-    return id
-      ? 'nostr:' + neventEncode({ id, author: owner, kind: 1 }) + token.slice(link.length)
+    const quoted = links.get(link);
+    return quoted
+      ? 'nostr:' + neventEncode({ id: quoted.id, author: owner, kind: quoted.kind }) + token.slice(link.length)
       : token;
   });
-  return {
-    ...template,
-    content,
-    tags: [...template.tags, ...Array.from(new Set(links.values()), (id) => ['q', id, '', owner])],
-  };
+  const ids = new Set(Array.from(links.values(), (quoted) => quoted.id));
+  return { ...template, content, tags: [...template.tags, ...Array.from(ids, (id) => ['q', id, '', owner])] };
 }
