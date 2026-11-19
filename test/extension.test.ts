@@ -29,6 +29,7 @@ import { svelte } from '../scripts/svelte.ts';
 import { Window } from 'happy-dom';
 import { publicProfileHTML, publicTweetHTML } from './fixtures.ts';
 import { DEFAULT_RELAYS } from '../src/default-relays.ts';
+import { syncedAt } from '../src/relay-summary.ts';
 import { DEFAULT_BLOSSOM_SERVER } from '../src/media-refs.ts';
 import { createHash } from 'node:crypto';
 
@@ -365,7 +366,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
   assert.equal((await success('status')).unlocked, false);
   assert.deepEqual((await success('status')).conf.relays, DEFAULT_RELAYS);
   assert.equal((await success('status')).conf.relaySync, true);
-  assert.equal(id('relaySummary').textContent, `Relays (${DEFAULT_RELAYS.length})`);
+  assert.equal(id('relaySummary').textContent, `Choose relays (${DEFAULT_RELAYS.length} selected)`);
   assert.equal(page.document.querySelector('nav a[href="#settings"]'), null);
   const irisProfile = 'https://iris.to/' + npubEncode(owner);
   assert.equal(id('signedInProfile').getAttribute('href'), irisProfile);
@@ -387,7 +388,7 @@ test('the toolbar opens welcome when signed out and shows the backup popup for a
     async () => (await success('status')).conf.relays.length === DEFAULT_RELAYS.length - 1,
   );
   await until(() => id('notice').textContent === 'Saved.');
-  assert.equal(id('relaySummary').textContent, `Relays (${DEFAULT_RELAYS.length - 1})`);
+  assert.equal(id('relaySummary').textContent, `Choose relays (${DEFAULT_RELAYS.length - 1} selected)`);
   id('customRelay').value = 'custom.example';
   id('addRelay').click();
   await until(async () =>
@@ -1009,7 +1010,7 @@ test('archive button reconciles each relay, falls back and retries with capture 
   const button = pageElements(page)('broadcast');
   await until(() => !button.disabled);
   button.click();
-  await until(() => pageElements(page)('notice').textContent === 'Posts queued for sharing.');
+  await until(() => pageElements(page)('notice').textContent === 'Posts queued for sending.');
   await idle();
   assert.deepEqual(
     neg.sent.map((e) => e.id).sort(),
@@ -1095,7 +1096,7 @@ test('two-way sync restores an empty archive, reconciles both sides and retries 
   const page = await archivePage(t);
   const button = pageElements(page)('broadcast');
   await until(() => !button.disabled);
-  assert.equal(button.textContent, 'Share and check for posts');
+  assert.equal(button.textContent, 'Resend posts');
   button.click();
   await until(() =>
     pageElements(page)('notice').textContent.includes('Checking saved relays'),
@@ -2425,7 +2426,7 @@ test('relay rows show live connections and acknowledgements while another relay 
   assert.equal(complete.pending, 0);
   assert.equal(healthy.sent.length, 2);
   const page = await archivePage(t);
-  await until(() => pageElements(page)('reports').textContent.includes('Sharing'));
+  await until(() => pageElements(page)('reports').textContent.includes('Sending posts'));
   assert.equal(page.document.querySelectorAll('.relayRow').length, 2);
   assert.match(pageElements(page)('reports').textContent, /Connected/);
   assert.match(pageElements(page)('reports').textContent, /0 sent · 2 queued/);
@@ -2598,7 +2599,7 @@ test('daily polling stays disconnected between checks and reports only successfu
     assert.equal((await status()).lastSyncedAt, now);
     const page = await archivePage(t);
     await until(() =>
-      pageElements(page)('lastSynced').textContent.includes(new Date(now).toLocaleString()),
+      pageElements(page)('lastSynced').textContent.includes(syncedAt(now)),
     );
     await success('settings', { ...conf, relaySync: false });
     await idle();

@@ -138,15 +138,18 @@ header {
 .relayRows {
   list-style: none;
   padding: 0;
-  margin: 14px 0 0;
+  margin: 14px 0;
 }
 .relayRow {
   display: grid;
   grid-template-columns: 1fr 1.2fr 1fr;
   gap: 16px;
-  padding: 12px 0;
+  padding: 10px 0;
   border-top: 1px solid var(--line);
   font-size: 0.86rem;
+}
+.relayRow:last-child {
+  border-bottom: 1px solid var(--line);
 }
 .relayRow > div {
   min-width: 0;
@@ -155,24 +158,36 @@ header {
   gap: 2px;
   overflow-wrap: anywhere;
 }
-.relayRow small,
-.relayConnection {
+.relayRow small {
   color: var(--muted);
 }
-.relayConnection::before {
+/* A dot before the relay name tells its state at a glance. */
+.relayRow > div:first-child strong::before,
+.onlineState #onlineState::before {
   content: '';
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
   border-radius: 50%;
+  vertical-align: 0.05em;
   background: var(--muted);
 }
-.relayConnection.connected::before {
+.relayRow.ok > div:first-child strong::before,
+.onlineState.ok #onlineState::before {
   background: var(--ok);
 }
-.relayConnection.connecting::before {
+.relayRow.busy > div:first-child strong::before,
+.onlineState.busy #onlineState::before {
   background: var(--wait);
+}
+.relayRow.warn > div:first-child strong::before,
+.onlineState.warn #onlineState::before {
+  background: var(--danger);
+}
+.relayRow.warn .relayState {
+  color: var(--danger);
+  font-weight: 600;
 }
 .relayCounts progress {
   width: 100%;
@@ -182,12 +197,52 @@ header {
 @media (max-width: 650px) {
   .relayRow {
     grid-template-columns: 1fr 1fr;
-    gap: 8px 16px;
+    gap: 4px 16px;
   }
-  .relayRow > div:nth-child(2) {
+  .relayRow > div:nth-child(3) {
     grid-column: 1 / -1;
-    grid-row: 2;
   }
+}
+.backupCount {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 4px;
+  color: var(--muted);
+}
+.backupCount strong {
+  color: var(--ink);
+  font-size: 2.1rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.onlineState {
+  margin: 16px 0 18px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--field);
+  border: 1px solid var(--line);
+}
+.onlineState.warn {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  background: color-mix(in srgb, var(--danger) 6%, var(--field));
+}
+.onlineState p {
+  margin: 0;
+}
+.onlineState #onlineState {
+  color: var(--ink);
+  font-weight: 600;
+}
+.onlineState #relayProblem {
+  margin-top: 4px;
+  padding-left: 16px;
+}
+.onlineState .hint {
+  margin-top: 4px;
+  padding-left: 16px;
+  font-size: 0.84rem;
 }
 h1 {
   font-size: 1.6rem;
@@ -357,7 +412,6 @@ pre {
   border-radius: 8px;
   box-shadow: 0 6px 20px #0003;
 }
-#activity:empty,
 ul:empty {
   display: none;
 }
@@ -782,7 +836,7 @@ ul:empty {
 }
 #relaySelector,
 #kindSelector {
-  margin-bottom: 6px;
+  margin: 12px 0 6px;
 }
 #relayChoices {
   display: grid;
@@ -798,12 +852,23 @@ ul:empty {
   width: auto;
   margin: 0;
 }
-#lastSynced {
-  font-size: 0.86rem;
-}
 #deleteConfirm {
   border-top: 1px solid var(--line);
   margin-top: 14px;
+}
+.confirmBox {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--card));
+}
+.confirmBox h4 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+.confirmBox p {
+  margin: 0 0 12px;
 }
 .archive .danger {
   background: var(--danger);

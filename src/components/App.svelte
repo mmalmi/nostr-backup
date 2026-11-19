@@ -62,7 +62,8 @@
     }
   }
 
-  async function save(quiet = false) {
+  /** Saves every setting. `wait: false` returns once saved and refreshes the status in the background. */
+  async function save(quiet = false, wait = true) {
     try {
       await send('settings', {
         pubkey,
@@ -78,15 +79,18 @@
       notice(errorMessage(error));
       throw error;
     }
-    await refresh(true);
+    const refreshed = refresh(true);
+    if (!wait) return void refreshed.catch((e) => notice(errorMessage(e)));
+    await refreshed;
     if (!quiet) notice('Saved.');
   }
 
   // The setup step saves usernames through the Sources settings, so validation is shared.
+  // The next step shows at once; the status catches up while a first sync may be running.
   async function saveUsernames(usernames: { x: string; instagram: string; facebook: string }) {
     sources.useUsernames(usernames);
     try {
-      await save(true);
+      await save(true, false);
     } catch (error) {
       await refresh(true);
       throw error;
@@ -134,12 +138,12 @@
     {/each}
   </nav>
   <div class="panels">
-    <div data-panel="archive" hidden={page.section !== 'archive'}><Backup {save} /></div>
+    <div data-panel="archive" hidden={page.section !== 'archive'}><Backup /></div>
     <div data-panel="sources" hidden={page.section !== 'sources'}>
       <Sources bind:this={sources} {save} activeAccount={page.section === 'sources' && !page.setup ? status?.conf.pubkey : undefined} />
     </div>
     <div data-panel="media" hidden={page.section !== 'media'}><Media {save} /></div>
-    <div data-panel="storage" hidden={page.section !== 'storage'}><Storage /></div>
+    <div data-panel="storage" hidden={page.section !== 'storage'}><Storage {save} /></div>
     {#if page.section === 'profile' && status?.conf.pubkey}
       <div data-panel="profile">{#key status.conf.pubkey}<ProfileWorkspace account={status.conf.pubkey} unlocked={status.unlocked} />{/key}</div>
     {/if}

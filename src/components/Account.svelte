@@ -61,6 +61,9 @@
     notice(message);
   }
 
+  // A confirmation takes focus so it is seen, and Enter or Space does not confirm by accident.
+  const focusOnMount = (node: HTMLElement) => node.focus();
+
   async function run(action: () => Promise<unknown>) {
     try {
       await action();
@@ -165,13 +168,32 @@
     >
   </div>
   {#if confirmingLogout}
-    <div role="group" aria-labelledby="logoutQuestion">
-      <p id="logoutQuestion">Log out of this profile? Your archive will stay on this device.</p>
-      {#if unlocked}<p class="hint">Save your secret key before logging out so you can sign back in.</p>{/if}
+    <div
+      class="confirmBox"
+      role="alertdialog"
+      aria-labelledby="logoutQuestion"
+      aria-describedby="logoutDetail"
+      tabindex="-1"
+      onkeydown={(e) => e.key === 'Escape' && (confirmingLogout = undefined)}
+    >
+      <h4 id="logoutQuestion">Log out of this profile?</h4>
+      <p id="logoutDetail">
+        Your archive stays on this device.{unlocked ? ' You need your secret key to sign back in, so save it first.' : ''}
+      </p>
       <div class="actions">
-        <button id="cancelLogout" class="secondary" onclick={() => (confirmingLogout = undefined)}>Cancel</button>
+        {#if unlocked}
+          <button
+            class="secondary"
+            onclick={() => run(async () => copy(await send('exportPrivateKey', { account: pubkey }), 'Secret key copied.'))}
+            >Copy secret key</button
+          >
+        {/if}
+        <button id="cancelLogout" class="secondary" use:focusOnMount onclick={() => (confirmingLogout = undefined)}
+          >Cancel</button
+        >
         <button
           id="confirmLogout"
+          class="danger"
           onclick={() =>
             run(async () => {
               if (!confirmingLogout || confirmingLogout !== pubkey) return;

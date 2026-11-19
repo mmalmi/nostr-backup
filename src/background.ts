@@ -79,6 +79,7 @@ import { accountRecord, writeAccountRecords } from './account-storage.ts';
 import { revokeSession, revokeWebsite, handleSignerRequest, approval } from './signer.ts';
 
 import { savedKey as sessionKey, saveKey, permissions } from './signer-storage.ts';
+import { writeQueue } from './write-queue.ts';
 
 const api = globalThis.browser ?? chrome;
 let changing = false,
@@ -106,9 +107,9 @@ function recover() {
     }));
 }
 // Tree writes, draft drains and changes to identity configuration use one queue.
-// Network waits never hold this queue.
-let writer = Promise.resolve(),
-  running: Promise<void> | undefined,
+// Network waits never hold this queue. Settings the user saves go before queued relay imports.
+const writes = writeQueue();
+let running: Promise<void> | undefined,
   rerun = false,
   syncRequested = false;
 let relayOwner = '';
@@ -120,14 +121,9 @@ const idleRelay = (): RelayProgress => ({
   present: 0,
   failed: 0,
 });
-function write<T>(fn: () => T | Promise<T>): Promise<T> {
+function write<T>(fn: () => T | Promise<T>, urgent = false): Promise<T> {
   if (changing) return Promise.reject(Error('The active profile is changing. Try again.'));
-  const result = writer.then(fn);
-  writer = result.then(
-    () => {},
-    () => {},
-  );
-  return result;
+  return writes.write(fn, urgent);
 }
 async function signDrafts(db: Archive) {
   const conf = await settings(),
@@ -936,7 +932,7 @@ async function leave(msg: Message<'logout' | 'deleteAccount'>) {
   if (changing) throw Error('The active profile is changing. Try again.');
   changing = true;
   try {
-    await writer;
+    await writes.idle();
     const conf = await settings();
     if (!conf.pubkey || msg.pubkey !== conf.pubkey)
       throw Error('The active profile changed. Reopen Keys & access.');
@@ -1128,7 +1124,7 @@ async function route(msg: Message, sender: Sender): Promise<Result<Action>> {
     await walletJob(conf.pubkey, () => write(async () => {
       await configure(msg);
       if (msg.tipButtons === false) revokeQuickTips(conf.pubkey);
-    }));
+    }, true));
     void kick();
     return;
   }

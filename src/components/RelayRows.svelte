@@ -1,25 +1,14 @@
 <script lang="ts">
-  import type { RelayProgress, RelayStatus } from '../types.ts';
+  import type { RelayStatus } from '../types.ts';
+  import { relayHost, relayState, relayTone, syncedAt } from '../relay-summary.ts';
 
   let { relays }: { relays: RelayStatus[] } = $props();
 
-  const phases: Record<RelayProgress['phase'], string> = {
-    queued: 'Queued',
-    connecting: 'Connecting',
-    importing: 'Importing',
-    broadcasting: 'Sharing',
-    index: 'Sharing backup link',
-    finished: 'Finished',
-    partial: 'More to sync',
-    idle: 'Idle',
-    retry: 'Retry pending',
-    error: 'Failed',
-  };
-  const connection = { connected: 'Connected', connecting: 'Connecting…', disconnected: 'Disconnected' };
-  const host = (url: string) => new URL(url).host;
+  // Relays close their connections after each sync, so only a live connection is worth showing.
+  const connection = { connected: 'Connected', connecting: 'Connecting…', disconnected: '' };
   const detail = (relay: RelayStatus) =>
     relay.retryAt
-      ? 'Retry after ' + new Date(relay.retryAt).toLocaleTimeString()
+      ? 'Retry after ' + new Date(relay.retryAt).toLocaleTimeString([], { timeStyle: 'short' })
       : relay.detail && ['retry', 'error', 'partial'].includes(relay.phase)
         ? relay.detail
         : '';
@@ -28,26 +17,28 @@
 <ul id="reports" class="relayRows" aria-label="Relay status">
   {#each relays as relay (relay.url)}
     {@const total = relay.sent + relay.present + relay.pending}
-    <li class="relayRow">
+    <li class="relayRow {relayTone(relay)}">
       <div>
-        <strong title={relay.url}>{host(relay.url)}</strong>
-        <span class="relayConnection {relay.connection}">{connection[relay.connection]}</span>
-        {#if relay.lastSyncedAt}<small>Last synced {new Date(relay.lastSyncedAt).toLocaleString()}</small>{/if}
+        <strong title={relay.url}>{relayHost(relay.url)}</strong>
+        {#if connection[relay.connection]}<small class="relayConnection">{connection[relay.connection]}</small>{/if}
       </div>
       <div>
-        <strong>{phases[relay.phase]}</strong>
+        <span class="relayState">{relayState(relay)}</span>
         {#if detail(relay)}<small>{detail(relay)}</small>{/if}
+        {#if relay.lastSyncedAt}<small>Synced {syncedAt(relay.lastSyncedAt)}</small>{/if}
       </div>
       <div class="relayCounts">
-        <span>{relay.imported.toLocaleString()} imported</span>
-        <span>{relay.sent.toLocaleString()} sent · {relay.pending.toLocaleString()} queued</span>
-        {#if relay.present}<small>{relay.present.toLocaleString()} already on relay</small>{/if}
+        {#if relay.imported}<small>{relay.imported.toLocaleString()} downloaded</small>{/if}
         {#if total}
-          <progress
-            max={total}
-            value={relay.sent + relay.present}
-            aria-label={'Broadcast progress for ' + host(relay.url)}
-          ></progress>
+          <small>{relay.sent.toLocaleString()} sent · {relay.pending.toLocaleString()} queued</small>
+          {#if relay.present}<small>{relay.present.toLocaleString()} already on relay</small>{/if}
+          {#if relay.pending || relay.phase === 'broadcasting'}
+            <progress
+              max={total}
+              value={relay.sent + relay.present}
+              aria-label={'Sending progress for ' + relayHost(relay.url)}
+            ></progress>
+          {/if}
         {/if}
       </div>
     </li>

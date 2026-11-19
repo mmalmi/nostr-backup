@@ -2,6 +2,10 @@
   import { openArchive } from '../archive.ts';
   import { storageStats, type KindStats } from '../storage-stats.ts';
   import { page } from './page.svelte.ts';
+  import Relays from './Relays.svelte';
+
+  // Saves the settings form for relay choices. The page shows errors.
+  let { save }: { save: () => Promise<void> } = $props();
 
   type Stats = Awaited<ReturnType<typeof storageStats>>;
   const size = (n: number) =>
@@ -75,10 +79,11 @@
 </script>
 
 <h2>Storage</h2>
+<Relays {save} />
 <p id="storageState" role="status">{message}</p>
 <div id="storageDetails" hidden={!stats}>
   <section>
-    <h3>Local archive</h3>
+    <h3>On this device</h3>
     <dl id="storageTotals">
       {#each totals as [label, value] (label)}<dt>{label}</dt><dd>{value}</dd>{/each}
     </dl>

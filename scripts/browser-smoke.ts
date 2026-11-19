@@ -215,7 +215,7 @@ try {
     console.error(
       'Archive state:',
       await js(
-        "return Object.fromEntries(['events','drafts','pending','notice','activity','reports','xCaptured','localXCount'].map(id=>[id,document.getElementById(id)?.textContent]))",
+        "return Object.fromEntries(['events','drafts','onlineState','relayProblem','notice','reports','xCaptured','localXCount'].map(id=>[id,document.getElementById(id)?.textContent]))",
       ),
     );
     throw error;
@@ -225,7 +225,7 @@ try {
   await waitFor(
     () =>
       js(
-        "return document.querySelector('#events')?.textContent==='2' && document.querySelector('#pending')?.textContent==='0'",
+        "return document.querySelector('#events')?.textContent==='2' && !!document.querySelector('#onlineState')?.textContent.includes('up to date')",
       ),
     'two archived events and acknowledged delivery',
   );
